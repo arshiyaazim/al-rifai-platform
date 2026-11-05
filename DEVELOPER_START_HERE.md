@@ -32,7 +32,7 @@
 | Admin reset | `scripts/standalone/reset-password.mjs` |
 | Env check | `scripts/check-env.mjs` |
 
-**Source-tree caveat:** Git checkout and deployment source are two different host paths. Before any edit/build, determine which is canonical, synchronize changes deliberately, and do not silently edit only one tree. Never commit or overwrite the actual `.env`.
+**Canonical source rule:** `/opt/al-rifai-platform` is the canonical Git source. Make every source-code and documentation change there first, commit it, and push `main`. The deployment source `/opt/vps/al-rifai-standalone/apps/al-rifai` is synchronized **from a known Git commit**, never edited silently, and never given an independent development history. Synchronize before any production build, and never overwrite the deployment `.env` or other runtime secrets during synchronization.
 
 ## 2. Architecture and data flow
 
@@ -170,7 +170,7 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 
 ## 9. Fast build, deploy and essential checks
 
-Use the actual checkout and `.env` locations verified on the host; they may differ.
+Work in the canonical checkout `/opt/al-rifai-platform`, commit and push `main`, then synchronize the deployment source `/opt/vps/al-rifai-standalone/apps/al-rifai` from that commit. The live `.env` stays only in the deployment source and is never committed, copied into Git, or overwritten by synchronization.
 
 ```bash
 cd /opt/al-rifai-platform
@@ -196,7 +196,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 
 | Priority | Work | Acceptance |
 |---|---|---|
-| 1 | Confirm GitHub push and local deployment checkout remain aligned | `origin/main` and local HEAD match after this docs commit |
+| 1 | Keep GitHub `main`, the canonical checkout and the deployment source aligned | `origin/main` = local HEAD, and the deployment source matches the committed documentation/source |
 | 2 | Observe WA-02 new incoming/outgoing message | New source row reaches PostgreSQL once, checkpoint advances, no error |
 | 3 | Confirm direct/group and outgoing coverage on both accounts | Real observed examples; no silent skips |
 | 4 | New-media bytes capture (not historical recovery) | New photo/audio/video/document bytes persist with source/message linkage |
