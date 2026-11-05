@@ -1,0 +1,1 @@
+export function clampPopup(p:{x:number;y:number},size:{width:number;height:number},viewport:{width:number;height:number}){return {x:Math.max(8,Math.min(p.x,viewport.width-size.width-8)),y:Math.max(8,Math.min(p.y,viewport.height-size.height-70))};}

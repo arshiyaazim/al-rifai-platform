@@ -1,0 +1,100 @@
+{
+  "version": "identity-review-offline-qualification-v1",
+  "qualifiedAtUtc": "2026-10-11T20:17:26.607791+00:00",
+  "coreRevision": "1838619b644dc83f4ca723d3442d94435e6050f1",
+  "activation": false,
+  "suites": {
+    "identityAuthRoutingApiMcp": {
+      "tests": 55,
+      "pass": 55,
+      "fail": 0,
+      "skipped": 0
+    },
+    "disposablePostgres": {
+      "tests": 10,
+      "pass": 10,
+      "fail": 0,
+      "skipped": 0
+    },
+    "reactRendering": {
+      "tests": 3,
+      "pass": 3,
+      "fail": 0,
+      "skipped": 0
+    },
+    "existingEscortCandidate": {
+      "tests": 25,
+      "pass": 25,
+      "fail": 0,
+      "skipped": 0
+    },
+    "existingEscortRegressions": {
+      "tests": 29,
+      "pass": 29,
+      "fail": 0,
+      "skipped": 0
+    },
+    "original21": {
+      "pass": 17,
+      "fail": 4
+    },
+    "compatibleCoreEscort": {
+      "pass": 37,
+      "fail": 0
+    },
+    "coreBengaliPhone": {
+      "pass": 9,
+      "fail": 0
+    }
+  },
+  "checks": {
+    "typescript": "PASS",
+    "targetedLintErrors": 0,
+    "targetedLintWarnings": 0,
+    "isolatedNextPreviewBuild": "PASS",
+    "existingAppTestRunnersPassed": 3,
+    "pythonRunnerSyntax": "PASS",
+    "productionBoundaryComparison": "PASS"
+  },
+  "buildAttempts": [
+    {
+      "memory": "768 MiB",
+      "result": "FAIL",
+      "reason": "TypeScript worker heap exhausted"
+    },
+    {
+      "memory": "2 GiB",
+      "result": "PASS",
+      "productionInterference": false
+    }
+  ],
+  "limits": [
+    "Staff, approval verifier, grants and alias/group approvals are explicitly synthetic test controls",
+    "Real native MCP transport and positive-content resource limits unqualified",
+    "Full browser/HTTPS host integration unqualified; SSR and isolated compile only",
+    "No operational writer, production migration, media acquisition, provider execution, live sending, posting or activation",
+    "Pure Core subset is AST-isolated; DB-dependent handlers not run",
+    "Prior Core explicit-memory defect not rerun; local conflict adapter regression passes",
+    "Temporary evidence retention is not a backup guarantee"
+  ],
+  "privateEvidenceDirectory": "/tmp/alrifai-identity-review-20261012",
+  "reportSha256": {
+    "unit-qualified.tap": "e4b5642dde5d7c478751ecf4f7e18993f8f89777dcaed474ded853be8231913c",
+    "postgres.tap": "82b1837b563ca6bc9b5afbbb67a824b84b96ea5d20309b7c290a8017a9be8c54",
+    "ui.tap": "0480a14cd6b37a9240f18bf9f245be19b266f9fa78309e9642ede4acce90e768",
+    "escort-baseline.tap": "87bb498a9902cd76a456ebcdcba8d2b7b2dbeb725699d947358ccd25cc892f2b",
+    "escort-regressions.tap": "520d2106207274c02a9786441dbdb51ad3d56201d6458cc9ee4862770b8e298e",
+    "original-21-results.json": "0d61f9311df7c20105c17aaeb851ca31702a8eff37c3bf59d60c07b566bfc9fc",
+    "core-compatible-results.json": "e762ff7c62d515b048dbc6813ed4013e62ada314070f18726e28bd97c95ce5d3",
+    "core-phone-results.json": "eb372a31a049430486eb86a501d7d9ebd227aa4729a1c22793ad11d6ff6c8119",
+    "typecheck.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "lint-qualified.json": "68050b7759a0737115b0190a3bc18225e3e82bb0a69e3de009f1506192e935a8",
+    "build.log": "330efa0e5a9e5d5a5865c514e18ff33986f1f2e1d66003081aa4a23df80c5b8c",
+    "build-memory-limit-attempt.log": "15f0f1721db4cdc60dd71099b3d70d6f31d949774b1c2095cdd727a174b63bef",
+    "existing-workflows.log": "d6801309f75b85c995c2c2b99ee911b94dcc8b330cbc18cc8dfc3f17ecd8dabb",
+    "existing-register.log": "2c6a25b84da67a30df88eb6d498bdc692f1ada03ad1e7ce0e6e73fb0f6cc1527",
+    "existing-phase1.log": "fb974b53aa4b78dd3fa480513a2053d6a2900eca339a584b60d134626f945b96",
+    "start.json": "9e1a17c5616629486f893326b9d691b29723bacd5aecb819ac719891e4ddb3b5",
+    "boundary-before-handoff.json": "9e108035072896a208ce36c141ed1cc16cad2ebf8135e8acede26a2376a98f16"
+  }
+}

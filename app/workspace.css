@@ -1,0 +1,437 @@
+/* Workspace design system — shared by every authenticated platform page.
+   Visual language mirrors the public site: deep marine ink, warm accent,
+   generous spacing, tabular figures and touch-friendly controls. */
+
+:root {
+  --wx-ink: #0d2333;
+  --wx-ink-soft: #4b6478;
+  --wx-line: #dbe4ec;
+  --wx-line-strong: #c3d2df;
+  --wx-surface: #ffffff;
+  --wx-canvas: #f4f7fa;
+  --wx-brand: #0f4c63;
+  --wx-brand-soft: #e7f0f4;
+  --wx-accent: #b8902f;
+  --wx-ok: #1c6f52;
+  --wx-ok-soft: #e6f4ee;
+  --wx-warn: #8a5a12;
+  --wx-warn-soft: #fdf3e0;
+  --wx-danger: #a1362c;
+  --wx-danger-soft: #fceceb;
+  --wx-radius: 12px;
+  --wx-shadow: 0 1px 2px rgba(13, 35, 51, .05), 0 10px 24px -18px rgba(13, 35, 51, .35);
+}
+
+/* ---------- page scaffold ---------- */
+.wx-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+  /* Page-level clipping: any over-wide child is contained here while inner
+     table wrappers keep their own horizontal scroll. */
+  overflow-x: clip;
+}
+
+.wx-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--wx-line);
+}
+.wx-header-main { min-width: 0; flex: 1 1 22rem; display: flex; flex-direction: column; gap: .35rem; }
+.wx-eyebrow {
+  font-size: .68rem;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--wx-brand);
+}
+.wx-title {
+  font-size: clamp(1.25rem, 2.2vw, 1.6rem);
+  line-height: 1.25;
+  font-weight: 650;
+  letter-spacing: -.015em;
+  margin: 0;
+  color: var(--wx-ink);
+}
+.wx-subtitle { margin: 0; color: var(--wx-ink-soft); font-size: .92rem; line-height: 1.55; max-width: 75ch; }
+.wx-header-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.wx-meta { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+
+/* ---------- surfaces ---------- */
+.wx-card {
+  min-width: 0;
+  background: var(--wx-surface);
+  border: 1px solid var(--wx-line);
+  border-radius: var(--wx-radius);
+  box-shadow: var(--wx-shadow);
+  min-width: 0;
+}
+.wx-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  padding: 1rem 1.15rem;
+  border-bottom: 1px solid var(--wx-line);
+}
+.wx-card-head h2 { font-size: 1rem; font-weight: 650; margin: 0; letter-spacing: -.01em; }
+.wx-card-head p { margin: .2rem 0 0; font-size: .82rem; color: var(--wx-ink-soft); }
+.wx-card-body { padding: 1.1rem 1.15rem; }
+.wx-card-body.flush { padding: 0; }
+.wx-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: .8rem 1.15rem;
+  border-top: 1px solid var(--wx-line);
+  font-size: .82rem;
+  color: var(--wx-ink-soft);
+}
+
+/* ---------- KPI ---------- */
+.wx-kpis { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.wx-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--wx-line);
+  border-radius: var(--wx-radius);
+  background: var(--wx-surface);
+  box-shadow: var(--wx-shadow);
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+.wx-kpi::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 4px;
+  height: 100%;
+  background: var(--wx-line-strong);
+}
+.wx-kpi[data-tone="cash"]::after { background: var(--wx-brand); }
+.wx-kpi[data-tone="workforce"]::after { background: #3d7d9b; }
+.wx-kpi[data-tone="risk"]::after { background: var(--wx-accent); }
+.wx-kpi[data-tone="ok"]::after { background: var(--wx-ok); }
+.wx-kpi-label { font-size: .78rem; color: var(--wx-ink-soft); display: flex; align-items: center; gap: .35rem; }
+.wx-kpi-value { font-size: 1.45rem; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--wx-ink); }
+.wx-kpi-hint { font-size: .75rem; color: var(--wx-ink-soft); line-height: 1.45; }
+.wx-kpi[data-state="unavailable"] .wx-kpi-value { font-size: .95rem; font-weight: 500; color: var(--wx-ink-soft); }
+
+/* ---------- filters ---------- */
+.wx-filters {
+  display: grid;
+  gap: .75rem;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  align-items: end;
+  padding: 1rem 1.15rem;
+  background: var(--wx-surface);
+  border: 1px solid var(--wx-line);
+  border-radius: var(--wx-radius);
+}
+.wx-field { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+.wx-field > label,
+.wx-label { font-size: .78rem; font-weight: 600; color: var(--wx-ink-soft); }
+.wx-field input, .wx-field select { min-height: 40px; width: 100%; }
+.wx-search { position: relative; }
+.wx-search input { padding-left: 2rem; }
+.wx-search svg { position: absolute; left: .6rem; top: 50%; transform: translateY(-50%); color: var(--wx-ink-soft); pointer-events: none; }
+
+/* ---------- tables ---------- */
+.wx-table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.wx-table { width: 100%; border-collapse: collapse; font-size: .87rem; }
+.wx-table thead th {
+  text-align: left;
+  font-size: .72rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--wx-ink-soft);
+  background: #f7fafc;
+  padding: .7rem .9rem;
+  border-bottom: 1px solid var(--wx-line);
+  white-space: nowrap;
+}
+.wx-table tbody td {
+  padding: .75rem .9rem;
+  border-bottom: 1px solid var(--wx-line);
+  vertical-align: middle;
+  color: var(--wx-ink);
+}
+.wx-table tbody tr:hover td { background: #f9fbfd; }
+.wx-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wx-table .strong { font-weight: 600; }
+.wx-table .muted { color: var(--wx-ink-soft); font-size: .8rem; }
+
+/* ---------- status ---------- */
+.wx-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .18rem .55rem;
+  border-radius: 999px;
+  font-size: .72rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.wx-pill[data-tone="neutral"] { background: #eef3f7; color: #3f5a6e; border-color: #dbe6ee; }
+.wx-pill[data-tone="ok"] { background: var(--wx-ok-soft); color: var(--wx-ok); border-color: #c6e6d8; }
+.wx-pill[data-tone="warn"] { background: var(--wx-warn-soft); color: var(--wx-warn); border-color: #f0dcb8; }
+.wx-pill[data-tone="danger"] { background: var(--wx-danger-soft); color: var(--wx-danger); border-color: #f2cfcc; }
+.wx-pill[data-tone="brand"] { background: var(--wx-brand-soft); color: var(--wx-brand); border-color: #cfe2ea; }
+
+/* ---------- states ---------- */
+.wx-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .5rem;
+  text-align: center;
+  padding: 2.5rem 1.25rem;
+  color: var(--wx-ink-soft);
+}
+.wx-state svg { color: var(--wx-line-strong); }
+.wx-state strong { color: var(--wx-ink); font-size: .95rem; }
+.wx-state p { margin: 0; font-size: .85rem; max-width: 48ch; }
+.wx-error {
+  display: flex;
+  gap: .6rem;
+  align-items: flex-start;
+  border: 1px solid #f2cfcc;
+  background: var(--wx-danger-soft);
+  color: var(--wx-danger);
+  padding: .8rem 1rem;
+  border-radius: 10px;
+  font-size: .87rem;
+}
+.wx-skeleton { display: grid; gap: .5rem; padding: 1rem 1.15rem; }
+.wx-skeleton span {
+  display: block;
+  height: 38px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #eef3f7 25%, #f7fafc 37%, #eef3f7 63%);
+  background-size: 400% 100%;
+  animation: wx-shimmer 1.4s ease infinite;
+}
+@keyframes wx-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+/* ---------- forms ---------- */
+.wx-form { display: grid; gap: .9rem; }
+.wx-form-row { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.wx-help { font-size: .76rem; color: var(--wx-ink-soft); }
+
+/* Charts and cards must be allowed to shrink inside grid/flex parents. */
+.wx-shell .recharts-responsive-container,
+.wx-shell .recharts-wrapper { min-width: 0 !important; max-width: 100% !important; }
+.wx-shell [data-slot="card"],
+.wx-shell .rounded-xl { min-width: 0; }
+
+/* Form labels default to left alignment in the workspace; some legacy global
+   rules centre them, which reads badly on a settings form. */
+.wx-page label, .wx-shell label { text-align: left; }
+.wx-page [data-slot="label"], .wx-shell [data-slot="label"] { align-self: start; }
+
+/* ---------- dashboard module links ---------- */
+.wx-module-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(12rem, 1fr);
+  gap: .85rem;
+}
+.wx-module-card {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex-direction: column;
+  gap: .75rem;
+  padding: 1.1rem;
+  color: var(--wx-ink);
+  background: var(--wx-surface);
+  border: 1px solid var(--wx-line);
+  border-radius: var(--wx-radius);
+  box-shadow: var(--wx-shadow);
+  text-decoration: none;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.wx-module-card:hover {
+  background: var(--wx-brand-soft);
+  border-color: var(--wx-line-strong);
+}
+.wx-module-card:focus-visible {
+  outline: 2px solid var(--wx-brand);
+  outline-offset: 2px;
+}
+.wx-module-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .75rem;
+}
+.wx-module-card-icon {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  color: var(--wx-brand);
+  background: var(--wx-brand-soft);
+  border-radius: 10px;
+}
+.wx-module-card-arrow { color: var(--wx-ink-soft); }
+.wx-module-card-title {
+  overflow-wrap: anywhere;
+  font-size: .98rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.wx-module-card-description {
+  color: var(--wx-ink-soft);
+  font-size: .82rem;
+  line-height: 1.5;
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 900px) {
+  .wx-header { gap: .75rem; }
+  .wx-header-actions { width: 100%; }
+  .wx-header-actions > * { flex: 1 1 auto; }
+  .wx-module-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 768px) {
+  .wx-page { gap: 1rem; }
+  .wx-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wx-kpi-value { font-size: 1.2rem; }
+  .wx-card-head { padding: .85rem 1rem; }
+  .wx-card-body { padding: .9rem 1rem; }
+
+  /* Tables become stacked records; each cell carries its own label. */
+  .wx-table-wrap.stackable { overflow: visible; }
+  .wx-table.stackable thead { display: none; }
+  .wx-table.stackable tbody tr {
+    display: block;
+    max-width: 100%;
+    border: 1px solid var(--wx-line);
+    border-radius: 10px;
+    margin: 0 0 .65rem;
+    padding: .35rem .15rem;
+    background: var(--wx-surface);
+  }
+  .wx-table.stackable tbody td {
+    display: grid;
+    grid-template-columns: minmax(0, 42%) minmax(0, 1fr);
+    min-width: 0;
+    overflow-wrap: anywhere;
+    gap: .5rem;
+    align-items: baseline;
+    border: 0;
+    padding: .4rem .85rem;
+    text-align: left;
+  }
+  .wx-table.stackable tbody td::before {
+    content: attr(data-label);
+    min-width: 0;
+    font-size: .72rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--wx-ink-soft);
+  }
+  .wx-table.stackable tbody td.num { text-align: left; }
+  .wx-table.stackable tbody td:last-child { padding-bottom: .7rem; }
+}
+
+@media (max-width: 420px) {
+  .wx-kpis { grid-template-columns: 1fr; }
+  .wx-module-grid { grid-template-columns: 1fr; }
+  .wx-table.stackable tbody td { grid-template-columns: 1fr; gap: .15rem; }
+}
+
+/* ---------- global-ish polish, scoped to the workspace shell ---------- */
+.wx-shell main :focus-visible,
+.wx-shell aside :focus-visible {
+  outline: 2px solid var(--wx-brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.wx-shell button, .wx-shell [role="button"], .wx-shell a[data-touch] { min-height: 40px; }
+.wx-shell [data-slot="table-container"] { max-width: 100%; }
+
+/* Cash portal alignment with the workspace palette. */
+.cash-app { background: var(--wx-canvas) !important; }
+.cash-sidebar { background: #0d2a3b !important; }
+.cash-workspace, .cash-main { min-width: 0; }
+
+@media (max-width: 900px) {
+  /* Cash portal: the desktop rail becomes a top navigation strip. The portal's
+     own ≤650px bottom-bar rules are overridden so labels stay readable. */
+  .cash-app { display: flex !important; flex-direction: column !important; }
+  .cash-sidebar {
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: .4rem !important;
+    padding: .7rem .8rem !important;
+    overflow: hidden !important;
+    min-width: 0 !important;
+  }
+  .cash-sidebar .cash-brand { display: flex !important; width: 100%; margin-bottom: .25rem; }
+  .cash-sidebar .cash-nav-label,
+  .cash-sidebar .cash-side-bottom { display: none !important; }
+  .cash-sidebar nav {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    justify-content: flex-start !important;
+    gap: .4rem !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    padding-bottom: .35rem;
+    scrollbar-width: thin;
+  }
+  .cash-sidebar nav button,
+  .cash-sidebar nav a {
+    flex: 0 0 auto !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    white-space: nowrap !important;
+    font-size: .78rem !important;
+    line-height: 1.2 !important;
+    min-height: 34px !important;
+    padding: .4rem .7rem !important;
+    border: 1px solid rgba(255, 255, 255, .18) !important;
+    border-radius: 999px !important;
+    gap: .35rem !important;
+  }
+  .cash-sidebar nav a.cash-nav-link,
+  .cash-sidebar nav button { display: inline-flex !important; }
+  .cash-main { padding: .9rem !important; }
+  .cash-workspace { margin-left: 0 !important; width: 100% !important; min-width: 0 !important; }
+  .cash-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .cash-filters { grid-template-columns: 1fr !important; }
+  .cash-table-wrap { overflow-x: auto; max-width: 100%; }
+  .cash-workspace, .cash-main, .cash-table-card, .cash-lower-grid, .cash-metrics, .cash-filter-card, .cash-info-card { min-width: 0 !important; }
+  .cash-lower-grid { grid-template-columns: 1fr !important; }
+  .cash-table-card { overflow: hidden; }
+  .cash-topbar { flex-wrap: wrap; gap: .5rem; }
+}
+
+@media (max-width: 640px) {
+  .cash-metrics { grid-template-columns: 1fr !important; }
+  .cash-head-actions { width: 100%; }
+  .cash-head-actions button { flex: 1 1 auto; }
+  .cash-lower-grid { grid-template-columns: 1fr !important; }
+}

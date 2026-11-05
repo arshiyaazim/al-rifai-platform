@@ -1,0 +1,34 @@
+{
+  "version": "identity-review-evidence-baseline-v1",
+  "coreRevision": "1838619b644dc83f4ca723d3442d94435e6050f1",
+  "appFiles": [
+    {
+      "path": "lib/escort-intake-candidate.mjs",
+      "sha256": "891fe6e72d15da603a75c66a669157b34371dac5d4a3af9c2754d5d759a0d485"
+    },
+    {
+      "path": "tests/escort-intake-candidate.mjs",
+      "sha256": "ac3bb2e6ece86acd62e722ab0bf23ea29a204eeca8e735c5ee2ba84e6d63cea5"
+    },
+    {
+      "path": "lib/employee-program-validation.mjs",
+      "sha256": "dd5c3a3ddd0bab96a1a14dc315b5bedb5ba86db019d1591158bc6249b67b78ce"
+    },
+    {
+      "path": "docs/OWNER_BUSINESS_POLICY.md",
+      "sha256": "4971ebb051d911e203caebaab7e8a9b7d6fc2008620215d540f05f31c81f9f5b"
+    },
+    {
+      "path": "docs/owner-business-rules.json",
+      "sha256": "1127430d3c8444e158dd4b4a2ab1891c60ae9200d538fca8fab896f531196732"
+    },
+    {
+      "path": "../../services/whatsapp/qualification/application-contract-20261011/specification.md",
+      "sha256": "dbaa9aa2873ec5a6f57a7f84a332aeb9b5f2f32c84134d745f6378410531374b"
+    }
+  ],
+  "ownerFixturesSha256": "d649e6075004aeba326b7818f9254bbf626365a29c026cf20a949f2747f530a3",
+  "nativeFixturesSha256": "e8aea755cdf897f230ec8e5b1ff9912f04d66d21d55feb0284ce82afb904715a",
+  "historicalHandoffSha256": "decebf9da6a3e219568b488309c38f8fbae7ae98597f84bb1abecff4034cbc6a",
+  "controls": "All staff, grants, verification proofs and alias approvals in tests are offline synthetic controls; native source fields are unchanged."
+}

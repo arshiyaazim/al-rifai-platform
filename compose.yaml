@@ -1,0 +1,93 @@
+name: al-rifai-v2
+
+# AL-RIFA'I Platform — one image, two processes, no extra infrastructure.
+#   app   Next.js behind the existing TLS certificate
+#   sync  WhatsApp store importer/tailer (reads the bridge SQLite, never writes it)
+services:
+  app:
+    image: local/al-rifai-platform:${ALRIFAI_TAG:-latest}
+    command: ["node", "deploy/tls-entry.mjs"]
+    init: true
+    restart: unless-stopped
+    user: "10001:10001"
+    env_file:
+      - /etc/vps/apps/al-rifai-v2/app.env
+    ports:
+      - "127.0.0.1:3001:3000"
+      - "0.0.0.0:8443:3443"
+    volumes:
+      - type: bind
+        source: /etc/vps/apps/al-rifai/database_password
+        target: /run/secrets/database_password
+        read_only: true
+      - type: bind
+        source: /etc/vps/apps/al-rifai-v2/runtime_password
+        target: /run/secrets/runtime_password
+        read_only: true
+      - type: bind
+        source: /etc/vps/apps/al-rifai/tls/private-entry.key
+        target: /etc/alrifai/tls/private-entry.key
+        read_only: true
+      - type: bind
+        source: /etc/vps/apps/al-rifai/tls/private-entry.crt
+        target: /etc/alrifai/tls/private-entry.crt
+        read_only: true
+    networks: [backend]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,uid=10001,gid=10001
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  sync:
+    image: local/al-rifai-platform:${ALRIFAI_TAG:-latest}
+    command: ["node", "scripts/sync-worker.mjs", "--mode=tail"]
+    init: true
+    restart: unless-stopped
+    # The bridge store directories are 0700 and owned by the bridge user. A
+    # read-only root process is the only way to read them without weakening
+    # those permissions, which are preserved exactly as they are.
+    user: "0:0"
+    env_file:
+      - /etc/vps/apps/al-rifai-v2/app.env
+    volumes:
+      - type: bind
+        source: /var/lib/vps/whatsapp/wa-01/store
+        target: /wa/wa-01
+        read_only: true
+      - type: bind
+        source: /var/lib/vps/whatsapp/wa-02/store
+        target: /wa/wa-02
+        read_only: true
+      - type: bind
+        source: /etc/vps/apps/al-rifai-v2/runtime_password
+        target: /run/secrets/runtime_password
+        read_only: true
+      - type: bind
+        source: /etc/vps/apps/al-rifai/database_password
+        target: /run/secrets/database_password
+        read_only: true
+    networks: [backend]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    mem_limit: 192m
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "2"}
+
+networks:
+  backend:
+    external: true
+    name: vps-backend
