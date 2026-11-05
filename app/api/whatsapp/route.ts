@@ -1,5 +1,5 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../_shared';
-import {configureAccount, health, integrationStatus, listAccounts, syncAccount, processPending} from '@/lib/standalone/whatsapp';
+import {configureAccount, health, integrationStatus, listAccounts, syncAccount, processPending, routePending} from '@/lib/standalone/whatsapp';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,6 +37,7 @@ export async function POST(request: Request) {
     if (body.action === 'health') return ok(await health(String(body.accountId)));
     if (body.action === 'sync') return ok(await syncAccount(actor, String(body.accountId)));
     if (body.action === 'process') return ok(await processPending(actor, Number(body.limit) || 100));
+    if (body.action === 'route') return ok(await routePending(actor, Number(body.limit) || 100));
     return ok({error: 'UNKNOWN_ACTION'}, 400);
   } catch (error) {
     return errorResponse(error);

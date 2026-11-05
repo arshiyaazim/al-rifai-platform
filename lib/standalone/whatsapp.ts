@@ -2,7 +2,8 @@ import {createConnection, type Socket} from 'node:net';
 import {readFileSync} from 'node:fs';
 import {rows, row, DomainError, type Actor} from './db.ts';
 import {recordAudit, stableId} from './audit.ts';
-import {assignEscort, createProgram} from './programs.ts';
+import {assignEscort} from './programs.ts';
+import {routePendingMessages} from '../message-router.ts';
 
 /**
  * Adapter for the external WhatsApp MCP relay.
@@ -285,120 +286,30 @@ export async function syncAccount(actor: Actor, accountId: string, maxPages = 20
  * Nothing here writes business rows directly.
  */
 export async function processPending(actor: Actor, limit = 100) {
-  const {parsePaymentBlocks} = await import('../history-extraction.mjs');
-  const {parseEscortOrder} = await import('../escort-intake-candidate.mjs');
-  const {orderDraftDateAndShift} = await import('../shift-boundary.ts');
-
-  const messages = await rows<{
-    id: string; account_id: string; chat_jid: string; message_id: string; direction: string;
-    sender_jid: string | null; source_timestamp: string; text_content: string | null;
-  }>(
-    `SELECT id::text, account_id, chat_jid, message_id, direction, sender_jid, to_char(source_timestamp AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') AS source_timestamp, text_content
-       FROM whatsapp_messages WHERE processed_at IS NULL ORDER BY id LIMIT $1`,
-    [limit],
-  );
-
-  const result = {processed: 0, instructions: 0, programs: 0, confirmations: 0, ignored: 0, errors: 0};
-  for (const message of messages) {
-    let classification = 'IGNORED';
-    try {
-      const account = await row<WhatsAppAccount>('SELECT * FROM whatsapp_accounts WHERE id = $1', [message.account_id]);
-      const chat = await row<{purpose: string}>(
-        'SELECT purpose FROM whatsapp_chats WHERE account_id = $1 AND chat_jid = $2 AND authorized = true',
-        [message.account_id, message.chat_jid],
-      );
-      const text = message.text_content ?? '';
-      const isAdmin = !!account && account.admin_jids.includes(message.sender_jid ?? '');
-
-      if (!chat || !text) {
-        classification = 'IGNORED';
-      } else if (message.direction === 'OUTGOING' && isAdmin && (chat.purpose === 'CASH' || chat.purpose === 'BOTH')) {
-        const blocks = parsePaymentBlocks(text) as Array<{blockKey: string; fields: Record<string, string>; reasons: string[]}>;
-        let created = 0;
-        for (const block of blocks) {
-          if (block.reasons.length) continue;
-          const fields = block.fields;
-          const inserted = await row(
-            `INSERT INTO cash_instructions
-               (id, employee_mobile, employee_name, payout_mobile, method, amount_minor, purpose,
-                source_channel, source_message_id, source_block_key, source_hash, state, created_by)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,'WHATSAPP',$8,$9,$10,'REVIEW','whatsapp')
-             ON CONFLICT DO NOTHING RETURNING id`,
-            [
-              stableId('ins', [message.account_id, message.message_id, block.blockKey]),
-              fields.employeeMobile ?? null,
-              fields.employeeName,
-              fields.payoutMobile ?? null,
-              fields.method,
-              Number(fields.amountMinor),
-              fields.purpose ?? null,
-              message.message_id,
-              block.blockKey,
-              stableId('h', [message.account_id, message.message_id, block.blockKey]),
-            ],
-          );
-          if (inserted) created += 1;
-        }
-        classification = created ? `CASH:${created}` : 'CASH:0';
-        result.instructions += created;
-      } else if (message.direction === 'INCOMING' && (chat.purpose === 'ORDERS' || chat.purpose === 'BOTH')) {
-        const messageInstant = message.source_timestamp;
-        const blocks = parseEscortOrder(text, {messageDate: messageInstant.slice(0, 10)}) as Array<
-          {motherVessel?: string; lighterVessel?: string; masterMobile?: string; destination?: string;
-           assignmentDate?: string | null; shift?: string | null; reasons?: string[];
-           fields?: Record<string, string | null | undefined>}
-        >;
-        let created = 0;
-        const derived = orderDraftDateAndShift(messageInstant);
-        for (const block of blocks ?? []) {
-          const fields = (block.fields ?? block) as Record<string, string | null | undefined>;
-          const motherVessel = fields.motherVessel ?? null;
-          const lighterVessel = fields.lighterVessel ?? null;
-          if (!motherVessel || !lighterVessel) continue;
-          try {
-            await createProgram(actor, {
-              motherVessel,
-              lighterVessel,
-              masterMobile: (block.masterMobile as string | undefined) ?? fields.masterMobile ?? null,
-              destination: fields.destination ?? null,
-              startDate: block.assignmentDate ?? derived?.date ?? '',
-              startShift: (block.shift as 'D' | 'N' | null) ?? derived?.shift ?? 'D',
-              notes: block.assignmentDate ? null : 'START_DATE_DERIVED_FROM_MESSAGE_TIMESTAMP',
-            }, {channel: 'WHATSAPP', messageId: message.message_id, chatJid: message.chat_jid});
-            created += 1;
-          } catch (error) {
-            if ((error as Error).message.startsWith('DUPLICATE_PROGRAM')) continue;
-            throw error;
-          }
-        }
-        classification = created ? `ORDER_DRAFT:${created}` : 'ORDER_DRAFT:0';
-        result.programs += created;
-      } else if (message.direction === 'OUTGOING' && isAdmin && (chat.purpose === 'ORDERS' || chat.purpose === 'BOTH')) {
-        classification = await applyConfirmation(actor, message, text);
-        if (classification.startsWith('CONFIRMED')) result.confirmations += 1;
-      }
-
-      await row('UPDATE whatsapp_messages SET processed_at = now(), classification = $2 WHERE id = $1', [
-        message.id, classification.slice(0, 120),
-      ]);
-      result.processed += 1;
-    } catch (error) {
-      result.errors += 1;
-      await row('UPDATE whatsapp_messages SET processed_at = now(), classification = $2 WHERE id = $1', [
-        message.id, `ERROR:${(error as Error).message.slice(0, 90)}`,
-      ]);
-    }
-  }
-  await recordAudit({actor, action: 'WHATSAPP_PROCESSED', entity: 'whatsapp', detail: result, source: 'SYSTEM'});
-  return result;
+  // Delegates to the single canonical router entry point. Both the background
+  // worker (?action=process) and the ADMIN API (?action=route) route through
+  // routePendingMessages(), so there is exactly one code path that can create
+  // Cash instructions or Vessel programs from WhatsApp messages. This prevents
+  // duplicate processing between background sync and manual routing.
+  const result = await routePendingMessages(actor, limit);
+  return {
+    processed: result.processed,
+    instructions: result.instructions,
+    programs: result.programs,
+    confirmations: result.confirmations,
+    ignored: result.ignored,
+    errors: result.errors,
+  };
 }
+
 
 /**
  * A verified administrator's outgoing reply that completes an existing draft is
  * the confirmation. It must match exactly one draft in the same chat; anything
  * else stays unresolved.
+ * Exported for use by the shared message router.
  */
-async function applyConfirmation(actor: Actor, message: {message_id: string; chat_jid: string}, text: string) {
+export async function applyConfirmation(actor: Actor, message: {message_id: string; chat_jid: string}, text: string) {
   const {parseEscortOrder} = await import('../escort-intake-candidate.mjs');
   const blocks = parseEscortOrder(text, {messageDate: new Date().toISOString().slice(0, 10)}) as Array<{
     motherVessel?: string; lighterVessel?: string; fields?: Record<string, string>;
@@ -432,6 +343,7 @@ async function applyConfirmation(actor: Actor, message: {message_id: string; cha
   return 'CONFIRMED';
 }
 
+
 export async function integrationStatus() {
   const accounts = await rows(
     `SELECT a.id, a.label, a.enabled, a.account_jid, a.socket_path, a.token_file,
@@ -441,4 +353,15 @@ export async function integrationStatus() {
   );
   const cursors = await rows('SELECT account_id, chat_jid, last_error, updated_at FROM whatsapp_cursors WHERE last_error IS NOT NULL');
   return {accounts, cursors};
+}
+
+/**
+ * Phase 3 router entry point: processes staged WhatsApp messages through
+ * domain classification, authorization, domain handlers (cash REVIEW, vessel
+ * DRAFT), Review Queue submission for errors/ambiguity, and crash-safe
+ * processing state with retry. Reuses existing business services; no automatic
+ * posting, no outbound WhatsApp sender.
+ */
+export async function routePending(actor: Actor, limit = 100) {
+  return routePendingMessages(actor, limit);
 }

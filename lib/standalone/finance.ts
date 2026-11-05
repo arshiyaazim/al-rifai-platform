@@ -45,6 +45,11 @@ export type InstructionInput = {
   amountMinor: number;
   purpose?: string | null;
   accountId?: string | null;
+  // WhatsApp source provenance (optional; web UI omits these).
+  sourceChannel?: 'WEB' | 'WHATSAPP' | 'IMPORT' | null;
+  sourceMessageId?: string | null;
+  sourceBlockKey?: string | null;
+  sourceHash?: string | null;
 };
 
 export async function createInstruction(actor: Actor, input: InstructionInput) {
@@ -55,14 +60,20 @@ export async function createInstruction(actor: Actor, input: InstructionInput) {
   const id = newId('ins');
   const created = await row(
     `INSERT INTO cash_instructions
-       (id, employee_mobile, employee_name, payout_mobile, method, amount_minor, purpose, account_id, state, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'REVIEW',$9) RETURNING *`,
+       (id, employee_mobile, employee_name, payout_mobile, method, amount_minor, purpose, account_id, state,
+        source_channel, source_message_id, source_block_key, source_hash, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'REVIEW',$9,$10,$11,$12,$13) RETURNING *`,
     [id, employeeMobile, text(input.employeeName, 'employeeName', {max: 150}),
       payoutMobile, input.method, amountMinor,
-      optionalText(input.purpose, 'purpose', 500), input.accountId ?? null, actor.id],
+      optionalText(input.purpose, 'purpose', 500), input.accountId ?? null,
+      input.sourceChannel ?? 'WEB',
+      input.sourceMessageId ?? null,
+      input.sourceBlockKey ?? null,
+      input.sourceHash ?? null,
+      actor.id],
   );
   await recordAudit({actor, action: 'INSTRUCTION_CREATED', entity: 'instruction', entityId: id,
-    detail: {amountMinor, method: input.method}});
+    detail: {amountMinor, method: input.method, source: input.sourceChannel ?? 'WEB'}});
   return created;
 }
 
