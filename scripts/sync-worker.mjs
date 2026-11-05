@@ -21,28 +21,37 @@ import {readFileSync, existsSync, mkdirSync, rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import pg from 'pg';
+import {loadEnv, secret, setting} from '../lib/env.mjs';
+
+// The one configuration source: `.env` at the project root. Inside a container
+// the same keys arrive as environment variables, which always take precedence.
+loadEnv();
 
 const MODE = (process.argv.find((a) => a.startsWith('--mode='))?.split('=')[1]) ?? 'tail';
 const SNAPSHOT_DIR = process.argv.find((a) => a.startsWith('--snapshot-dir='))?.split('=')[1] ?? null;
-const BATCH = Number(process.env.SYNC_BATCH ?? 400);
-const INTERVAL_MS = Number(process.env.SYNC_INTERVAL_MS ?? 5000);
-const RECENT_WINDOW = Number(process.env.SYNC_RECENT_WINDOW ?? 300);
-const RECENT_EVERY = Number(process.env.SYNC_RECENT_EVERY ?? 12);
+const BATCH = Number(setting('SYNC_BATCH') || 400);
+const INTERVAL_MS = Number(setting('SYNC_INTERVAL_MS') || 5000);
+const RECENT_WINDOW = Number(setting('SYNC_RECENT_WINDOW') || 300);
+const RECENT_EVERY = Number(setting('SYNC_RECENT_EVERY') || 12);
 
 const ACCOUNTS = [
   {
-    id: process.env.WA01_ID ?? 'wa-01',
-    label: process.env.WA01_LABEL ?? 'WhatsApp account 1',
-    path: process.env.WA01_DB ?? '/wa/wa-01/messages.db',
-    jid: process.env.WA01_JID ?? null,
+    id: setting('WA01_ID') || 'wa-01',
+    label: setting('WA01_LABEL') || 'WhatsApp account 1',
+    path: setting('WA01_DB') || '/wa/wa-01/messages.db',
+    jid: setting('WA01_JID') || null,
   },
   {
-    id: process.env.WA02_ID ?? 'wa-02',
-    label: process.env.WA02_LABEL ?? 'WhatsApp account 2',
-    path: process.env.WA02_DB ?? '/wa/wa-02/messages.db',
-    jid: process.env.WA02_JID ?? null,
+    id: setting('WA02_ID') || 'wa-02',
+    label: setting('WA02_LABEL') || 'WhatsApp account 2',
+    path: setting('WA02_DB') || '/wa/wa-02/messages.db',
+    jid: setting('WA02_JID') || null,
   },
 ];
+
+// The worker writes with the least-privilege runtime role, never the owner.
+const DB_USER = setting('SYNC_DB_USER') || setting('ALRIFAI_REVIEW_DB_USER');
+const DB_PASSWORD = secret('SYNC_DB_PASSWORD') || secret('ALRIFAI_REVIEW_PASSWORD');
 
 const sha = (value) => createHash('sha256').update(value ?? '').digest('hex');
 const log = (...args) => console.log(new Date().toISOString(), ...args);
@@ -80,17 +89,15 @@ function chatKind(chatJid) {
 }
 
 function password() {
-  return process.env.PGPASSWORD_FILE
-    ? readFileSync(process.env.PGPASSWORD_FILE, 'utf8').trim()
-    : process.env.PGPASSWORD;
+  return DB_PASSWORD || process.env.PGPASSWORD;
 }
 
 function pool() {
   const p = new pg.Pool({
-    host: process.env.PGHOST ?? '127.0.0.1',
-    port: Number(process.env.PGPORT ?? 5432),
-    database: process.env.PGDATABASE ?? 'alrifai_v2',
-    user: process.env.PGUSER ?? 'alrifai_v2_runtime',
+    host: setting('PGHOST') || '127.0.0.1',
+    port: Number(setting('PGPORT') || 5432),
+    database: setting('PGDATABASE') || 'alrifai_v2',
+    user: DB_USER || 'alrifai_v2_runtime',
     password: password(),
     max: 2,
     idleTimeoutMillis: 10_000,
@@ -321,10 +328,10 @@ async function deriveIdentity(client, accountId) {
 
 async function status() {
   const client = new pg.Client({
-    host: process.env.PGHOST ?? '127.0.0.1',
-    port: Number(process.env.PGPORT ?? 5432),
-    database: process.env.PGDATABASE ?? 'alrifai_v2',
-    user: process.env.PGUSER ?? 'alrifai_v2_runtime',
+    host: setting('PGHOST') || '127.0.0.1',
+    port: Number(setting('PGPORT') || 5432),
+    database: setting('PGDATABASE') || 'alrifai_v2',
+    user: DB_USER || 'alrifai_v2_runtime',
     password: password(),
     application_name: 'alrifai-sync-status',
   });

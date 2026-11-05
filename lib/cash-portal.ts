@@ -1,14 +1,14 @@
 import pg from "pg";
-import {createHash,pbkdf2,randomBytes,timingSafeEqual} from "node:crypto";
-import {promisify} from "node:util";
-import {isAcceptablePassword} from "./password-policy.ts";
+import {createHash,randomBytes,timingSafeEqual} from "node:crypto";
 import {createPool} from "../db/postgres.mjs";
 
-const derive=promisify(pbkdf2);
+// Hashing lives in one module (lib/password-hash.ts) and is re-exported here so
+// existing call sites and the reset CLI share a single implementation.
+export {hashPassword,hashBootstrapPassword,verifyPassword} from "./password-hash.ts";
+
 const SESSION_MS=8*60*60*1000;
 const IDLE_MS=30*60*1000;
 const COOKIE="__Host-alrifai_cash";
-const HASH_RE=/^pbkdf2-sha256:600000:[a-f0-9]{32}:[a-f0-9]{64}$/;
 let db:pg.Pool|undefined;
 
 export type CashUser={id:string;username:string;role:"ADMIN"|"USER";displayName:string;email:string|null;mobile:string|null;whatsappNumber:string|null;mustChangePassword:boolean;active:boolean;lastSeenAt:string|null};
@@ -25,26 +25,6 @@ function pool(){
 const digest=(value:string)=>createHash("sha256").update(value).digest("hex");
 export const sessionCookie=COOKIE;
 export function hashToken(value:string){return digest(value);}
-export async function hashPassword(password:string){
- // The single length rule (lib/password-policy.ts) applies here so no caller can
- // store a credential that the forms would have refused.
- if(!isAcceptablePassword(password))throw new Error("PASSWORD_POLICY");
- const salt=randomBytes(16).toString("hex");
- const key=await derive(password,salt,600000,32,"sha256");
- return `pbkdf2-sha256:600000:${salt}:${key.toString("hex")}`;
-}
-export async function hashBootstrapPassword(password:string){
- if(typeof password!=="string"||password.length<8||Buffer.byteLength(password)>256)throw new Error("BOOTSTRAP_PASSWORD_POLICY");
- const salt=randomBytes(16).toString("hex");
- const key=await derive(password,salt,600000,32,"sha256");
- return `pbkdf2-sha256:600000:${salt}:${key.toString("hex")}`;
-}
-export async function verifyPassword(password:string,encoded:string){
- if(typeof password!=="string"||Buffer.byteLength(password)>256||!HASH_RE.test(encoded))return false;
- const [,iterations,salt,expected]=encoded.split(":");
- const key=await derive(password,salt,Number(iterations),32,"sha256");
- return timingSafeEqual(key,Buffer.from(expected,"hex"));
-}
 export function publicUser(row:UserRow):CashUser{return {id:row.id,username:row.username,role:row.role,displayName:row.display_name,email:row.email,mobile:row.mobile,whatsappNumber:row.whatsapp_number,mustChangePassword:row.must_change_password,active:row.active,lastSeenAt:row.last_seen_at?.toISOString()??null};}
 export function json(data:unknown,status=200,headers?:HeadersInit){return Response.json(data,{status,headers});}
 export function noStoreHeaders(){return {"Cache-Control":"no-store"};}

@@ -10,17 +10,24 @@
 //   node --experimental-strip-types scripts/standalone/install.mjs
 //   node --experimental-strip-types scripts/standalone/install.mjs --admin-user owner --admin-password '…'
 //
-// Environment: PGHOST, PGPORT, PGDATABASE, PGSCHEMA, PGUSER, PGPASSWORD_FILE,
-//              ALRIFAI_REVIEW_DB_USER, ALRIFAI_REVIEW_PASSWORD_FILE
-import {readFileSync} from 'node:fs';
+// Configuration: the single `.env` at the project root (lib/env.mjs). Keys are
+// PGHOST, PGPORT, PGDATABASE, PGSCHEMA, PGUSER, PGPASSWORD, the runtime role
+// (ALRIFAI_REVIEW_DB_USER / ALRIFAI_REVIEW_PASSWORD) and the first
+// administrator (ALRIFAI_BOOTSTRAP_ADMIN_USERNAME / _PASSWORD / _NAME).
+import {existsSync, readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {dirname, join} from 'node:path';
 import pg from 'pg';
+import {loadEnv, secret, setting} from '../../lib/env.mjs';
+
+loadEnv();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = join(HERE, '..', '..');
 const SCHEMA_FILE = join(APP_ROOT, 'db', 'standalone', 'schema.sql');
+// Additive layers applied after the baseline, in file-name order.
+const EXTRA_SCHEMA_FILES = [join(APP_ROOT, 'db', 'standalone', '002_raw_import.sql')];
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;
 const TARGET_TABLES = [
@@ -31,6 +38,7 @@ const TARGET_TABLES = [
   'ledger_entries', 'cash_submissions', 'cash_submission_reviews',
   'review_items', 'review_decisions', 'audit_events', 'whatsapp_accounts',
   'whatsapp_chats', 'whatsapp_messages', 'whatsapp_cursors',
+  'whatsapp_import_runs', 'whatsapp_sync_state', 'identity_aliases',
 ];
 
 class InstallError extends Error {
@@ -47,17 +55,11 @@ const arg = (name) => {
   return index >= 0 ? process.argv[index + 1] : undefined;
 };
 
-function readSecret(fileVar) {
-  const file = env(fileVar);
-  if (!file) throw new InstallError(`DATABASE_CONFIG_MISSING:${fileVar}`);
-  try {
-    const value = readFileSync(file, 'utf8').trim();
-    if (!value) throw new InstallError(`DATABASE_CONFIG_EMPTY:${fileVar}`);
-    return value;
-  } catch (error) {
-    if (error instanceof InstallError) throw error;
-    throw new InstallError(`DATABASE_CONFIG_UNREADABLE:${fileVar}`);
-  }
+/** Read a password from the central config: inline value, else a secret file. */
+function readSecret(valueVar) {
+  const value = secret(valueVar);
+  if (!value) throw new InstallError(`DATABASE_CONFIG_MISSING:${valueVar}`);
+  return value;
 }
 
 function connection(role) {
@@ -74,7 +76,7 @@ function connection(role) {
     throw new InstallError(`DATABASE_CONFIG_MISSING:${role === 'runtime' ? 'ALRIFAI_REVIEW_DB_USER' : 'PGUSER'}`);
   }
   if (!IDENT.test(user)) throw new InstallError('DATABASE_CONFIG_INVALID:PGUSER');
-  const password = readSecret(role === 'runtime' ? 'ALRIFAI_REVIEW_PASSWORD_FILE' : 'PGPASSWORD_FILE');
+  const password = readSecret(role === 'runtime' ? 'ALRIFAI_REVIEW_PASSWORD' : 'PGPASSWORD');
   return {host, port, database, schema, user, password};
 }
 
@@ -215,14 +217,19 @@ async function main() {
     await client.query(`SET search_path TO "${owner.schema}"`);
     await client.query('BEGIN');
     await client.query(schemaSql);
+    for (const file of EXTRA_SCHEMA_FILES) {
+      if (!existsSync(file)) continue;
+      await client.query(readFileSync(file, 'utf8'));
+      console.log(JSON.stringify({step: 'schema', applied: file, schema: owner.schema}));
+    }
     await grantRuntime(client, owner, runtimeUser);
     await client.query('COMMIT');
     console.log(JSON.stringify({step: 'schema', applied: SCHEMA_FILE, schema: owner.schema}));
 
-    if (flag('admin-user') || env('ALRIFAI_ADMIN_USERNAME')) {
-      const username = arg('admin-user') ?? env('ALRIFAI_ADMIN_USERNAME');
-      const password = arg('admin-password') ?? env('ALRIFAI_ADMIN_PASSWORD');
-      const displayName = arg('admin-name') ?? env('ALRIFAI_ADMIN_NAME') ?? username;
+    if (flag('admin-user') || setting('ALRIFAI_BOOTSTRAP_ADMIN_USERNAME')) {
+      const username = arg('admin-user') ?? setting('ALRIFAI_BOOTSTRAP_ADMIN_USERNAME');
+      const password = arg('admin-password') ?? secret('ALRIFAI_BOOTSTRAP_ADMIN_PASSWORD');
+      const displayName = arg('admin-name') ?? setting('ALRIFAI_BOOTSTRAP_ADMIN_NAME') ?? username;
       if (!username || !password) throw new InstallError('ADMIN_CREDENTIALS_REQUIRED');
       if (password.length < 8) throw new InstallError('ADMIN_PASSWORD_TOO_SHORT');
       const id = await seedAdmin(client, {username, password, displayName});

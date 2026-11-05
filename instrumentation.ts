@@ -7,6 +7,15 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   try {
+    // Load the central `.env` before any request handler builds a pool. In a
+    // container the keys are already present as environment variables, so this
+    // is a no-op there and never overwrites them.
+    const {loadEnv} = await import('./lib/env.mjs');
+    loadEnv();
+  } catch (error) {
+    console.error(`Configuration load failed (${error instanceof Error ? error.message : 'ENV_LOAD_FAILED'}).`);
+  }
+  try {
     const { bootstrapLiveCashSync } = await import('./candidates/identity-review/host');
     const result = await bootstrapLiveCashSync();
     if (result.started) {

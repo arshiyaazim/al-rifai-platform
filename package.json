@@ -1,5 +1,5 @@
 {
-  "name": "al-rifai-platform",
+  "name": "al-rifai",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -12,15 +12,17 @@
     "typecheck": "tsc --noEmit",
     "lint": "node scripts/lint.mjs",
     "test": "npm run test:unit && npm run test:standalone",
+    "db:migrate": "node scripts/database.mjs migrate",
+    "db:import": "node scripts/database.mjs import",
+    "db:verify": "node scripts/database.mjs verify",
     "db:install": "node --experimental-strip-types scripts/standalone/install.mjs",
     "db:preflight": "node --experimental-strip-types scripts/standalone/install.mjs --preflight",
     "test:domain": "node --experimental-strip-types --test --test-concurrency=1 tests/standalone/domain.test.ts",
     "test:whatsapp": "node --experimental-strip-types --test --test-concurrency=1 tests/standalone/whatsapp.test.ts",
     "test:standalone": "node --experimental-strip-types --test --test-concurrency=1 tests/standalone/domain.test.ts tests/standalone/whatsapp.test.ts",
-    "test:unit": "node --experimental-strip-types --test tests/shift-boundary.mjs tests/unified-auth-policy.mjs",
-    "sync": "node scripts/sync-worker.mjs --mode=tail",
-    "sync:import": "node scripts/sync-worker.mjs --mode=import --snapshot-dir=/tmp/alrifai-snapshot",
-    "sync:status": "node scripts/sync-worker.mjs --mode=status"
+    "test:unit": "node --experimental-strip-types --test tests/shift-boundary.mjs tests/unified-auth-policy.mjs tests/entry-rules.mjs",
+    "admin:reset": "node --experimental-strip-types scripts/standalone/reset-password.mjs",
+    "env:check": "node --experimental-strip-types scripts/check-env.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

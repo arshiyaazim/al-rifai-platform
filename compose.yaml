@@ -10,20 +10,16 @@ services:
     init: true
     restart: unless-stopped
     user: "10001:10001"
+    # One configuration file for the whole installation. It is the source of
+    # truth for the web app, the installer, the importer and the sync worker.
     env_file:
-      - /etc/vps/apps/al-rifai-v2/app.env
+      - /opt/vps/al-rifai-standalone/apps/al-rifai/.env
     ports:
       - "127.0.0.1:3001:3000"
       - "0.0.0.0:443:3443"
     volumes:
-      - type: bind
-        source: /etc/vps/apps/al-rifai/database_password
-        target: /run/secrets/database_password
-        read_only: true
-      - type: bind
-        source: /etc/vps/apps/al-rifai-v2/runtime_password
-        target: /run/secrets/runtime_password
-        read_only: true
+      # The TLS key pair is mounted read-only from the host; it stays a file so
+      # the certificate can be renewed without touching configuration.
       - type: bind
         source: /etc/vps/apps/al-rifai/tls/private-entry.key
         target: /etc/alrifai/tls/private-entry.key
@@ -59,7 +55,12 @@ services:
     # those permissions, which are preserved exactly as they are.
     user: "0:0"
     env_file:
-      - /etc/vps/apps/al-rifai-v2/app.env
+      - /opt/vps/al-rifai-standalone/apps/al-rifai/.env
+    environment:
+      # Host paths in `.env`, container paths here. The bridge layout does not
+      # change, so no second configuration file is needed.
+      WA01_DB: /wa/wa-01/messages.db
+      WA02_DB: /wa/wa-02/messages.db
     volumes:
       - type: bind
         source: /var/lib/vps/whatsapp/wa-01/store
@@ -68,14 +69,6 @@ services:
       - type: bind
         source: /var/lib/vps/whatsapp/wa-02/store
         target: /wa/wa-02
-        read_only: true
-      - type: bind
-        source: /etc/vps/apps/al-rifai-v2/runtime_password
-        target: /run/secrets/runtime_password
-        read_only: true
-      - type: bind
-        source: /etc/vps/apps/al-rifai/database_password
-        target: /run/secrets/database_password
         read_only: true
     networks: [backend]
     security_opt: [no-new-privileges:true]

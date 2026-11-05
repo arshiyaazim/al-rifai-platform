@@ -4,16 +4,25 @@
 // database name, user name or password-file path is hard-coded. The two
 // credentials keep the production role separation:
 //
-//   app    -> PGUSER / PGPASSWORD_FILE                (owner, read-write)
-//   review -> ALRIFAI_REVIEW_DB_USER / ALRIFAI_REVIEW_PASSWORD_FILE
-//             (least-privilege runtime role, read-only by default)
-//   mirror -> ALRIFAI_MIRROR_WORKER_DB_USER / ALRIFAI_MIRROR_WORKER_PASSWORD_FILE
-//             (optional; only used by the WhatsApp mirror tooling)
+//   app    -> PGUSER / PGPASSWORD (or PGPASSWORD_FILE)        owner, read-write
+//   review -> ALRIFAI_REVIEW_DB_USER / ALRIFAI_REVIEW_PASSWORD
+//             (or ALRIFAI_REVIEW_PASSWORD_FILE)  least-privilege runtime role
+//   mirror -> ALRIFAI_MIRROR_WORKER_DB_USER /
+//             ALRIFAI_MIRROR_WORKER_PASSWORD(_FILE)  optional mirror tooling
 //
-// Password contents are read from files and never logged, returned or included
-// in an error message. Errors name the environment variable, never its value.
+// Both credential forms are supported: an inline value read from the single
+// `.env` file, or a mounted secret file. A value is never logged, returned or
+// included in an error message; errors name the variable, never its value.
+//
+// Loading `.env` here (in addition to the boot hooks and the scripts) means
+// every process that opens a pool — including the legacy db:migrate / db:import
+// tools — reads the same single configuration source. Keys already present in
+// the environment (compose `env_file`) always win.
 import pg from 'pg';
 import {readFileSync, statSync} from 'node:fs';
+import {loadEnv} from '../lib/env.mjs';
+
+loadEnv();
 
 const DEFAULT_PORT = 5432;
 const DEFAULT_SCHEMA = 'public';
@@ -42,14 +51,21 @@ const ROLE_ALIASES = new Map([
 ]);
 
 const CREDENTIALS = {
-  [DB_ROLE_APP]: {userVar: 'PGUSER', fileVar: 'PGPASSWORD_FILE', defaultUser: null},
+  [DB_ROLE_APP]: {
+    userVar: 'PGUSER',
+    valueVar: 'PGPASSWORD',
+    fileVar: 'PGPASSWORD_FILE',
+    defaultUser: null,
+  },
   [DB_ROLE_REVIEW]: {
     userVar: 'ALRIFAI_REVIEW_DB_USER',
+    valueVar: 'ALRIFAI_REVIEW_PASSWORD',
     fileVar: 'ALRIFAI_REVIEW_PASSWORD_FILE',
     defaultUser: null,
   },
   [DB_ROLE_MIRROR]: {
     userVar: 'ALRIFAI_MIRROR_WORKER_DB_USER',
+    valueVar: 'ALRIFAI_MIRROR_WORKER_PASSWORD',
     fileVar: 'ALRIFAI_MIRROR_WORKER_PASSWORD_FILE',
     defaultUser: null,
   },
@@ -104,11 +120,13 @@ function readUser(role) {
   return user;
 }
 
-/** Read a password from a file. The contents are never echoed anywhere. */
+/** Read a password (inline value first, then a secret file). Never echoed. */
 function readPassword(role) {
   const spec = CREDENTIALS[role];
+  const inline = envValue(spec.valueVar);
+  if (inline) return inline;
   const file = envValue(spec.fileVar);
-  if (!file) throw configError(`MISSING:${spec.fileVar}`);
+  if (!file) throw configError(`MISSING:${spec.valueVar}`);
   let stats;
   try {
     stats = statSync(file);

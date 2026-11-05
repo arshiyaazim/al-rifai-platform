@@ -15,6 +15,11 @@ import https from 'node:https';
 import http from 'node:http';
 import {readFileSync} from 'node:fs';
 import {spawn} from 'node:child_process';
+import {loadEnv} from '../lib/env.mjs';
+
+// The single configuration source. Inside a container the same keys also arrive
+// as environment variables; those always win, so loading is idempotent.
+loadEnv();
 
 const INTERNAL_PORT = Number(process.env.PORT ?? 3000);
 const TLS_PORT = Number(process.env.TLS_PORT ?? 3443);

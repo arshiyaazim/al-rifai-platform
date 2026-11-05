@@ -26,6 +26,13 @@ COPY --from=build --chown=10001:10001 /app/.next/static ./.next/static
 COPY --from=build --chown=10001:10001 /app/public ./public
 COPY --from=build --chown=10001:10001 /app/deploy ./deploy
 COPY --from=build --chown=10001:10001 /app/scripts/sync-worker.mjs ./scripts/sync-worker.mjs
+# Operational tooling: the reset CLI and the two modules it shares with the web
+# application (one hashing implementation, one length policy, one env loader).
+COPY --from=build --chown=10001:10001 /app/scripts/standalone/reset-password.mjs ./scripts/standalone/reset-password.mjs
+COPY --from=build --chown=10001:10001 /app/scripts/check-env.mjs ./scripts/check-env.mjs
+COPY --from=build --chown=10001:10001 /app/lib/env.mjs ./lib/env.mjs
+COPY --from=build --chown=10001:10001 /app/lib/password-hash.ts ./lib/password-hash.ts
+COPY --from=build --chown=10001:10001 /app/lib/password-policy.ts ./lib/password-policy.ts
 
 USER 10001:10001
 EXPOSE 3000 3443
