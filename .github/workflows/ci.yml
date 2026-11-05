@@ -17,14 +17,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
 
       - name: Install pnpm
         run: npm install -g pnpm@11.25.0
@@ -45,14 +42,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
 
       - name: Install pnpm
         run: npm install -g pnpm@11.25.0
@@ -83,14 +77,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
 
       - name: Install pnpm
         run: npm install -g pnpm@11.25.0
@@ -105,7 +96,10 @@ jobs:
           PGDATABASE: alrifai_v2
           PGUSER: alrifai_app
           PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
         run: |
+          PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'alrifai_runtime') THEN CREATE ROLE alrifai_runtime LOGIN PASSWORD 'runtime-secret'; END IF; END \$\$;"
           node --experimental-strip-types scripts/standalone/install.mjs --preflight
           node --experimental-strip-types scripts/standalone/install.mjs \
             --admin-user owner --admin-password 'test-secret' --admin-name 'Owner'
@@ -117,6 +111,8 @@ jobs:
           PGDATABASE: alrifai_v2
           PGUSER: alrifai_app
           PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
         run: pnpm test:standalone
 
   router-tests:
@@ -139,14 +135,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
 
       - name: Install pnpm
         run: npm install -g pnpm@11.25.0
@@ -161,7 +154,10 @@ jobs:
           PGDATABASE: alrifai_v2
           PGUSER: alrifai_app
           PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
         run: |
+          PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'alrifai_runtime') THEN CREATE ROLE alrifai_runtime LOGIN PASSWORD 'runtime-secret'; END IF; END \$\$;"
           node --experimental-strip-types scripts/standalone/install.mjs --preflight
           node --experimental-strip-types scripts/standalone/install.mjs \
             --admin-user owner --admin-password 'test-secret' --admin-name 'Owner'
@@ -173,7 +169,67 @@ jobs:
           PGDATABASE: alrifai_v2
           PGUSER: alrifai_app
           PGPASSWORD: owner-secret
-        run: node --experimental-strip-types --test tests/standalone/message-router.test.mjs
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: node --experimental-strip-types --test --test-concurrency=1 tests/standalone/message-router.test.mjs
+
+  review-queue-tests:
+    name: Review Queue Integration Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: alrifai_app
+          POSTGRES_PASSWORD: owner-secret
+          POSTGRES_DB: alrifai_v2
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U alrifai_app -d alrifai_v2"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install -g pnpm@11.25.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install disposable database schema
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: |
+          PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'alrifai_runtime') THEN CREATE ROLE alrifai_runtime LOGIN PASSWORD 'runtime-secret'; END IF; END \$\$;"
+          node --experimental-strip-types scripts/standalone/install.mjs --preflight
+          node --experimental-strip-types scripts/standalone/install.mjs \
+            --admin-user owner --admin-password 'test-secret' --admin-name 'Owner'
+
+      - name: Run Review Queue integration tests
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: pnpm test:review
 
   migration-validation:
     name: Migration Validation
@@ -195,14 +251,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
 
       - name: Install pnpm
         run: npm install -g pnpm@11.25.0
@@ -217,12 +270,16 @@ jobs:
           PGDATABASE: alrifai_v2
           PGUSER: alrifai_app
           PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
         run: |
+          PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'alrifai_runtime') THEN CREATE ROLE alrifai_runtime LOGIN PASSWORD 'runtime-secret'; END IF; END \$\$;"
           node --experimental-strip-types scripts/standalone/install.mjs --preflight
           node --experimental-strip-types scripts/standalone/install.mjs \
             --admin-user owner --admin-password 'test-secret' --admin-name 'Owner'
+          node --experimental-strip-types scripts/standalone/install.mjs --force
 
-      - name: Verify schema version is 1.3.0
+      - name: Verify schema version is 1.3.3
         env:
           PGHOST: 127.0.0.1
           PGPORT: 5432
@@ -231,7 +288,7 @@ jobs:
           PGPASSWORD: owner-secret
         run: |
           VERSION=$(PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -t -A -c "SELECT value FROM schema_meta WHERE key = 'schema_version'")
-          test "$VERSION" = "1.3.2"
+          test "$VERSION" = "1.3.3"
 
   nextjs-build:
     name: Next.js Build
@@ -240,14 +297,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
 
       - name: Install pnpm
         run: npm install -g pnpm@11.25.0
@@ -265,8 +319,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref }}
 
       - name: Validate Dockerfile syntax
         run: |
@@ -280,10 +332,15 @@ jobs:
         run: |
           docker build --target build -t al-rifai-platform:ci-test .
 
-      - name: Verify no production secrets in repo
+      - name: Verify no tracked env files or private keys in repo
         run: |
-          if grep -rE 'PGPASSWORD|ALRIFAI_REVIEW_PASSWORD|\.env$' --include='*.ts' --include='*.mjs' --include='*.sql' --include='*.yml' --include='*.yaml' . --exclude-dir=node_modules --exclude-dir=.git | grep -v '.env.example' | grep -v 'process.env'; then
-            echo "ERROR: Potential secret found in repository"
+          TRACKED_ENV=$(git ls-files '.env' '.env.*' | grep -v '^\.env\.example$' || true)
+          if [ -n "$TRACKED_ENV" ]; then
+            echo "ERROR: Tracked .env file found in repository: $TRACKED_ENV"
+            exit 1
+          fi
+          if git grep -E -- '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' -- ':!.github/workflows/ci.yml'; then
+            echo "ERROR: Private key material found in repository"
             exit 1
           fi
 
@@ -295,12 +352,19 @@ jobs:
       - unit-tests
       - domain-integration-tests
       - router-tests
+      - review-queue-tests
       - migration-validation
       - nextjs-build
       - docker-build-validation
     if: always()
     steps:
-      - name: Report results
+      - name: Enforce all upstream checks succeeded
         run: |
-          echo "CI completed for ${{ github.ref }}"
-          echo "All required checks: ${{ needs.lint-and-typecheck.result }} ${{ needs.unit-tests.result }} ${{ needs.migration-validation.result }} ${{ needs.nextjs-build.result }}"
+          RESULTS="${{ needs.lint-and-typecheck.result }} ${{ needs.unit-tests.result }} ${{ needs.domain-integration-tests.result }} ${{ needs.router-tests.result }} ${{ needs.review-queue-tests.result }} ${{ needs.migration-validation.result }} ${{ needs.nextjs-build.result }} ${{ needs.docker-build-validation.result }}"
+          echo "CI job results for ${{ github.ref }}: $RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" != "success" ]; then
+              echo "ERROR: One or more CI jobs did not succeed"
+              exit 1
+            fi
+          done

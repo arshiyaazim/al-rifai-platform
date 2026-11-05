@@ -20,9 +20,11 @@
     "test:domain": "node --experimental-strip-types --test --test-concurrency=1 tests/standalone/domain.test.ts",
     "test:whatsapp": "node --experimental-strip-types --test --test-concurrency=1 tests/standalone/whatsapp.test.ts",
     "test:standalone": "node --experimental-strip-types --test --test-concurrency=1 tests/standalone/domain.test.ts tests/standalone/whatsapp.test.ts",
-    "test:unit": "node --experimental-strip-types --test tests/shift-boundary.mjs tests/unified-auth-policy.mjs tests/standalone/media.test.mjs tests/standalone/identity.test.mjs",
+    "test:unit": "node --experimental-strip-types --test tests/shift-boundary.mjs tests/unified-auth-policy.mjs tests/standalone/media.test.mjs tests/standalone/identity.test.mjs tests/standalone/message-classifier.test.mjs tests/standalone/review-ui.test.mjs",
     "admin:reset": "node --experimental-strip-types scripts/standalone/reset-password.mjs",
-    "env:check": "node --experimental-strip-types scripts/check-env.mjs"
+    "env:check": "node --experimental-strip-types scripts/check-env.mjs",
+    "test:review": "node --experimental-strip-types --test --test-concurrency=1 tests/standalone/review-api.test.mjs",
+    "test:review-ui": "node --experimental-strip-types --test tests/standalone/review-ui.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

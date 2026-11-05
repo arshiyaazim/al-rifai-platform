@@ -50,6 +50,11 @@ export type InstructionInput = {
   sourceMessageId?: string | null;
   sourceBlockKey?: string | null;
   sourceHash?: string | null;
+  // Cash review-candidate provenance (stored on cash_submissions, not on the
+  // instruction itself; the instruction is only created after approval).
+  sourceChatJid?: string | null;
+  sourceAccountId?: string | null;
+  category?: string | null;
 };
 
 export async function createInstruction(actor: Actor, input: InstructionInput) {
@@ -234,9 +239,13 @@ export async function submitCash(actor: Actor, payload: InstructionInput) {
   if (existing) return {id: existing.id, duplicate: true, state: 'PENDING_REVIEW'};
   const id = newId('sub');
   const created = await row<{id: string}>(
-    `INSERT INTO cash_submissions (id, payload, payload_hash, submitted_by, state)
-     VALUES ($1,$2::jsonb,$3,$4,'PENDING_REVIEW') RETURNING id`,
-    [id, canonical, stableId('h', [canonical]), actor.id],
+    `INSERT INTO cash_submissions
+       (id, payload, payload_hash, submitted_by, state,
+        source_message_id, source_chat_jid, source_account_id, category)
+     VALUES ($1,$2::jsonb,$3,$4,'PENDING_REVIEW',$5,$6,$7,$8) RETURNING id`,
+    [id, canonical, stableId('h', [canonical]), actor.id,
+      payload.sourceMessageId ?? null, payload.sourceChatJid ?? null,
+      payload.sourceAccountId ?? null, payload.category ?? null],
   );
   await recordAudit({actor, action: 'CASH_SUBMITTED', entity: 'cash_submission', entityId: id});
   return {id: created?.id, duplicate: false, state: 'PENDING_REVIEW'};

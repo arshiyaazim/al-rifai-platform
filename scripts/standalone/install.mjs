@@ -33,6 +33,7 @@ const EXTRA_SCHEMA_FILES = [
   join(APP_ROOT, 'db', 'standalone', '004_phase3_router_state.sql'),
   join(APP_ROOT, 'db', 'standalone', '005_phase3_vessel_correlation.sql'),
   join(APP_ROOT, 'db', 'standalone', '006_phase3_review_queue.sql'),
+  join(APP_ROOT, 'db', 'standalone', '007_phase3_review_queue_ui.sql'),
 ];
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;
@@ -168,6 +169,9 @@ async function grantRuntime(client, config, runtimeUser) {
     // evidence and media rows with the least-privilege runtime role.
     'whatsapp_import_runs', 'whatsapp_sync_state', 'identity_aliases',
     'whatsapp_media',
+    // Phase 3 router & vessel correlation / group authorization tables.
+    'program_source_messages', 'escort_client_group_authorizations',
+    'login_throttle_state',
   ];
   const appendOnly = ['cash_portal_audit', 'program_events', 'audit_events',
     'cash_submission_reviews', 'review_decisions', 'cash_postings', 'ledger_entries'];

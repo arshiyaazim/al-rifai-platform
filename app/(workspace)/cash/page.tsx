@@ -1,18 +1,22 @@
+import Link from 'next/link';
 import {incomeExpense, listAccounts, listInstructions, listLedger} from '@/lib/standalone/finance';
+import {listCashReviewCandidates} from '@/lib/standalone/review';
 import {rows} from '@/lib/standalone/db';
 import {money} from '@/lib/standalone/session';
 import {ActionForm} from '@/components/standalone/action-form';
+import {formatReviewAmount, formatReviewTimestamp, reviewCategoryLabel, reviewCategoryTone, reviewStateLabel, reviewStateTone} from '@/lib/review-ui';
 
 export const dynamic = 'force-dynamic';
 
 export default async function CashPage() {
   const today = new Date().toISOString().slice(0, 10);
-  const [accounts, instructions, ledger, report, submissions] = await Promise.all([
+  const [accounts, instructions, ledger, report, submissions, cashCandidates] = await Promise.all([
     listAccounts(), listInstructions({}), listLedger({limit: 60}),
     incomeExpense(`${today.slice(0, 8)}01`, today),
     rows<{id: string; state: string; submitted_by: string; created_at: string; display_name: string | null}>(
       'SELECT s.id, s.state, s.submitted_by, s.created_at, u.display_name FROM cash_submissions s LEFT JOIN cash_portal_users u ON u.id = s.submitted_by ORDER BY s.created_at DESC LIMIT 30',
     ),
+    listCashReviewCandidates({state: 'PENDING_REVIEW', limit: 50}),
   ]);
   const pending = instructions.filter((instruction) => (instruction as {state: string}).state === 'REVIEW').slice(0, 20);
 
@@ -20,6 +24,9 @@ export default async function CashPage() {
     <>
       <div className="page-head">
         <div><h1>Cash &amp; Accounts</h1><p className="muted">Instructions, approvals, postings and the ledger.</p></div>
+        <div className="row-actions">
+          <Link href="/review?domain=CASH">Open Cash review queue →</Link>
+        </div>
       </div>
 
       <div className="grid-cards">
@@ -71,19 +78,67 @@ export default async function CashPage() {
         />
       </div>
 
+      <section className="card" style={{marginBottom: 18}}>
+        <div className="page-head" style={{marginBottom: 8}}>
+          <div><h3>Cash review candidates ({cashCandidates.length})</h3></div>
+          <span className="muted">Reviewers can inspect source evidence and correct supported fields. Approving a candidate does not post or settle funds.</span>
+        </div>
+        {cashCandidates.length ? (
+          <table>
+            <thead><tr><th>Candidate</th><th>Category</th><th>State</th><th>Submitter</th><th>Created</th><th>Source message</th><th>Parsed</th><th>Review</th></tr></thead>
+            <tbody>
+              {cashCandidates.map((candidate) => {
+                const payload = (candidate.payload ?? {}) as Record<string, unknown>;
+                return (
+                  <tr key={candidate.id}>
+                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{candidate.id}</td>
+                    <td><span className={`pill ${reviewCategoryTone(candidate.category)}`}>{reviewCategoryLabel(candidate.category)}</span></td>
+                    <td><span className={`pill ${reviewStateTone(candidate.state)}`}>{reviewStateLabel(candidate.state)}</span></td>
+                    <td>{candidate.submitter_name ?? candidate.submitted_by.slice(0, 12)}</td>
+                    <td style={{whiteSpace: 'nowrap'}}>{formatReviewTimestamp(candidate.created_at)}</td>
+                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>
+                      {candidate.source_message_id ? (
+                        <Link href={`/messages?q=${encodeURIComponent(candidate.source_message_id)}`}>{candidate.source_message_id}</Link>
+                      ) : <span className="muted">—</span>}
+                    </td>
+                    <td style={{maxWidth: 320}}>
+                      <div>{String(payload.employeeName ?? payload.employee_name ?? '—')}</div>
+                      <div className="muted">{formatReviewAmount(payload.amountMinor as string | number | null)} · {String(payload.method ?? '—')}</div>
+                    </td>
+                    <td><Link href={`/review/${candidate.id}`}>Inspect →</Link></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : <p className="muted">No cash review candidates are pending.</p>}
+      </section>
+
       <section className="card">
         <h3>Instructions ({instructions.length})</h3>
         <table>
-          <thead><tr><th>Payee</th><th>Method</th><th>Amount</th><th>State</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Payee</th><th>Method</th><th>Amount</th><th>State</th><th>Source</th><th>Actions</th></tr></thead>
           <tbody>
             {instructions.slice(0, 40).map((instruction) => {
-              const item = instruction as unknown as {id: string; employee_name: string; method: string; amount_minor: string; state: string};
+              const item = instruction as unknown as {
+                id: string; employee_name: string; method: string; amount_minor: string; state: string;
+                source_channel?: string | null; source_message_id?: string | null; source_block_key?: string | null;
+              };
               return (
                 <tr key={item.id}>
                   <td>{item.employee_name}</td>
                   <td>{item.method}</td>
                   <td>{money(item.amount_minor)}</td>
                   <td><span className={`pill ${item.state === 'POSTED' ? 'ok' : item.state === 'REJECTED' ? 'bad' : 'warn'}`}>{item.state}</span></td>
+                  <td style={{maxWidth: 260}}>
+                    <div className="muted" style={{fontSize: 11}}>{item.source_channel ?? 'WEB'}</div>
+                    {item.source_message_id ? (
+                      <Link href={`/messages?q=${encodeURIComponent(item.source_message_id)}`} style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>
+                        {item.source_message_id}
+                      </Link>
+                    ) : <span className="muted">no source message</span>}
+                    {item.source_block_key ? <div className="muted" style={{fontSize: 10}}>block {item.source_block_key}</div> : null}
+                  </td>
                   <td>
                     {item.state === 'REVIEW' ? (
                       <div className="row-actions">
@@ -97,10 +152,10 @@ export default async function CashPage() {
                 </tr>
               );
             })}
-            {!instructions.length ? <tr><td colSpan={5} className="muted">No instructions yet.</td></tr> : null}
+            {!instructions.length ? <tr><td colSpan={6} className="muted">No instructions yet.</td></tr> : null}
           </tbody>
         </table>
-        {pending.length ? <p className="muted">{pending.length} instruction(s) awaiting approval.</p> : null}
+        {pending.length ? <p className="muted">{pending.length} instruction(s) awaiting approval. Posting remains a separate explicit admin action.</p> : null}
       </section>
 
       <div className="split">

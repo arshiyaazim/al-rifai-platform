@@ -1,18 +1,75 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../_shared';
-import {decideReview, listReview, submitForReview, withdrawReview} from '@/lib/standalone/review';
+import {
+  correctCashSubmission,
+  correctReviewItem,
+  decideReview,
+  getReviewDetail,
+  listCashReviewCandidates,
+  listReviewQueue,
+  reviewQueueCounts,
+  withdrawReview,
+} from '@/lib/standalone/review';
+import {decideCashSubmission} from '@/lib/standalone/finance';
+import {reviewActionsFor, type ReviewActor} from '@/lib/review-ui';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const CORRECTION_FIELDS: Record<string, string[]> = {
+  PROGRAM: ['motherVessel', 'lighterVessel', 'masterMobile', 'destination', 'escortName', 'escortMobile', 'startDate', 'startShift', 'endDate', 'endShift', 'notes'],
+  CASH: ['employeeName', 'employeeMobile', 'payoutMobile', 'method', 'amountMinor', 'purpose', 'accountId'],
+  EMPLOYEE: ['preferredName', 'employeeMobile', 'dutyType'],
+  ATTENDANCE: ['employeeMobile', 'dutyDate', 'state', 'hours'],
+};
+
+function pickCorrections(body: Record<string, unknown>, domain: string): Record<string, unknown> {
+  const allowed = CORRECTION_FIELDS[domain] ?? [];
+  const corrections: Record<string, unknown> = {};
+  for (const field of allowed) {
+    if (body[field] !== undefined) corrections[field] = body[field];
+  }
+  return corrections;
+}
 
 export async function GET(request: Request) {
   try {
     const actor = await actorFor(request, {csrf: false});
     const url = new URL(request.url);
-    return ok({rows: await listReview({
-      state: url.searchParams.get('state') ?? 'PENDING',
-      mine: url.searchParams.get('mine') === '1',
-      actor,
-    })});
+    const id = url.searchParams.get('id');
+    if (id) {
+      const detail = await getReviewDetail(id);
+      if (!detail) return ok({error: 'ITEM_NOT_FOUND'}, 404);
+      const actions = reviewActionsFor(actor as ReviewActor, detail.item as never);
+      return ok({detail, actions, user: {id: actor.id, role: actor.role}});
+    }
+
+    const state = url.searchParams.get('state') ?? 'PENDING';
+    const domain = url.searchParams.get('domain') ?? 'ALL';
+    const category = url.searchParams.get('category') ?? 'ALL';
+    const q = url.searchParams.get('q') ?? '';
+    const mine = url.searchParams.get('mine') === '1';
+    const showCash = domain === 'ALL' || domain === 'CASH';
+
+    const [rows, cashCandidates, counts] = await Promise.all([
+      listReviewQueue({state, domain, category, q, mine, actor: actor as never}),
+      showCash ? listCashReviewCandidates({state, q, mine, actor: actor as never}) : Promise.resolve([]),
+      reviewQueueCounts(),
+    ]);
+
+    return ok({
+      rows: rows.map((item) => ({...item, actions: reviewActionsFor(actor as ReviewActor, item as never)})),
+      cashCandidates: cashCandidates.map((item) => ({
+        ...item,
+        actions: reviewActionsFor(actor as ReviewActor, {
+          id: item.id,
+          domain: 'CASH',
+          state: item.state,
+          submitted_by: item.submitted_by,
+        }),
+      })),
+      counts,
+      user: {id: actor.id, role: actor.role},
+    });
   } catch (error) {
     return errorResponse(error);
   }
@@ -22,20 +79,31 @@ export async function POST(request: Request) {
   try {
     const actor = await actorFor(request);
     const body = await bodyOf<{action?: string} & Record<string, unknown>>(request);
-    if (body.action === 'submit') {
-      const raw = body.payload;
-      const payload = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      return ok(await submitForReview(actor, {
-        domain: String(body.domain ?? ''),
-        action: String(body.reviewAction ?? body.recordAction ?? 'CREATE'),
-        targetRef: (body.targetRef as string | undefined) ?? null,
-        payload: payload as Record<string, unknown>,
-      }), 201);
+    const action = body.action ?? '';
+    const id = String(body.id ?? '');
+
+    if (action === 'decide') {
+      const decision = body.decision === 'REJECTED' ? 'REJECTED' : 'APPROVED';
+      const reason = String(body.reason ?? '');
+      if (body.kind === 'cash_submission') {
+        return ok(await decideCashSubmission(actor as never, id, decision, reason));
+      }
+      return ok(await decideReview(actor as never, id, decision, reason));
     }
-    if (body.action === 'decide') {
-      return ok(await decideReview(actor, String(body.id), body.decision === 'REJECTED' ? 'REJECTED' : 'APPROVED', String(body.reason ?? '')));
+
+    if (action === 'correct') {
+      const domain = String(body.domain ?? '').toUpperCase();
+      const corrections = pickCorrections(body, domain);
+      if (body.kind === 'cash_submission') {
+        return ok(await correctCashSubmission(actor as never, id, corrections));
+      }
+      return ok(await correctReviewItem(actor as never, id, corrections));
     }
-    if (body.action === 'withdraw') return ok(await withdrawReview(actor, String(body.id)));
+
+    if (action === 'withdraw') {
+      return ok(await withdrawReview(actor as never, id));
+    }
+
     return ok({error: 'UNKNOWN_ACTION'}, 400);
   } catch (error) {
     return errorResponse(error);

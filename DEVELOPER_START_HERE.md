@@ -2,7 +2,7 @@
 
 > **Canonical current-state developer map — not a changelog.** Read this first before modifying code, database, Docker, WhatsApp ingestion, or deployment.
 >
-> **Last reconciled:** 2026-11-05. **Source:** GitHub `main` at the Phase 2 commit that carries this map (previous verified baseline `58e239dac3676a7fa0001be3b2b2637689c8af76`), repository source files, and live measurements from this deployment. **Runtime facts below are agent-measured unless marked dated.**
+> **Last reconciled:** 2026-11-06. **Source:** `feature/phase3-router-cash-vessel` at Increment 4 checkpoint `f606678` plus the Increment 5 working tree; GitHub `main` remains at `e6becfc` (Phase 2). Repository source files and locally executed test results. **Runtime facts below are agent-measured unless marked dated.**
 >
 > **Priority:** **BUILD → RUN → LIVE → IMPROVE**. Do not block releases on unrelated legacy data migration, historical Git branches, exhaustive tests, or non-blocking cleanup. Never claim a workflow is live solely because code exists.
 
@@ -11,14 +11,14 @@
 | Item | Current value / source |
 |---|---|
 | Git repository | https://github.com/arshiyaazim/al-rifai-platform |
-| Git branch | `main`; owner reports clean and tracking `origin/main` |
-| Verified push baseline | `58e239dac3676a7fa0001be3b2b2637689c8af76` (Phase 2 follows) |
+| Git branch | `feature/phase3-router-cash-vessel` (Increment 5 working branch); `main` untouched |
+| Verified baseline | `f6066785c6544bc267554316c994e82e4a50c2a5` (Increment 4 checkpoint, preserved) |
 | Local Git checkout (VPS) | `/opt/al-rifai-platform` |
 | Standalone app source / root `.env` (VPS) | `/opt/vps/al-rifai-standalone/apps/al-rifai` |
 | Public application | https://app.al-rifai.iamazim.com |
 | Login | https://app.al-rifai.iamazim.com/login |
 | Public health | https://app.al-rifai.iamazim.com/api/health |
-| New PostgreSQL DB | `alrifai_v2`, schema `public`, version `1.2.0` |
+| New PostgreSQL DB | `alrifai_v2`, schema `public`, version `1.3.3` (local test DB; production not deployed) |
 | Legacy PostgreSQL DB | `alrifai` — retained, **not** active application DB |
 | WhatsApp source WA-01 | `/var/lib/vps/whatsapp/wa-01/store/messages.db` |
 | WhatsApp source WA-02 | `/var/lib/vps/whatsapp/wa-02/store/messages.db` |
@@ -29,6 +29,9 @@
 | Raw ingestion extension | `db/standalone/002_raw_import.sql` |
 | Identity/media extension | `db/standalone/003_phase2_identity_media.sql` |
 | Router processing state | `db/standalone/004_phase3_router_state.sql` |
+| Vessel correlation | `db/standalone/005_phase3_vessel_correlation.sql` |
+| Review Queue schema | `db/standalone/006_phase3_review_queue.sql` |
+| Review Queue UI schema | `db/standalone/007_phase3_review_queue_ui.sql` |
 | Message worker | `scripts/sync-worker.mjs` |
 | Media crypto/naming | `lib/whatsapp-media.mjs` |
 | Identity classification | `lib/whatsapp-identity.mjs` |
@@ -65,8 +68,9 @@ the deployed SQLite direct-import / tail worker.
 - **One application image, two application services:** `app` and `sync`; shared external Docker network `vps-backend`.
 - **Existing infrastructure retained:** PostgreSQL and two paired WhatsApp bridges.
 - **No separate Redis/Kafka/vector database or extra messaging service** in this deployment.
-- **One primary application database**, with **30 tables** after the Phase 2 extension.
+- **One primary application database**, with **32 tables** after the Phase 3 extensions (local test schema; production not deployed).
 - **Raw capture is not domain interpretation:** a message in PostgreSQL does not imply it has been classified into a cash instruction, vessel order, recruitment record, or AI conversation.
+- **Review Queue is read/write only through authenticated services:** the UI never decides, posts or settles; the API re-checks ADMIN + not-submitter + PENDING server-side.
 - **Media is content-addressed:** one file per SHA-256 under `/media/<account>/`; the database row links it to account, chat, message and sender evidence. Media keys stay in the bridge store and are never written to PostgreSQL.
 
 ## 3. Ports, URLs, services and runtime resources
@@ -82,7 +86,7 @@ the deployed SQLite direct-import / tail worker.
 
 **Compose-defined resource limits:** app **512 MiB**, sync **192 MiB**. Measured 2026-11-05 after Phase 2: app **~70 MiB**, sync **~32 MiB**. Disk **55 GB used / 194 GB total** (~139 GB free); `alrifai_v2` ~75 MB; media store **26 MB / 97 files**. Numbers are a dated snapshot, not current telemetry.
 
-**Runtime baseline:** HTTPS health 200 with database OK and schema `1.2.0`; authenticated access to the workspace pages including `/messages`; both sync checkpoints advancing. Deployed image `local/al-rifai-platform:20261105-phase2` (`sha256:2950c068…`, built from `09b2a51`); rollback image `20261105-v3` (`sha256:c29d837c…`) retained. Confirm actual digests from Docker before any rollback.
+**Runtime baseline (production, unchanged):** HTTPS health 200 with database OK and schema `1.2.0`; authenticated access to the workspace pages including `/messages`; both sync checkpoints advancing. Deployed image `local/al-rifai-platform:20261105-phase2` (`sha256:2950c068…`, built from `09b2a51`); rollback image `20261105-v3` (`sha256:c29d837c…`) retained. Confirm actual digests from Docker before any rollback. **Local Increment 5 test schema:** PostgreSQL 17, `alrifai_v2`, schema `1.3.3`, 32 tables; production not deployed.
 
 ## 4. Code and directory map
 
@@ -94,8 +98,14 @@ the deployed SQLite direct-import / tail worker.
 | `lib/env.mjs` | Shared environment loader |
 | `lib/whatsapp-media.mjs` | WhatsApp media decryption, MIME/extension and safe naming (pure) |
 | `lib/whatsapp-identity.mjs` | JID classification, canonical PN, confidence and person key (pure) |
-| `lib/message-router.ts` | Phase 3 shared WhatsApp message router: domain classification, authorization, crash-safe processing state, Review Queue submission for errors/ambiguity (LOCALLY VERIFIED: lint+typecheck pass; CI PENDING: DB tests not run) |
-| `lib/message-classifier.ts` | Phase 3 domain classifier: CASH/VESSEL/UNKNOWN classification from message text + chat purpose (LOCALLY VERIFIED: 14 unit tests pass; CI PENDING: not run in CI yet) |
+| `lib/message-router.ts` | Phase 3 shared WhatsApp message router: domain classification, authorization, crash-safe processing state, Review Queue submission for errors/ambiguity (LOCALLY VERIFIED: lint+typecheck+unit+DB tests pass; CI workflow prepared, not executed) |
+| `lib/message-classifier.ts` | Phase 3 domain classifier: CASH/VESSEL/UNKNOWN classification from message text + chat purpose (LOCALLY VERIFIED: 14 unit tests pass) |
+| `lib/standalone/review.ts` | Review Queue service: filterable queue, detail with source evidence, corrections, decisions, withdrawal, cash review candidates, counts (LOCALLY VERIFIED: 7 DB integration tests pass) |
+| `lib/review-ui.ts` | Pure Review Queue UI helpers: category/state labels, role-based action projection, source evidence, extracted/missing fields, vessel names, confirmation evidence (17 unit tests pass) |
+| `components/standalone/review-*.tsx` | Review Queue filters, actions, source evidence, audit history and detail components |
+| `app/(workspace)/review/page.tsx` | Authenticated Review Queue list with pending/resolved/rejected, domain/category filters and cash candidates |
+| `app/(workspace)/review/[id]/page.tsx` | Review detail with source evidence, extracted fields, missing/conflicting fields, reasons, audit history and role-checked actions |
+| `db/standalone/007_phase3_review_queue_ui.sql` | Additive Review Queue UI schema: category-aware pending uniqueness, correction metadata, cash candidate source columns |
 | `lib/standalone/media-storage.ts` | Media-root confinement and attachment filename safety |
 | `db/standalone/` | Fresh database bootstrap plus additive raw-import and Phase 2 layers |
 | `db/postgres.mjs` | PostgreSQL access and environment initialization |
@@ -105,7 +115,7 @@ the deployed SQLite direct-import / tail worker.
 | `app/(workspace)/messages/page.tsx` | Inbox: accounts, conversations, identities, media links, checkpoints |
 | `scripts/check-env.mjs` | Checks required environment keys without printing secrets |
 | `deploy/` | TLS application entry |
-| `tests/` | Focused unit and standalone tests (includes `tests/standalone/media.test.mjs` and `identity.test.mjs`) |
+| `tests/` | Focused unit and standalone tests (includes `tests/standalone/review-ui.test.mjs`, `review-api.test.mjs`, `message-classifier.test.mjs`, `message-router.test.mjs`, `media.test.mjs`, `identity.test.mjs`) |
 | `docs/STANDALONE-MAPPING.md` | Supporting feature → code → DB mapping; update if changed |
 | `docs/STANDALONE-VERIFICATION.md` | Supporting test evidence; not the canonical current-state map |
 | `docs/STANDALONE-REMOVED.md` | Legacy feature-removal reference |
@@ -127,7 +137,7 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 | Employees | **IMPLEMENTED** | Profiles and linked operations; fresh DB had 0 business employees | Employee-master phases and full identity enrichment |
 | Attendance | **IMPLEMENTED** | Manual records and summaries | WhatsApp-driven attendance automation |
 | Payroll | **PARTIAL** | Derived pay/rate model | Configure rates; advance, food and conveyance rules not complete |
-| Review / audit | **IMPLEMENTED** | Review workflows, audit schema | Verify domain-specific approval paths as added |
+| Review / audit | **IMPLEMENTED + FRONTEND INTEGRATED** | Review Queue UI with pending/resolved/rejected filters, domain/category filters, source-message evidence, extracted/missing fields, reasons, audit history and role-checked actions; cash review candidates; vessel review panels | Verify domain-specific approval paths as added; production not deployed |
 | Reports / CSV | **IMPLEMENTED** | Export/report features in source | Verify current datasets/permissions as needed |
 | Settings | **LIVE** (page) | Accounts, rates, relay settings and password functionality | Owner rate configuration pending |
 | WA-01 historical import | **LIVE** | All source rows imported; 19,064 messages, checkpoint 19,442 | Keep source/checkpoint reconciliation |
@@ -137,12 +147,12 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 | WhatsApp identity | **LIVE** | One resolver for both accounts: 2,587 aliases (2,320 EXACT / 62 VARIANT / 205 UNRESOLVED); account JIDs normalised; chat and participant names; PN/LID links only when the bridge resolved them | Contact-book/push/profile names where the bridge exposes them; WA-02 store has no `resolved_*`/`group_participant_jid` columns |
 | WhatsApp media (new) | **LIVE** | 100 attachments stored (27.2 MB, 97 unique files) including 6 received after deploy; SHA-256 verified; authenticated `/api/media`; no historical recovery | A live document or sticker sample; 55 older WA-02 rows are `MEDIA_METADATA_INCOMPLETE` by design |
 | WhatsApp Inbox | **LIVE** | Account selection, direct/group conversations, resolved names, raw JIDs when unresolved, media links, checkpoint and sync health | Deeper conversation search/filtering as data grows |
-| Phase 3: Shared Message Router | **IMPLEMENTED** | `lib/message-router.ts`, `lib/message-classifier.ts`, `db/standalone/004_phase3_router_state.sql`, `POST /api/whatsapp?action=route` | Lint+typecheck+14 classifier tests pass locally; DB integration tests CI PENDING; production not deployed |
-| Phase 3: Cash Domain Handler | **IMPLEMENTED** | WA-01 Admin OUTGOING messages → `cash_instructions` REVIEW via `createInstruction()` with atomic source provenance; unparsable → `cash_submissions` PENDING_REVIEW via `submitCash()`; idempotent by `(source_message_id, source_block_key)`; no automatic posting | Lint+typecheck+unit tests pass locally; DB integration tests CI PENDING; production not deployed |
-| Phase 3: Review Queue | **IMPLEMENTED** | 10 review categories (UNKNOWN_IDENTITY, AMBIGUOUS_DOMAIN, INCOMPLETE_CASH_INSTRUCTION, CASH_DUPLICATE_CANDIDATE, INCOMPLETE_VESSEL_ORDER, VESSEL_DUPLICATE_CANDIDATE, AMBIGUOUS_VESSEL_CONFIRMATION, UNMATCHED_VESSEL_ASSIGNMENT, EXTRACTION_FAILED, PROCESSING_ERROR); `review_items.category` column; group participant authorization; multi-message vessel correlation; ambiguous confirmation handling | Lint+typecheck+unit tests pass locally; DB integration tests CI PENDING; production not deployed |
-| Phase 3: Vessel Domain Handler | **IMPLEMENTED** | WA-01 incoming vessel messages → `programs` DRAFT via `createProgram()` with atomic provenance; group participant authorization via `escort_client_group_authorizations`; multi-lighter and multi-message correlation via `program_source_messages`; duplicates → Review Queue; admin outgoing confirmation via `applyConfirmation()` in same chat; ambiguous confirmations → review; WA-02 rejected | Lint+typecheck+unit tests pass locally; DB integration tests CI PENDING; production not deployed |
-| Phase 3: Source Provenance | **IMPLEMENTED** | `whatsapp_messages.processing_status/retry_count/last_error/last_processed_at`; `cash_instructions.source_message_id/source_block_key`; `programs.source_message_id/source_chat_jid` | Migration additive/idempotent; CI migration validation PENDING; production not deployed |
-| Phase 3: CI Workflow | **IMPLEMENTED** | `.github/workflows/ci.yml`: lint, typecheck, unit tests, domain integration tests, router tests, migration validation, Next.js build, Docker build validation | Workflow prepared; CI NOT RUN locally (no pnpm/PostgreSQL/Docker); no production creds |
+| Phase 3: Shared Message Router | **IMPLEMENTED** | `lib/message-router.ts`, `lib/message-classifier.ts`, `db/standalone/004_phase3_router_state.sql`, `POST /api/whatsapp?action=route` | Lint+typecheck+14 classifier tests+DB tests pass locally; CI workflow prepared, not executed; production not deployed |
+| Phase 3: Cash Domain Handler | **IMPLEMENTED** | WA-01 Admin OUTGOING messages → `cash_instructions` REVIEW via `createInstruction()` with atomic source provenance; unparsable → `cash_submissions` PENDING_REVIEW via `submitCash()`; idempotent by `(source_message_id, source_block_key)`; no automatic posting | Lint+typecheck+unit+DB tests pass locally; CI workflow prepared, not executed; production not deployed |
+| Phase 3: Review Queue | **IMPLEMENTED + FRONTEND INTEGRATED** | 10 review categories; `review_items.category` column; category-aware pending uniqueness; group participant authorization; multi-message vessel correlation; ambiguous confirmation handling; Review Queue UI with filters, source evidence, extracted/missing fields, reasons, audit history, corrections and role-checked decisions; cash review candidates | Lint+typecheck+unit+DB tests pass locally; CI workflow prepared, not executed; production not deployed |
+| Phase 3: Vessel Domain Handler | **IMPLEMENTED** | WA-01 incoming vessel messages → `programs` DRAFT via `createProgram()` with atomic provenance; group participant authorization via `escort_client_group_authorizations`; multi-lighter and multi-message correlation via `program_source_messages`; duplicates → Review Queue; admin outgoing confirmation via `applyConfirmation()` in same chat; ambiguous confirmations → review; WA-02 rejected; vessel review panels show incomplete orders, duplicates, ambiguous confirmations, escort conflicts, original/normalized names and confirmation_message_id | Lint+typecheck+unit+DB tests pass locally; CI workflow prepared, not executed; production not deployed |
+| Phase 3: Source Provenance | **IMPLEMENTED** | `whatsapp_messages.processing_status/retry_count/last_error/last_processed_at`; `cash_instructions.source_message_id/source_block_key`; `programs.source_message_id/source_chat_jid`; `program_source_messages`; `cash_submissions` source columns | Migration additive/idempotent; DB tests pass locally; CI migration validation not executed; production not deployed |
+| Phase 3: CI Workflow | **IMPLEMENTED** | `.github/workflows/ci.yml`: lint, typecheck, unit tests, domain integration tests, router tests, Review Queue integration tests, migration validation (schema 1.3.3), Next.js build, Docker build validation | Workflow prepared with a `review-tests` job; CI NOT RUN (GitHub Actions not executed in this sandbox); no production creds |
 | Recruitment conversations | **NOT BUILT/NOT VERIFIED** | No complete workflow established | Design from old source/docs, implement new module |
 | Employee conversations | **NOT BUILT/NOT VERIFIED** | Raw messages available | Role-based conversation routing and employee actions |
 | Client CRM / customer service | **NOT BUILT/NOT VERIFIED** | Raw messages available | Client identity, case state, reply workflow |
@@ -152,27 +162,27 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 
 ## 6. Pipeline/workflow inventory
 
-**Counting rule:** A pipeline is one independently meaningful end-to-end business/data flow. Below are **14 tracked logical pipelines**, **not** a claim that 14 background workers exist. Recount when adding/removing a flow. Status reflects the weakest critical step.
+**Counting rule:** A pipeline is one independently meaningful end-to-end business/data flow. Below are **15 tracked logical pipelines**, **not** a claim that 15 background workers exist. Recount when adding/removing a flow. Status reflects the weakest critical step.
 
 | # | Pipeline / workflow | Status | What works now | What remains |
 |---|---|---|---|---|
 | P01 | HTTPS → login → authorized workspace | **LIVE** | TLS, session, authenticated pages | Ongoing access checks |
-| P02 | Fresh schema → DB connectivity → health | **LIVE** | 30-table DB, health OK, version 1.3.0 | Repeat on next schema change |
+| P02 | Fresh schema → DB connectivity → health | **LIVE** | 32-table DB, health OK, version 1.3.3 (local test schema) | Repeat on next schema change; production not deployed |
 | P03 | WA-01 SQLite → initial PostgreSQL import | **LIVE** | Full source snapshot copied | Maintain dedup/provenance |
 | P04 | WA-02 SQLite → initial PostgreSQL import | **LIVE** | Full source snapshot copied | Maintain dedup/provenance |
 | P05 | WA-01 new message → automatic DB tail | **LIVE** | New rows observed across restarts; checkpoint advances; no error | Outgoing/direct/edits samples as they arrive |
 | P06 | WA-02 new message → automatic DB tail | **LIVE** | New rows and post-deploy media observed; checkpoint advances; no error | Outgoing/direct samples as they arrive |
 | P07 | Raw message → shared identity/contact resolution | **PARTIAL** | One resolver for both accounts: 2,587 aliases, canonical PN, chat/participant names, bridge-only PN/LID links | Contact-book/push/profile names; WA-02 store lacks `resolved_*` and participant columns |
-| P08 | Raw message → domain classification/action | **IMPLEMENTED** | Phase 3 shared router + classifier; authorization via whatsapp_chats; processing state; Review Queue submission | Lint+typecheck+unit tests pass locally; CI PENDING; production not deployed |
-| P09 | Cash instruction → review → posting/ledger | **PARTIAL** | REVIEW creation via router; WhatsApp cash parser parity; posting schema | Authorized posting and real approved posting not demonstrated |
-| P10 | Vessel order → program → assignment → release | **IMPLEMENTED** | Router creates program DRAFT from WhatsApp vessel messages (WA-01 only); multi-lighter and multi-message correlation; confirmation via applyConfirmation in same chat; ±1-day duplicate warnings → Review Queue | Release and assignment parity; CI PENDING; production not deployed |
+| P08 | Raw message → domain classification/action | **IMPLEMENTED** | Phase 3 shared router + classifier; authorization via whatsapp_chats; processing state; Review Queue submission; Review Queue UI with filters, source evidence, extracted/missing fields, reasons, audit history and role-checked actions | Lint+typecheck+unit+DB tests pass locally; CI workflow prepared, not executed; production not deployed |
+| P09 | Cash instruction → review → posting/ledger | **PARTIAL** | REVIEW creation via router; WhatsApp cash parser parity; posting schema; cash review candidates with source evidence and corrections; no automatic posting | Authorized posting and real approved posting not demonstrated; production not deployed |
+| P10 | Vessel order → program → assignment → release | **IMPLEMENTED** | Router creates program DRAFT from WhatsApp vessel messages (WA-01 only); multi-lighter and multi-message correlation; confirmation via applyConfirmation in same chat; ±1-day duplicate warnings → Review Queue; vessel review panels for incomplete orders, duplicates, ambiguous confirmations, escort conflicts, original/normalized names and confirmation_message_id | Release and assignment parity; CI workflow prepared, not executed; production not deployed |
 | P11 | Employee → attendance → payroll | **PARTIAL** | Core tables/UI and rate calculation | Rate setup, attendance automation, extras |
 | P12 | Recruitment / employee / client conversations | **NOT BUILT/NOT VERIFIED** | Raw source messages available | Conversation UI, classification, workflows |
-| P13 | Phase 3 CI pipeline | **IMPLEMENTED** | .github/workflows/ci.yml: lint, typecheck, unit tests, domain integration tests, router tests, migration validation, Next.js build, Docker build validation | Workflow prepared; CI NOT RUN locally; production not deployed |
-| P13 | New media → persistent bytes → authenticated access | **LIVE** | 100 attachments / 27.2 MB stored and SHA-verified, including post-deploy samples; authenticated streaming; no historical recovery | Live document/sticker sample; retention policy as volume grows |
-| P14 | AI/admin → reply → WhatsApp → audit | **NOT BUILT/NOT VERIFIED** | No end-to-end proof | AI tools, outbound sender, source/audit linkage |
+| P13 | Phase 3 CI pipeline | **IMPLEMENTED** | .github/workflows/ci.yml: lint, typecheck, unit tests, domain integration tests, router tests, Review Queue integration tests, migration validation (schema 1.3.3), Next.js build, Docker build validation | Workflow prepared with a `review-tests` job; CI NOT RUN (GitHub Actions not executed in this sandbox); production not deployed |
+| P14 | New media → persistent bytes → authenticated access | **LIVE** | 100 attachments / 27.2 MB stored and SHA-verified, including post-deploy samples; authenticated streaming; no historical recovery | Live document/sticker sample; retention policy as volume grows |
+| P15 | AI/admin → reply → WhatsApp → audit | **NOT BUILT/NOT VERIFIED** | No end-to-end proof | AI tools, outbound sender, source/audit linkage |
 
-**Summary:** count programmatically when updating; **the table itself is authoritative**. (P01–P06 and P13 LIVE = 7; P07, P09, P10, P11 PARTIAL = 4; P08, P12, P14 NOT VERIFIED = 3.) **Current: 7 LIVE / 4 PARTIAL / 3 NOT VERIFIED.**
+**Summary:** count programmatically when updating; **the table itself is authoritative**. (P01–P06 and P14 LIVE = 7; P07, P09, P11 PARTIAL = 3; P08, P10, P13 IMPLEMENTED = 3; P12, P15 NOT VERIFIED = 2.) **Current: 7 LIVE / 3 PARTIAL / 3 IMPLEMENTED / 2 NOT VERIFIED.**
 
 ## 7. WhatsApp ingestion facts and boundaries
 
@@ -231,23 +241,23 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 | Priority | Work | Acceptance |
 |---|---|---|
 | 1 | Keep GitHub `main`, the canonical checkout and the deployment source aligned | `origin/main` = local HEAD, and the deployment source matches the committed documentation/source |
-| 2 | Phase 3 local implementation (all increments) | Code present on `feature/phase3-router-cash-vessel`; no production deployment |
+| 2 | Phase 3 local implementation (all increments) | Code present on `feature/phase3-router-cash-vessel`; Increment 5 committed locally; no production deployment |
 | 3 | Observe WA-02 outgoing/direct/edited samples | Real observed examples reach PostgreSQL once; checkpoint advances; no error |
 | 4 | Confirm document and sticker media | A live document/sticker attachment stored with SHA verification |
 | 5 | Complete identity map | Contact-book/push/profile names where the bridge exposes them; WA-02 store lacks `resolved_*` and participant columns |
 | 6 | Media retention and disk budget | A retention/size policy before the 26 MB store grows; keep the default 25 MB per-file ceiling |
 
 **Phase 3 implementation state (all items):**
-- Router Foundation: IMPLEMENTED — `lib/message-router.ts`, `lib/message-classifier.ts`, migration `db/standalone/004_phase3_router_state.sql`, API action `route` on `/api/whatsapp`. LOCALLY VERIFIED: lint+typecheck+14 classifier tests pass. CI PENDING: DB integration tests not run locally. PRODUCTION NOT DEPLOYED.
-- Cash Domain: IMPLEMENTED — WA-01 Admin OUTGOING messages only → `cash_instructions` REVIEW via `createInstruction()` with atomic source provenance (source_channel/source_message_id/source_block_key/source_hash in same INSERT); unparsable or invalid → `cash_submissions` PENDING_REVIEW via `submitCash()`; idempotent by unique index on `(source_message_id, source_block_key)`; INCOMING messages never create instructions; no automatic posting.
-- Vessel Domain: IMPLEMENTED — incoming WhatsApp vessel → `programs` DRAFT; duplicates → Review Queue; admin outgoing confirmation via `applyConfirmation` (no new outbound sender).
-- Review Queue: IMPLEMENTED — `review_items` for PROGRAM errors/duplicates; `cash_submissions` for CASH parse errors; no auto-decision.
-- Source Provenance: IMPLEMENTED — processing_status/retry_count/last_error/last_processed_at on `whatsapp_messages`; source_message_id/source_block_key on `cash_instructions`; source_message_id/source_chat_jid on `programs`.
-- CI Workflow: IMPLEMENTED — `.github/workflows/ci.yml` prepared. CI PENDING: not executed locally (no pnpm/PostgreSQL/Docker available locally). Production not deployed.
-- Frontend Integration: NOT BUILT — existing UI pages at `app/(workspace)/messages/page.tsx`, `cash/page.tsx`, `vessel/page.tsx`, `review/page.tsx` remain; no new UI required for Phase 3 minimal scope.
-- Docs: IMPLEMENTED — `DEVELOPER_START_HERE.md` updated in place; migration 004 added.
+- Router Foundation: IMPLEMENTED — `lib/message-router.ts`, `lib/message-classifier.ts`, migration `db/standalone/004_phase3_router_state.sql`, API action `route` on `/api/whatsapp`. LOCALLY VERIFIED: lint+typecheck+14 classifier tests+DB tests pass. CI workflow prepared, not executed. PRODUCTION NOT DEPLOYED.
+- Cash Domain: IMPLEMENTED — WA-01 Admin OUTGOING messages only → `cash_instructions` REVIEW via `createInstruction()` with atomic source provenance (source_channel/source_message_id/source_block_key/source_hash in same INSERT); unparsable or invalid → `cash_submissions` PENDING_REVIEW via `submitCash()`; idempotent by unique index on `(source_message_id, source_block_key)`; INCOMING messages never create instructions; no automatic posting. LOCALLY VERIFIED: DB tests pass. PRODUCTION NOT DEPLOYED.
+- Vessel Domain: IMPLEMENTED — incoming WhatsApp vessel → `programs` DRAFT; duplicates → Review Queue; admin outgoing confirmation via `applyConfirmation` (no new outbound sender); no second confirmation requirement. LOCALLY VERIFIED: DB tests pass. PRODUCTION NOT DEPLOYED.
+- Review Queue: IMPLEMENTED + FRONTEND INTEGRATED — `review_items` for PROGRAM/EMPLOYEE/ATTENDANCE reviews; `cash_submissions` for CASH parse errors; category-aware pending uniqueness; no auto-decision. Review Queue UI with pending/resolved/rejected filters, domain/category filters, source-message evidence, extracted/missing fields, reasons, audit history, corrections and role-checked decisions. LOCALLY VERIFIED: 17 UI tests + 7 DB tests pass. PRODUCTION NOT DEPLOYED.
+- Source Provenance: IMPLEMENTED — processing_status/retry_count/last_error/last_processed_at on `whatsapp_messages`; source_message_id/source_block_key on `cash_instructions`; source_message_id/source_chat_jid on `programs`; `program_source_messages`; cash candidate source columns. Migration 007 is additive/idempotent. DB tests pass. PRODUCTION NOT DEPLOYED.
+- CI Workflow: IMPLEMENTED — `.github/workflows/ci.yml` with lint, typecheck, unit tests, domain integration tests, router tests, Review Queue integration tests, migration validation (schema 1.3.3), Next.js build and Docker build validation. CI NOT RUN (GitHub Actions not executed in this sandbox). PRODUCTION NOT DEPLOYED.
+- Frontend Integration: IMPLEMENTED — Review Queue pages/components, Cash review integration, Vessel review integration, role-based actions, source evidence and audit history. LOCALLY VERIFIED: typecheck+lint+build+unit+DB tests pass. PRODUCTION NOT DEPLOYED.
+- Docs: IMPLEMENTED — `DEVELOPER_START_HERE.md` updated in place; migration 007 added.
 
-**Delivery boundary:** Stop after local implementation package. No VPS deployment. No GitHub push/CI claims without evidence. Owner approval required before merge.
+**Delivery boundary:** Local implementation package complete. No VPS deployment. No GitHub push. No production changes. Owner approval required before merge.
 | 6 | Domain conversation routing | Cash/Vessel/HR/Recruitment/CRM routed to proper handlers; no unauthorized automatic posting |
 | 7 | Vessel rates and missing release/parser logic | Owner-configured rates; end-to-end order/release flow |
 | 8 | Recruitment, employee conversations and AI assistant | Incremental modules, measured and deployed separately |
@@ -273,4 +283,4 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 
 ## 12. Handoff in one sentence
 
-**AL-RIFA'I is a live, lean Next.js/PostgreSQL platform with two bridge-SQLite ingestion paths, continuous tail on both accounts, shared identity evidence, and new-media capture served through an authenticated inbox; the next engineering work is richer contact identity, document/sticker live proof, retention, and domain-specific conversation/AI workflows—not another infrastructure rebuild.**
+**AL-RIFA'I is a live, lean Next.js/PostgreSQL platform with two bridge-SQLite ingestion paths, continuous tail on both accounts, shared identity evidence, new-media capture, and an authenticated Review Queue that surfaces source-message evidence, extracted/missing fields, reasons, audit history and role-checked decisions for Cash and Vessel; the next engineering work is GitHub CI/release validation, richer contact identity, document/sticker live proof, retention, and domain-specific conversation/AI workflows—not another infrastructure rebuild.**

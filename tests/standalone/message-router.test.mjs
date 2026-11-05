@@ -33,7 +33,7 @@ async function stageMessage(accountId, chatJid, messageId, direction, senderJid,
   await row(
     `INSERT INTO whatsapp_messages
        (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash, processing_status)
-     VALUES ($1,$2,$3,$4,$5,now(),$6,encode(digest($6,'sha256'),'hex'),$7)
+     VALUES ($1,$2,$3,$4,$5,now(),$6,encode(sha256(convert_to($6,'UTF8')),'hex'),$7)
      ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO NOTHING`,
     [accountId, chatJid, messageId, direction, senderJid, text, status],
   );
@@ -276,7 +276,7 @@ test('router: FAILED messages are retryable after backoff', async () => {
        (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash,
         processing_status, retry_count, last_processed_at)
      VALUES ('wa-01','8801844836824@s.whatsapp.net','msg-cash-retry-1','OUTGOING','8801880446111@s.whatsapp.net',
-       now(),'ID: 01712345678 Rahim Uddin 01812345678(B) 500/- test',encode(digest('x','sha256'),'hex'),
+       now(),'ID: 01712345678 Rahim Uddin 01812345678(B) 500/- test',encode(sha256('x'::bytea),'hex'),
        'FAILED', 3, now() - interval '20 minutes')
      ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO NOTHING`);
 
@@ -297,7 +297,7 @@ test('router: PROCESSING messages older than 30 min are recovered', async () => 
        (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash,
         processing_status, retry_count, last_processed_at)
      VALUES ('wa-01','8801844836824@s.whatsapp.net','msg-cash-stuck-1','OUTGOING','8801880446111@s.whatsapp.net',
-       now(),'ID: 01712345678 Rahim Uddin 01812345678(B) 500/- test',encode(digest('y','sha256'),'hex'),
+       now(),'ID: 01712345678 Rahim Uddin 01812345678(B) 500/- test',encode(sha256('y'::bytea),'hex'),
        'PROCESSING', 0, now() - interval '40 minutes')
      ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO NOTHING`);
 
@@ -491,7 +491,7 @@ test('vessel: crash recovery - stuck PROCESSING messages recovered', async () =>
         processing_status, retry_count, last_processed_at)
      VALUES ('wa-01','120363000000000001@g.us','msg-vessel-stuck-1','INCOMING','8801722222222@s.whatsapp.net',
        now(),'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111',
-       encode(digest('z','sha256'),'hex'),'PROCESSING', 0, now() - interval '40 minutes')
+       encode(sha256('z'::bytea),'hex'),'PROCESSING', 0, now() - interval '40 minutes')
      ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO NOTHING`);
 
   const result = await routePendingMessages(admin, 10);
@@ -839,7 +839,7 @@ test('review: crash recovery — stuck PROCESSING message recovered', async () =
        (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash,
         processing_status, retry_count, last_processed_at)
      VALUES ('wa-01','8801844836824@s.whatsapp.net','msg-review-stuck-1','OUTGOING','8801880446111@s.whatsapp.net',
-       now(),'ID: 01712345678 Rahim Uddin 01812345678(B) 500/- test',encode(digest('w','sha256'),'hex'),
+       now(),'ID: 01712345678 Rahim Uddin 01812345678(B) 500/- test',encode(sha256('w'::bytea),'hex'),
        'PROCESSING', 0, now() - interval '40 minutes')
      ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO NOTHING`);
 

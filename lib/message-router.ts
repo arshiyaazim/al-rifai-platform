@@ -28,13 +28,13 @@
 // admin's existing outgoing reply.
 // WA-02 is raw-ingestion/identity-only; no business processing from WA-02.
 
-import {row, tx, DomainError, type Actor} from '@/lib/standalone/db.ts';
-import {newId, stableId, recordAudit} from '@/lib/standalone/audit.ts';
-import {createInstruction, submitCash} from '@/lib/standalone/finance.ts';
-import {createProgram, potentialDuplicates} from '@/lib/standalone/programs.ts';
-import {submitForReview} from '@/lib/standalone/review.ts';
+import {row, tx, DomainError, type Actor} from './standalone/db.ts';
+import {newId, stableId, recordAudit} from './standalone/audit.ts';
+import {createInstruction, submitCash} from './standalone/finance.ts';
+import {createProgram, potentialDuplicates} from './standalone/programs.ts';
+import {submitForReview} from './standalone/review.ts';
 import {classifyDomain, type Domain} from './message-classifier.ts';
-import type {WhatsAppAccount} from '@/lib/standalone/whatsapp.ts';
+import type {WhatsAppAccount} from './standalone/whatsapp.ts';
 
 export type RouterResult = {
   processed: number;
@@ -164,7 +164,6 @@ async function markOutcome(
 async function isChatAuthorized(
   accountId: string,
   chatJid: string,
-  domain: Domain,
   direction: 'INCOMING' | 'OUTGOING',
 ): Promise<{authorized: boolean; purpose: string | null}> {
   const chat = await row<{purpose: string | null; authorized: boolean}>(
@@ -177,9 +176,13 @@ async function isChatAuthorized(
     return {authorized: false, purpose: chat?.purpose ?? null};
   }
   const purpose = chat.purpose ?? 'BOTH';
+  // The domain classifier enforces the chat purpose after this gate. A CASH
+  // chat must therefore admit INCOMING messages so the classifier can see
+  // them; it returns UNKNOWN for a purpose mismatch instead of dropping the
+  // message before classification.
   if (direction === 'INCOMING') {
     return {
-      authorized: purpose === 'ORDERS' || purpose === 'BOTH' || domain === 'CASH',
+      authorized: purpose === 'ORDERS' || purpose === 'CASH' || purpose === 'BOTH',
       purpose,
     };
   }
@@ -314,9 +317,15 @@ async function submitReviewItem(
     const id = newId('sub');
     try {
       await row(
-        `INSERT INTO cash_submissions (id, payload, payload_hash, submitted_by, state)
-         VALUES ($1,$2::jsonb,$3,$4,'PENDING_REVIEW') RETURNING id`,
-        [id, canonical, stableId('h', [canonical]), actor.id],
+        `INSERT INTO cash_submissions
+           (id, payload, payload_hash, submitted_by, state,
+            source_message_id, source_chat_jid, source_account_id, category)
+         VALUES ($1,$2::jsonb,$3,$4,'PENDING_REVIEW',$5,$6,$7,$8) RETURNING id`,
+        [id, canonical, stableId('h', [canonical]), actor.id,
+          targetRef,
+          typeof payload.sourceChatJid === 'string' ? payload.sourceChatJid : null,
+          typeof payload.sourceAccountId === 'string' ? payload.sourceAccountId : null,
+          category],
       );
       await recordAudit({
         actor,
@@ -394,6 +403,10 @@ async function handleCash(
         method: 'cash',
         amountMinor: 0,
         purpose: null,
+        sourceMessageId: message.message_id,
+        sourceChatJid: message.chat_jid,
+        sourceAccountId: message.account_id,
+        category: 'EXTRACTION_FAILED',
       });
     } catch {
       // submitCash may throw if payload validation fails; continue to
@@ -774,7 +787,6 @@ export async function routePendingMessages(
       const chatAuth = await isChatAuthorized(
         message.account_id,
         message.chat_jid,
-        domain,
         message.direction as 'INCOMING' | 'OUTGOING',
       );
 
