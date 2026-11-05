@@ -426,7 +426,9 @@ async function captureChunkMedia(client, account, chunk) {
 async function retryFailedMedia(client, account, db, columns) {
   const failed = await client.query(
     `SELECT chat_jid, message_id FROM whatsapp_media
-      WHERE account_id=$1 AND status='FAILED' AND updated_at > now() - interval '6 hours'
+      WHERE account_id=$1 AND status='FAILED'
+        AND error IS DISTINCT FROM 'MEDIA_METADATA_INCOMPLETE'
+        AND updated_at > now() - interval '6 hours'
       ORDER BY updated_at ASC LIMIT $2`,
     [account.id, MEDIA_RETRY_LIMIT],
   );
