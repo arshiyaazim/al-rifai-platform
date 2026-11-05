@@ -2,11 +2,33 @@
 // Requires a disposable PostgreSQL database prepared by
 // scripts/standalone/install.mjs. Runs in CI only.
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, {before} from 'node:test';
+import {createPool} from '../../db/postgres.mjs';
 import {row} from '../../lib/standalone/db.ts';
 import {routePendingMessages} from '../../lib/message-router.ts';
 
 const admin = {id: 'a'.repeat(64), role: 'ADMIN'};
+
+// Integration fixtures are shared state. Start every run from the same clean
+// fixture, and use the owner role only for this reset: the runtime role has no
+// TRUNCATE privilege, and TRUNCATE bypasses the row-level immutability triggers
+// on the audit/ledger tables. Nothing outside this disposable test database is
+// touched.
+before(async () => {
+  const owner = createPool({role: 'app', readOnly: false, applicationName: 'alrifai-router-test-reset'});
+  try {
+    await owner.query(`TRUNCATE TABLE
+      audit_events, cash_instructions, cash_postings, ledger_entries,
+      cash_submission_reviews, cash_submissions, review_decisions, review_items,
+      attendance, identity_aliases, program_pay, program_source_messages,
+      program_assignments, program_events, programs, employees,
+      whatsapp_media, whatsapp_messages, whatsapp_chats, whatsapp_sync_state,
+      whatsapp_accounts, whatsapp_import_runs
+      RESTART IDENTITY`);
+  } finally {
+    await owner.end();
+  }
+});
 
 async function ensureAccount(id, label = 'Test Account', adminJid = '8801880446111@s.whatsapp.net') {
   await row(
@@ -18,7 +40,8 @@ async function ensureAccount(id, label = 'Test Account', adminJid = '88018804461
   await row(
     `INSERT INTO whatsapp_chats (account_id, chat_jid, label, purpose, authorized)
      VALUES ($1,$2,$2,'CASH',true),($1,$3,$3,'ORDERS',true)
-     ON CONFLICT (account_id, chat_jid) DO NOTHING`,
+     ON CONFLICT (account_id, chat_jid) DO UPDATE
+       SET purpose = EXCLUDED.purpose, authorized = true`,
     [id, '8801844836824@s.whatsapp.net', '120363000000000001@g.us'],
   );
   await row(
@@ -34,7 +57,18 @@ async function stageMessage(accountId, chatJid, messageId, direction, senderJid,
     `INSERT INTO whatsapp_messages
        (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash, processing_status)
      VALUES ($1,$2,$3,$4,$5,now(),$6,encode(sha256(convert_to($6,'UTF8')),'hex'),$7)
-     ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO NOTHING`,
+     ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO UPDATE
+       SET direction = EXCLUDED.direction,
+           sender_jid = EXCLUDED.sender_jid,
+           source_timestamp = EXCLUDED.source_timestamp,
+           text_content = EXCLUDED.text_content,
+           content_hash = EXCLUDED.content_hash,
+           processing_status = EXCLUDED.processing_status,
+           retry_count = 0,
+           last_error = NULL,
+           last_processed_at = NULL,
+           processed_at = NULL,
+           classification = NULL`,
     [accountId, chatJid, messageId, direction, senderJid, text, status],
   );
 }
@@ -188,8 +222,8 @@ test('cash: duplicate message replay is idempotent', async () => {
   assert.equal(r2.instructions, 0);
   assert.equal(r2.byMessage.filter((m) => m.action === 'cash_idempotent_skip').length, 1);
 
-  const count = await countInstructions();
-  assert.equal(count, 1, 'Only one instruction should exist after replay');
+  const count = await row("SELECT count(*)::int AS n FROM cash_instructions WHERE source_channel='WHATSAPP' AND source_message_id='msg-cash-dup-1'");
+  assert.equal(count.n, 1, 'Only one instruction should exist for the replayed message');
 });
 
 test('cash: concurrent workers cannot create duplicate instructions', async () => {
@@ -204,8 +238,8 @@ test('cash: concurrent workers cannot create duplicate instructions', async () =
   // Only the first worker should create an instruction
   assert.equal(r1.instructions + r2.instructions, 1,
     'Concurrent workers must not create duplicate instructions');
-  const count = await countInstructions();
-  assert.equal(count, 1);
+  const count = await row("SELECT count(*)::int AS n FROM cash_instructions WHERE source_channel='WHATSAPP' AND source_message_id='msg-cash-concurrent-1'");
+  assert.equal(count.n, 1);
 });
 
 test('cash: similar but legitimate transactions create separate instructions', async () => {
@@ -242,12 +276,17 @@ test('cash: unauthorized chat is ignored', async () => {
   await ensureAccount('wa-01');
   await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-cash-unauth-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
     'ID: 01712345678 Rahim Uddin 01812345678(B) 100/- test');
-  // Remove authorization
-  await row("UPDATE whatsapp_chats SET authorized = false WHERE chat_jid = '8801844836824@s.whatsapp.net' AND account_id = 'wa-01'");
+  // Remove authorization for this test only; restore it in `finally` so the
+  // negative case can never leak into a later test.
+  try {
+    await row("UPDATE whatsapp_chats SET authorized = false WHERE chat_jid = '8801844836824@s.whatsapp.net' AND account_id = 'wa-01'");
 
-  const result = await routePendingMessages(admin, 10);
-  assert.equal(result.instructions, 0);
-  assert.equal(result.byMessage.filter((m) => m.classification === 'UNAUTHORIZED_CHAT').length, 1);
+    const result = await routePendingMessages(admin, 10);
+    assert.equal(result.instructions, 0);
+    assert.equal(result.byMessage.filter((m) => m.classification === 'UNAUTHORIZED_CHAT').length, 1);
+  } finally {
+    await row("UPDATE whatsapp_chats SET authorized = true WHERE chat_jid = '8801844836824@s.whatsapp.net' AND account_id = 'wa-01'");
+  }
 });
 
 // ──────────────────────────────────────────────────────────────────────
@@ -466,8 +505,8 @@ test('vessel: replay idempotency', async () => {
     'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n17/11/26(D)', 'PENDING');
   const r2 = await routePendingMessages(admin, 10);
   assert.equal(r2.programs, 0, 'Replay should create no new program');
-  const count = await countPrograms();
-  assert.equal(count, 1, 'Only one program should exist after replay');
+  const count = await row("SELECT count(*)::int AS n FROM programs WHERE source_channel='WHATSAPP' AND source_message_id='msg-vessel-replay-1'");
+  assert.equal(count.n, 1, 'Only one program should exist for the replayed message');
 });
 
 test('vessel: concurrent workers cannot create duplicate programs', async () => {
@@ -479,8 +518,8 @@ test('vessel: concurrent workers cannot create duplicate programs', async () => 
   const r2 = await routePendingMessages(admin, 10);
   assert.equal(r1.programs + r2.programs, 1,
     'Concurrent workers must not create duplicate programs');
-  const count = await countPrograms();
-  assert.equal(count, 1);
+  const count = await row("SELECT count(*)::int AS n FROM programs WHERE source_channel='WHATSAPP' AND source_message_id='msg-vessel-concurrent-1'");
+  assert.equal(count.n, 1);
 });
 
 test('vessel: crash recovery - stuck PROCESSING messages recovered', async () => {

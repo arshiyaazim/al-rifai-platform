@@ -188,12 +188,15 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 
 **Summary:** count programmatically when updating; **the table itself is authoritative**. (P01–P06 and P14 LIVE = 7; P07, P09, P11 PARTIAL = 3; P08, P10, P13 IMPLEMENTED = 3; P12, P15 NOT VERIFIED = 2.) **Current: 7 LIVE / 3 PARTIAL / 3 IMPLEMENTED / 2 NOT VERIFIED.**
 
-**Phase 3 integration test execution — 2026-11-05 (test DB `alrifai_v2_test`, schema 1.3.3):**
+**Phase 3 test execution — 2026-11-05 (test DB `alrifai_v2_test`, schema 1.3.3):**
 
-- `tests/standalone/message-router.test.mjs` (router + cash + vessel): **11/49 passed, 38 failed.** The failure is a **test-fixture isolation defect, not application code or schema**: the `cash: unauthorized chat is ignored` test sets `whatsapp_chats.authorized=false` for the shared `wa-01` chats and never restores it; `ensureAccount()` uses `ON CONFLICT DO NOTHING`, so every later test is classified `UNAUTHORIZED_CHAT`. Fixed message IDs plus `ON CONFLICT DO NOTHING` also make the file non-repeatable on an existing test DB.
+- `tests/standalone/message-router.test.mjs`: **17/49 passed, 32 failed** after the fixture-isolation fix. The shared-state cascade is gone (no `UNAUTHORIZED_CHAT` cascade): `ensureAccount()` upserts authorized chats, the unauthorized test restores authorization in `finally`, `stageMessage()` resets reused IDs, a `before` hook truncates the disposable test DB, and the four global `count === 1` assertions are scoped to the entity under test. Remaining failures are **application/parser, not fixtures**:
+  - Bangla cash message: `CASH:REVIEW_SUBMITTED:PAYMENT_FORMAT_REQUIRES_REVIEW` (expected an instruction).
+  - Missing-amount cash message: classified `IGNORED` (expected a review candidate).
+  - Duplicate replay: `duplicate key value violates unique constraint "cash_instructions_source_identity"` instead of `cash_idempotent_skip`.
+  - Vessel order format: `VESSEL:NO_VALID_BLOCK` (parser rejects the test order text); the downstream review tests depend on it.
 - `tests/standalone/review-api.test.mjs`: **7/7 passed** on the same test DB.
-- Smallest correction (test-only, no application code): make `ensureAccount()` upsert `authorized=true`/`purpose` on conflict, and make `stageMessage()` reset `processing_status='PENDING'` for its test messages (or recreate the disposable DB per run), then re-run.
-- No Phase 3 workflow is marked LIVE; production remains `1.2.0`.
+- No Phase 3 workflow is marked LIVE; production remains `1.2.0`. Repeatability was not re-run because the first post-fix run still has the application failures above.
 
 ## 7. WhatsApp ingestion facts and boundaries
 
@@ -269,7 +272,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 - CI Workflow: IMPLEMENTED — `.github/workflows/ci.yml` with lint, typecheck, unit tests, domain integration tests, router tests, Review Queue integration tests, migration validation (schema 1.3.3), Next.js build and Docker build validation. CI jobs never started — GitHub account locked due to a billing issue (run id 42093139485). PRODUCTION NOT DEPLOYED.
 - Frontend Integration: IMPLEMENTED — Review Queue pages/components, Cash review integration, Vessel review integration, role-based actions, source evidence and audit history. LOCALLY VERIFIED: typecheck+lint+build+unit+DB tests pass. PRODUCTION NOT DEPLOYED.
 - Docs: IMPLEMENTED — `DEVELOPER_START_HERE.md` updated in place; migration 007 added.
-- Test execution: test DB `alrifai_v2_test` at schema `1.3.3`; Review Queue API **7/7 PASS**; router/cash/vessel suite **11/49 PASS**, 38 failures traced to a test-fixture isolation defect (shared `wa-01` chat left `authorized=false` and fixed message IDs not reset), not to application code or schema. No workflow marked LIVE; production still `1.2.0` and not deployed.
+- Test execution: test DB `alrifai_v2_test` at schema `1.3.3`; Review Queue API **7/7 PASS**; router/cash/vessel suite **17/49 PASS** after the fixture-isolation fix. Remaining 32 failures are application/parser/idempotency issues (Bangla cash parse, missing-amount classification, duplicate-replay unique constraint, vessel order format), not fixtures. No workflow marked LIVE; production still `1.2.0` and not deployed.
 
 **Delivery boundary:** Local implementation package complete (`cff8a67` plus this documentation refresh). No VPS deployment. GitHub push status: `cff8a67` is present on origin `feature/phase3-router-cash-vessel`; this session's documentation refresh is pushed on `arena/e574efa6-al-rifai-platform` (session branch policy — no push to `main`, no merge into `main`). No production deployment.
 | 6 | Domain conversation routing | Cash/Vessel/HR/Recruitment/CRM routed to proper handlers; no unauthorized automatic posting |
