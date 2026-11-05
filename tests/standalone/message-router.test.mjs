@@ -2,19 +2,19 @@
 // Requires a disposable PostgreSQL database prepared by
 // scripts/standalone/install.mjs. Runs in CI only.
 import assert from 'node:assert/strict';
-import test, {before} from 'node:test';
+import test, {beforeEach} from 'node:test';
 import {createPool} from '../../db/postgres.mjs';
 import {row} from '../../lib/standalone/db.ts';
 import {routePendingMessages} from '../../lib/message-router.ts';
 
 const admin = {id: 'a'.repeat(64), role: 'ADMIN'};
 
-// Integration fixtures are shared state. Start every run from the same clean
+// Integration fixtures are shared state. Start every test from the same clean
 // fixture, and use the owner role only for this reset: the runtime role has no
 // TRUNCATE privilege, and TRUNCATE bypasses the row-level immutability triggers
 // on the audit/ledger tables. Nothing outside this disposable test database is
 // touched.
-before(async () => {
+beforeEach(async () => {
   const owner = createPool({role: 'app', readOnly: false, applicationName: 'alrifai-router-test-reset'});
   try {
     await owner.query(`TRUNCATE TABLE
@@ -23,7 +23,7 @@ before(async () => {
       attendance, identity_aliases, program_pay, program_source_messages,
       program_assignments, program_events, programs, employees,
       whatsapp_media, whatsapp_messages, whatsapp_chats, whatsapp_sync_state,
-      whatsapp_accounts, whatsapp_import_runs
+      whatsapp_accounts, whatsapp_import_runs, escort_client_group_authorizations
       RESTART IDENTITY`);
   } finally {
     await owner.end();
@@ -49,6 +49,16 @@ async function ensureAccount(id, label = 'Test Account', adminJid = '88018804461
      VALUES ($1,'/tmp/test-${id}.db',0)
      ON CONFLICT (account_id) DO NOTHING`,
     [id],
+  );
+  // Vessel orders require an approved group participant, not just an
+  // authorized chat. The valid-order tests use this fixed group/sender; the
+  // negative authorization test deactivates this row explicitly.
+  await row(
+    `INSERT INTO escort_client_group_authorizations
+       (id, account_id, group_jid, participant_jid, client_contact_id, active)
+     VALUES ($1,$2,$3,$4,$5,true)
+     ON CONFLICT (id) DO UPDATE SET active = true`,
+    [`ga-${id}-8801722222222`, id, '120363000000000001@g.us', '8801722222222@s.whatsapp.net', `client-${id}`],
   );
 }
 
@@ -350,10 +360,12 @@ test('router: PROCESSING messages older than 30 min are recovered', async () => 
 // ──────────────────────────────────────────────────────────────────────
 
 test('router: vessel message creates program in DRAFT', async () => {
-  await ensureAccount('wa-test-vessel');
+  // Only WA-01 may create vessel records (Owner-approved business rule); use a
+  // distinct vessel/date so this fixture does not collide with later tests.
+  await ensureAccount('wa-01');
   const before = await countPrograms();
-  await stageMessage('wa-test-vessel', '120363000000000001@g.us', 'msg-vessel-1', 'INCOMING', '8801722222222@s.whatsapp.net',
-    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\nDestination: Chattogram\n17/11/26(D)');
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-vessel-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV Router Test\nLighter Vessel: L-01\nMaster mobile: 01911111111\nDestination: Chattogram\n18/11/26(D)');
 
   const result = await routePendingMessages(admin, 10);
   assert.equal(result.programs, 1);
@@ -747,7 +759,9 @@ test('review: group participant authorization — unauthorized participant', asy
       created_at timestamptz NOT NULL DEFAULT now()
     )
   `);
-  // Do NOT authorize 8801722222222 for this group
+  // The shared fixture authorizes this participant; deactivate it so this
+  // negative case still asserts GROUP_PARTICIPANT_NOT_AUTHORIZED.
+  await row("UPDATE escort_client_group_authorizations SET active = false WHERE account_id = 'wa-01' AND group_jid = '120363000000000001@g.us' AND participant_jid = '8801722222222@s.whatsapp.net'");
   const before = await countPrograms();
   await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-group-unauth-1', 'INCOMING', '8801722222222@s.whatsapp.net',
     'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111');

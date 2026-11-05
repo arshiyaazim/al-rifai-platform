@@ -69,11 +69,11 @@ export function looksLikeCash(text: string): boolean {
 export function looksLikeVessel(text: string): boolean {
   const normalized = bengaliDigits(text.toLowerCase());
   // Vessel order typically has mother vessel + lighter vessel
-  const motherVessel = /mother\s+vessel|মাদার\s+ভ(es)?[ো]ল/i.test(normalized);
-  const lighterVessel = /lighter\s+vessel|লাইটার\s+ভ(es)?[ো]ল/i.test(normalized);
+  const motherVessel = /mother\s+vessel|মাদার\s*ভেসেল/i.test(normalized);
+  const lighterVessel = /lighter\s+vessel|লাইটার\s*ভেসেল/i.test(normalized);
   // Or M.V. pattern + master mobile
   const mvPattern = /m\s*\.\s*v\s*\.\s*\S/i.test(normalized);
-  const masterMobile = /master\s*(mobile|no|মোবাইল)?/i.test(normalized);
+  const masterMobile = /master\s*(mobile|no|মোবাইল)?|মাস্টার\s*মোবাইল/i.test(normalized);
   // Vessel keywords
   const keyword = hasKeyword(normalized, VESSEL_KEYWORDS);
 

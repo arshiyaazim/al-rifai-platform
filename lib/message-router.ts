@@ -462,7 +462,7 @@ async function handleVessel(
   actor: Actor,
   message: MessageToProcess,
   text: string,
-): Promise<{created: boolean; reviewSubmitted: boolean; reasons: string[]}> {
+): Promise<{created: boolean; reviewSubmitted: boolean; reasons: string[]; programsCreated?: number}> {
   // Vessel authorization: WA-01 only
   const vesselAuth = await isVesselAuthorized(message.account_id);
   if (!vesselAuth.authorized) {
@@ -514,6 +514,7 @@ async function handleVessel(
 
   const derived = orderDraftDateAndShift(message.source_timestamp);
   let created = 0;
+  let reviewSubmitted = false;
   const allReasons: string[] = [];
 
   for (const block of blocks) {
@@ -537,7 +538,7 @@ async function handleVessel(
       if (!lighterVesselRaw) missing.push('MISSING_LIGHTER_VESSEL');
       if (!masterMobileRaw) missing.push('MISSING_MASTER_MOBILE');
       // Submit to Review Queue with what we have — do not discard
-      await submitReviewItem(actor, 'PROGRAM', 'CREATE', message.message_id,
+      const missingSubmitted = await submitReviewItem(actor, 'PROGRAM', 'CREATE', message.message_id,
         'INCOMPLETE_VESSEL_ORDER', {
           sourceMessageId: message.message_id,
           sourceChatJid: message.chat_jid,
@@ -553,6 +554,7 @@ async function handleVessel(
           parser: 'parseEscortOrder',
           parserVersion: 'escort-intake-candidate-v2',
         });
+      if (missingSubmitted.submitted) reviewSubmitted = true;
       allReasons.push(...missing);
       continue;
     }
@@ -601,7 +603,7 @@ async function handleVessel(
     }
     if (dups.length > 0) {
       // ±1-day duplicate warning → Review Queue (does NOT discard the order)
-      await submitReviewItem(actor, 'PROGRAM', 'CREATE', message.message_id,
+      const duplicateSubmitted = await submitReviewItem(actor, 'PROGRAM', 'CREATE', message.message_id,
         'VESSEL_DUPLICATE_CANDIDATE', {
           sourceMessageId: message.message_id,
           sourceChatJid: message.chat_jid,
@@ -617,6 +619,7 @@ async function handleVessel(
           potentialDuplicates: dups.map((d) => ({id: d.id, start_date: d.start_date})),
           parser: 'parseEscortOrder',
         });
+      if (duplicateSubmitted.submitted) reviewSubmitted = true;
       allReasons.push('DUPLICATE_WARNING_SUBMITTED_TO_REVIEW');
       continue;
     }
@@ -661,7 +664,7 @@ async function handleVessel(
     }
   }
 
-  return {created: created > 0, reviewSubmitted: false, reasons: allReasons};
+  return {created: created > 0, reviewSubmitted, reasons: allReasons, programsCreated: created};
 }
 
 /**
@@ -817,7 +820,7 @@ export async function routePendingMessages(
           result.ignored += 1;
         } else if (domain === 'VESSEL' && message.direction === 'INCOMING') {
           const vesselResult = await handleVessel(actor, message, text);
-          result.programs += vesselResult.created ? 1 : 0;
+          result.programs += vesselResult.programsCreated ?? (vesselResult.created ? 1 : 0);
           result.reviewItems += vesselResult.reviewSubmitted ? 1 : 0;
           classification = vesselResult.created
             ? `VESSEL:PROGRAM_DRAFT`
