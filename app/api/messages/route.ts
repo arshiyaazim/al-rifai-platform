@@ -11,7 +11,14 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const view = url.searchParams.get('view') ?? 'messages';
     if (view === 'stats') return ok({rows: await messageStats()});
-    if (view === 'chats') return ok({rows: await listChats(url.searchParams.get('account') ?? undefined)});
+    if (view === 'chats') {
+      return ok({
+        rows: await listChats(
+          url.searchParams.get('account') ?? undefined,
+          url.searchParams.get('kind') ?? undefined,
+        ),
+      });
+    }
     return ok(await listMessages({
       account: url.searchParams.get('account') ?? undefined,
       chat: url.searchParams.get('chat') ?? undefined,

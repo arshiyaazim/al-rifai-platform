@@ -17,6 +17,9 @@ services:
     ports:
       - "127.0.0.1:3001:3000"
       - "0.0.0.0:443:3443"
+    environment:
+      # Captured attachments live outside the image and the Git checkout.
+      ALRIFAI_MEDIA_DIR: /media
     volumes:
       # The TLS key pair is mounted read-only from the host; it stays a file so
       # the certificate can be renewed without touching configuration.
@@ -27,6 +30,11 @@ services:
       - type: bind
         source: /etc/vps/apps/al-rifai/tls/private-entry.crt
         target: /etc/alrifai/tls/private-entry.crt
+        read_only: true
+      # Read-only: the app streams bytes it can see, the worker writes them.
+      - type: bind
+        source: /var/lib/vps/al-rifai/media
+        target: /media
         read_only: true
     networks: [backend]
     cap_drop: [ALL]
@@ -61,6 +69,7 @@ services:
       # change, so no second configuration file is needed.
       WA01_DB: /wa/wa-01/messages.db
       WA02_DB: /wa/wa-02/messages.db
+      ALRIFAI_MEDIA_DIR: /media
     volumes:
       - type: bind
         source: /var/lib/vps/whatsapp/wa-01/store
@@ -70,6 +79,11 @@ services:
         source: /var/lib/vps/whatsapp/wa-02/store
         target: /wa/wa-02
         read_only: true
+      # Writable: new attachments are written here, outside the image.
+      - type: bind
+        source: /var/lib/vps/al-rifai/media
+        target: /media
+        read_only: false
     networks: [backend]
     security_opt: [no-new-privileges:true]
     read_only: true

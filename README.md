@@ -15,7 +15,7 @@ its own administrator, accounts, rates, relay and authorized chats.
 | Package manager | pnpm 11.25.0 (or npm/npx) |
 | Database | PostgreSQL 16 (≥ 13 supported by the SQL used) |
 | Framework | Next.js 16.3.8 |
-| Schema | fresh baseline, `db/standalone/schema.sql` (version 1.1.0) |
+| Schema | fresh baseline, `db/standalone/schema.sql` (version 1.2.0) |
 
 ---
 
@@ -136,6 +136,12 @@ ALRIFAI_CASH_SUPER_ADMIN_IDS=<64-hex id printed by the installer>
 
 WA01_DB=/var/lib/vps/whatsapp/wa-01/store/messages.db
 WA02_DB=/var/lib/vps/whatsapp/wa-02/store/messages.db
+
+ALRIFAI_MEDIA_ENABLED=1
+ALRIFAI_MEDIA_DIR=/media
+ALRIFAI_MEDIA_MAX_BYTES=26214400
+ALRIFAI_MEDIA_UID=10001
+ALRIFAI_MEDIA_GID=10001
 ```
 
 A mounted secret file is accepted instead of an inline secret
@@ -165,7 +171,7 @@ The password is hashed (PBKDF2-SHA256, 600 000 iterations) before it is stored;
 only the hash is written. Remove the plaintext from `.env` afterwards. The
 installer is transactional: it applies `db/standalone/schema.sql` plus the
 additive `002_raw_import.sql` layer, grants the runtime role, seeds the
-administrator and verifies 29 tables / 5 functions / 14 triggers. It prints the
+administrator and verifies 30 tables / 5 functions / 14 triggers. It prints the
 administrator id — put it in `ALRIFAI_CASH_SUPER_ADMIN_IDS`.
 
 Re-running against an installed schema stops unless `--force` is passed.
@@ -248,6 +254,32 @@ your WhatsApp infrastructure.** This application never pairs a device and never
 touches a session. When the relay is down, every manual workflow keeps working
 and Settings shows the connection error.
 
+### Direct store sync (used by this installation)
+
+The deployment in this repository reads each bridge's own SQLite message store
+directly — no MCP grant, no per-chat profile entry, and no session material:
+
+* **source** — the bridge's `messages.db`, opened read-only; `whatsapp.db` (the
+  pairing/session store) is never opened;
+* **worker** — `scripts/sync-worker.mjs` imports the historical rows once and then
+  tails both accounts continuously; the checkpoint lives in `whatsapp_sync_state`
+  and restarts never duplicate a row (`(account_id, chat_jid, message_id)`);
+* **identity** — `identity_aliases` records the account, chat and participant
+  JIDs plus the PN/LID links the bridge itself resolved. A name comes from the
+  bridge's chat label; an unresolved LID stays explicitly unresolved and is never
+  given an invented phone number;
+* **media** — for new attachments the worker reads the persisted URL + media key,
+  downloads and decrypts the bytes **in memory**, verifies the recorded SHA-256,
+  and writes them to the persistent media directory. Media keys are never stored
+  in PostgreSQL, the bytes never enter the image or the Git checkout, and
+  historical attachments are not recovered. `--mode=import` deliberately skips
+  media capture.
+
+The Inbox page (`/messages`) selects WA-01 or WA-02, lists direct and group
+conversations, shows resolved names (or the raw JID when unresolved), links each
+captured attachment through the authenticated `/api/media` route, and displays
+the checkpoint, media counts and last sync error.
+
 ---
 
 ## 6. Backup, restore, updates
@@ -259,7 +291,7 @@ sha256sum /var/backups/alrifai-*.dump > /var/backups/alrifai-$(date +%Y%m%d-%H%M
 
 Restore into a new database first, then switch `PGDATABASE`. Updates: back up,
 replace the source, `pnpm install --frozen-lockfile && pnpm build`, apply any new
-`schema_meta` version step (none yet beyond 1.1.0), restart, verify `/api/health`.
+`schema_meta` version step (none yet beyond 1.2.0), restart, verify `/api/health`.
 
 ---
 
@@ -298,9 +330,14 @@ always with `--test-concurrency=1`.
 
 ## 9. Known limitations
 
-* WhatsApp ingestion is implemented against the observed relay contract and is
-  verified only against a **mock relay**; no live handshake, pairing or message
-  was performed. The relay socket was inspected read-only.
+* The deployed ingestion path is the **direct bridge SQLite store**, verified
+  live on both accounts (historical import plus continuous tail). The optional
+  MCP relay described in §5 is not used by this deployment and was validated only
+  against a mock relay.
+* New-media capture is live for images, audio and video received from the Phase 2
+  release onward; a live document or sticker sample has not yet been observed.
+  Media rows the bridge stored without a URL or key are recorded as
+  `MEDIA_METADATA_INCOMPLETE` and are not backfilled.
 * No graphical browser was available during validation: the end-to-end run used
   authenticated HTTP against the real server (sessions, CSRF, server-rendered
   pages) and asserted the database state directly.

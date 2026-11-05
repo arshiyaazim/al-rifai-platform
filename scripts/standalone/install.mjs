@@ -27,7 +27,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = join(HERE, '..', '..');
 const SCHEMA_FILE = join(APP_ROOT, 'db', 'standalone', 'schema.sql');
 // Additive layers applied after the baseline, in file-name order.
-const EXTRA_SCHEMA_FILES = [join(APP_ROOT, 'db', 'standalone', '002_raw_import.sql')];
+const EXTRA_SCHEMA_FILES = [
+  join(APP_ROOT, 'db', 'standalone', '002_raw_import.sql'),
+  join(APP_ROOT, 'db', 'standalone', '003_phase2_identity_media.sql'),
+];
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;
 const TARGET_TABLES = [
@@ -39,6 +42,7 @@ const TARGET_TABLES = [
   'review_items', 'review_decisions', 'audit_events', 'whatsapp_accounts',
   'whatsapp_chats', 'whatsapp_messages', 'whatsapp_cursors',
   'whatsapp_import_runs', 'whatsapp_sync_state', 'identity_aliases',
+  'whatsapp_media',
 ];
 
 class InstallError extends Error {
@@ -157,6 +161,10 @@ async function grantRuntime(client, config, runtimeUser) {
     'cash_submissions', 'review_items', 'whatsapp_messages', 'whatsapp_cursors',
     'app_settings', 'schema_meta', 'cash_accounts', 'whatsapp_accounts',
     'whatsapp_chats', 'rate_config',
+    // Phase 2 ingestion: the worker records import runs, checkpoints, identity
+    // evidence and media rows with the least-privilege runtime role.
+    'whatsapp_import_runs', 'whatsapp_sync_state', 'identity_aliases',
+    'whatsapp_media',
   ];
   const appendOnly = ['cash_portal_audit', 'program_events', 'audit_events',
     'cash_submission_reviews', 'review_decisions', 'cash_postings', 'ledger_entries'];

@@ -31,6 +31,8 @@ COPY --from=build --chown=10001:10001 /app/scripts/sync-worker.mjs ./scripts/syn
 COPY --from=build --chown=10001:10001 /app/scripts/standalone/reset-password.mjs ./scripts/standalone/reset-password.mjs
 COPY --from=build --chown=10001:10001 /app/scripts/check-env.mjs ./scripts/check-env.mjs
 COPY --from=build --chown=10001:10001 /app/lib/env.mjs ./lib/env.mjs
+COPY --from=build --chown=10001:10001 /app/lib/whatsapp-media.mjs ./lib/whatsapp-media.mjs
+COPY --from=build --chown=10001:10001 /app/lib/whatsapp-identity.mjs ./lib/whatsapp-identity.mjs
 COPY --from=build --chown=10001:10001 /app/lib/password-hash.ts ./lib/password-hash.ts
 COPY --from=build --chown=10001:10001 /app/lib/password-policy.ts ./lib/password-policy.ts
 
