@@ -316,15 +316,27 @@ export async function applyConfirmation(actor: Actor, message: {message_id: stri
     assignmentDate?: string | null; shift?: string | null;
   } & Record<string, unknown>>;
   const block = (blocks ?? []).find((candidate) => candidate.fields?.escortName || candidate.fields?.escortMobile);
-  if (!block?.motherVessel || !block?.lighterVessel) return 'CONFIRMATION_NO_ASSIGNMENT';
-  const candidates = await rows<{id: string; state: string}>(
-    `SELECT id, state FROM programs
+  // parseEscortOrder() keeps the vessel names inside `fields`; accept either
+  // shape so the confirmation reads the same values the order intake wrote.
+  const motherVessel = block?.fields?.motherVessel ?? block?.motherVessel;
+  const lighterVessel = block?.fields?.lighterVessel ?? block?.lighterVessel;
+  if (!motherVessel || !lighterVessel) return 'CONFIRMATION_NO_ASSIGNMENT';
+  const candidates = await rows<{id: string; state: string; confirmation_message_id: string | null}>(
+    `SELECT id, state, confirmation_message_id FROM programs
       WHERE source_chat_jid = $1 AND lower(btrim(mother_vessel)) = lower(btrim($2))
         AND lower(btrim(lighter_vessel)) = lower(btrim($3)) AND state IN ('DRAFT','CONFIRMED')
       ORDER BY created_at DESC LIMIT 2`,
-    [message.chat_jid, block.motherVessel, block.lighterVessel],
+    [message.chat_jid, motherVessel, lighterVessel],
   );
   if (candidates.length !== 1) return candidates.length ? 'CONFIRMATION_AMBIGUOUS' : 'CONFIRMATION_UNMATCHED';
+  // Replaying the exact Admin confirmation is a no-op: it must not create a
+  // second assignment/event or rewrite the stored confirmation message id.
+  if (
+    candidates[0].state === 'CONFIRMED' &&
+    candidates[0].confirmation_message_id === message.message_id
+  ) {
+    return 'CONFIRMED';
+  }
   const fields = block.fields ?? {};
   const employee = fields.escortMobile ?? fields.employeeMobile;
   if (!employee) return 'CONFIRMATION_NO_EMPLOYEE';

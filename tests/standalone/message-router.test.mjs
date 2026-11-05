@@ -600,6 +600,17 @@ test('vessel: source linkage - confirmation_message_id persisted on confirm', as
   assert.ok(confirmed);
   assert.equal(confirmed.state, 'CONFIRMED');
   assert.equal(confirmed.confirmation_message_id, 'msg-vessel-confirm-2');
+
+  // Replaying the exact same confirmation is idempotent.
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-vessel-confirm-2', 'OUTGOING', '8801880446111@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nEscort Name: Rahim\nEscort Mobile: 01922222222\nStart Date: 17/11/26\nShift: D');
+  const r3 = await routePendingMessages(admin, 10);
+  assert.equal(r3.confirmations, 1, 'Replay should match the same confirmed program');
+  const assignments = await row("SELECT count(*)::int AS n FROM program_assignments WHERE program_id = $1", [prog.id]);
+  assert.equal(assignments.n, 1, 'Replay must not create a duplicate assignment');
+  const replay = await row("SELECT confirmation_message_id, state FROM programs WHERE id = $1", [prog.id]);
+  assert.equal(replay.state, 'CONFIRMED');
+  assert.equal(replay.confirmation_message_id, 'msg-vessel-confirm-2');
 });
 
 test('vessel: wrong-chat confirmation does not confirm', async () => {
@@ -815,8 +826,10 @@ test('review: ambiguous Admin confirmation → review candidate', async () => {
   // Create two draft programs with same mother+lighter in same chat
   await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-ambig-1', 'INCOMING', '8801722222222@s.whatsapp.net',
     'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n17/11/26(D)');
+  // Keep the dates outside the ±1-day duplicate window so the fixture really
+  // creates two matching programs; ambiguity is the confirmation's job.
   await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-ambig-2', 'INCOMING', '8801722222222@s.whatsapp.net',
-    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n18/11/26(D)');
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n20/11/26(D)');
   const r1 = await routePendingMessages(admin, 10);
   assert.equal(r1.programs, 2, 'Two different dates create two programs');
 
