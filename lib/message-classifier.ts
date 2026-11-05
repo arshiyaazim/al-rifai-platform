@@ -43,16 +43,23 @@ function hasKeyword(text: string, keywords: string[]): boolean {
 }
 
 export function looksLikeCash(text: string): boolean {
-  const normalized = bengaliDigits(text.toLowerCase());
+  const normalized = bengaliDigits(text.toLowerCase())
+    // Bangla cash markers are the same signal as (B)/(N).
+    .replace(/\(\s*বি(?:কাশ)?\s*\)/g, '(b)')
+    .replace(/\(\s*(?:এন|নগদ)\s*\)/g, '(n)');
   // Explicit payment block marker: "ID: <phone> <name> <payout>(B/N) <amount>/-"
   const paymentBlock = /ID\s*[:=]?\s*[0-9+\s-]{10,}/i.test(normalized);
   // Amount pattern: number followed by /- or taka
   const amountPattern = /[\d,]+\s*(\.\d{1,2})?\s*\/\-/i.test(normalized);
-  // Method markers
-  const methodMarker = /\(\s*[BN]\s*\)/.test(normalized);
+  // Method markers (case-insensitive: the text is already lower-cased)
+  const methodMarker = /\(\s*[bn]\s*\)/i.test(normalized);
   // Cash keywords
   const keyword = hasKeyword(normalized, CASH_KEYWORDS);
 
+  // A complete payment block with an explicit method marker is recognizable
+  // cash intent even when the amount is missing; it must go to review, not be
+  // silently ignored. Authority is still enforced by the router.
+  if (paymentBlock && methodMarker) return true;
   if (paymentBlock && amountPattern) return true;
   if (methodMarker && amountPattern && keyword) return true;
   if (keyword && amountPattern && methodMarker) return true;

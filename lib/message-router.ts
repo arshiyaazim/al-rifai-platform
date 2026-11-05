@@ -30,7 +30,7 @@
 
 import {row, tx, DomainError, type Actor} from './standalone/db.ts';
 import {newId, stableId, recordAudit} from './standalone/audit.ts';
-import {createInstruction, submitCash} from './standalone/finance.ts';
+import {createInstruction} from './standalone/finance.ts';
 import {createProgram, potentialDuplicates} from './standalone/programs.ts';
 import {submitForReview} from './standalone/review.ts';
 import {classifyDomain, type Domain} from './message-classifier.ts';
@@ -395,23 +395,9 @@ async function handleCash(
       parserVersion: 'history-extraction-v2',
       needsReviewerCorrection: true,
     };
-    try {
-      await submitCash(actor, {
-        employeeMobile: null,
-        employeeName: 'WhatsApp Import',
-        payoutMobile: null,
-        method: 'cash',
-        amountMinor: 0,
-        purpose: null,
-        sourceMessageId: message.message_id,
-        sourceChatJid: message.chat_jid,
-        sourceAccountId: message.account_id,
-        category: 'EXTRACTION_FAILED',
-      });
-    } catch {
-      // submitCash may throw if payload validation fails; continue to
-      // submit a review item with raw text below.
-    }
+    // submitReviewItem() creates the single CASH review candidate
+    // (cash_submissions) with the raw text and parse reasons; do not also
+    // insert a summary submission for the same message.
     await submitReviewItem(actor, 'CASH', 'CREATE', message.message_id,
       'EXTRACTION_FAILED', payload);
     return {created: false, reviewSubmitted: true,
