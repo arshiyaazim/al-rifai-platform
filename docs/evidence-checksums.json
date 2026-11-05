@@ -1,0 +1,26 @@
+{
+  "accounts-snapshot.json": {
+    "bytes": 6000862,
+    "sha256": "e8bb01f520f035362acd1284419e6929ec02547edaef1b0ebcfcf2c0a914e5c2"
+  },
+  "chat-archive.json": {
+    "bytes": 1878416,
+    "sha256": "9f2ba5c0e881e19bb1a7df50ac86c25fc479550dc707bc0737b20c22a46ec872"
+  },
+  "conversation-snapshot.json": {
+    "bytes": 9428183,
+    "sha256": "63cd86a078268046deb2ce0e3186dba7ebda0cf323ed7e5e7e58df6f2fb0d8d4"
+  },
+  "operations.json": {
+    "bytes": 3804967,
+    "sha256": "e41b24393a6822c74e9f8f87dca538e9dc0e2f38c93c1e8791907d805d6a8547"
+  },
+  "seed-source.ts": {
+    "bytes": 1138,
+    "sha256": "1e6e1566e6c2baf4f2b0bd2d0bd1a4e05d33ab90400ee374ef5c7f27071bdc52"
+  },
+  "recovered-programs.json": {
+    "bytes": 2731,
+    "sha256": "5b1761598fe4619ab416b6ead7c3502b8670a8eda9fd103ce6a55b40fde3bf86"
+  }
+}
