@@ -190,11 +190,12 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 
 **Phase 3 test execution — 2026-11-05 (test DB `alrifai_v2_test`, schema 1.3.3):**
 
-- `tests/standalone/message-router.test.mjs` — full suite last run **17/49**; Cash-focused subset after Task 5E.1: **11/12 passed**. The shared-state cascade is gone (`ensureAccount()` upserts authorized chats, the unauthorized test restores authorization in `finally`, `stageMessage()` resets reused IDs, a `before` hook truncates the disposable test DB, and global counts are scoped to the entity under test). Remaining failures:
+- `tests/standalone/message-router.test.mjs` — full suite last run **17/49**; Cash-focused subset after Task 5E.2: **12/12 passed**. The shared-state cascade is gone (`ensureAccount()` upserts authorized chats, the unauthorized test restores authorization in `finally`, `stageMessage()` resets reused IDs, a `before` hook truncates the disposable test DB, and global counts are scoped to the entity under test).
   - **Bangla cash — FIXED**: Bangla digits and `(বি)`/`(নগদ)` markers normalize; the instruction is created in `REVIEW`.
-  - **Missing-amount cash — FIXED**: a recognizable payment block with `(B)`/`(N)` and no amount now routes to a single `cash_submissions` `PENDING_REVIEW` candidate instead of `IGNORED`.
-  - Duplicate replay — still application idempotency (`cash_instructions_source_identity`), deliberately out of scope.
+  - **Missing-amount cash — FIXED**: a recognizable payment block with `(B)`/`(N)` and no amount routes to a single `cash_submissions` `PENDING_REVIEW` candidate instead of `IGNORED`.
+  - **Duplicate replay — FIXED**: `createInstruction()` now uses `ON CONFLICT (source_message_id, source_block_key) WHERE source_message_id IS NOT NULL DO NOTHING` against the existing partial unique index; a replay or losing concurrent worker returns `cash_idempotent_skip`, while different source blocks still insert independently.
   - Vessel order format — still `VESSEL:NO_VALID_BLOCK`; the downstream review tests depend on it and remain out of scope.
+- `domain.test.ts` finance regression: **3/3 passed** (`setup`, manual instruction/approval/posting/ledger, income report).
 - `tests/standalone/review-api.test.mjs`: **7/7 passed** on the same test DB.
 - No Phase 3 workflow is marked LIVE; production remains `1.2.0`. Cash Freeze intact: no approval, posting, settlement or ledger write.
 
@@ -272,7 +273,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 - CI Workflow: IMPLEMENTED — `.github/workflows/ci.yml` with lint, typecheck, unit tests, domain integration tests, router tests, Review Queue integration tests, migration validation (schema 1.3.3), Next.js build and Docker build validation. CI jobs never started — GitHub account locked due to a billing issue (run id 42093139485). PRODUCTION NOT DEPLOYED.
 - Frontend Integration: IMPLEMENTED — Review Queue pages/components, Cash review integration, Vessel review integration, role-based actions, source evidence and audit history. LOCALLY VERIFIED: typecheck+lint+build+unit+DB tests pass. PRODUCTION NOT DEPLOYED.
 - Docs: IMPLEMENTED — `DEVELOPER_START_HERE.md` updated in place; migration 007 added.
-- Test execution: test DB `alrifai_v2_test` at schema `1.3.3`; Review Queue API **7/7 PASS**; Cash subset **11/12 PASS** after Task 5E.1 (Bangla parsing and missing-amount review routing fixed; duplicate replay out of scope); vessel parser still `VESSEL:NO_VALID_BLOCK`. No workflow marked LIVE; production still `1.2.0` and not deployed.
+- Test execution: test DB `alrifai_v2_test` at schema `1.3.3`; Review Queue API **7/7 PASS**; Cash subset **12/12 PASS** after Task 5E.2 (Bangla parsing, missing-amount review routing and duplicate-replay idempotency fixed); finance regression **3/3 PASS**; vessel parser still `VESSEL:NO_VALID_BLOCK`. No workflow marked LIVE; production still `1.2.0` and not deployed.
 
 **Delivery boundary:** Local implementation package complete (`cff8a67` plus this documentation refresh). No VPS deployment. GitHub push status: `cff8a67` is present on origin `feature/phase3-router-cash-vessel`; this session's documentation refresh is pushed on `arena/e574efa6-al-rifai-platform` (session branch policy — no push to `main`, no merge into `main`). No production deployment.
 | 6 | Domain conversation routing | Cash/Vessel/HR/Recruitment/CRM routed to proper handlers; no unauthorized automatic posting |

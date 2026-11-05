@@ -63,11 +63,19 @@ export async function createInstruction(actor: Actor, input: InstructionInput) {
   const employeeMobile = optionalMobile(input.employeeMobile, 'employeeMobile');
   const payoutMobile = optionalMobile(input.payoutMobile, 'payoutMobile');
   const id = newId('ins');
+  // The partial unique index `cash_instructions_source_identity`
+  // (source_message_id, source_block_key) WHERE source_message_id IS NOT NULL
+  // is the concurrency guard. A replay or a concurrent worker loses the insert
+  // race and gets NULL here; different blocks still insert independently.
   const created = await row(
     `INSERT INTO cash_instructions
        (id, employee_mobile, employee_name, payout_mobile, method, amount_minor, purpose, account_id, state,
         source_channel, source_message_id, source_block_key, source_hash, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'REVIEW',$9,$10,$11,$12,$13) RETURNING *`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'REVIEW',$9,$10,$11,$12,$13)
+     ON CONFLICT (source_message_id, source_block_key)
+       WHERE source_message_id IS NOT NULL
+     DO NOTHING
+     RETURNING *`,
     [id, employeeMobile, text(input.employeeName, 'employeeName', {max: 150}),
       payoutMobile, input.method, amountMinor,
       optionalText(input.purpose, 'purpose', 500), input.accountId ?? null,
@@ -77,8 +85,10 @@ export async function createInstruction(actor: Actor, input: InstructionInput) {
       input.sourceHash ?? null,
       actor.id],
   );
-  await recordAudit({actor, action: 'INSTRUCTION_CREATED', entity: 'instruction', entityId: id,
-    detail: {amountMinor, method: input.method, source: input.sourceChannel ?? 'WEB'}});
+  if (created) {
+    await recordAudit({actor, action: 'INSTRUCTION_CREATED', entity: 'instruction', entityId: id,
+      detail: {amountMinor, method: input.method, source: input.sourceChannel ?? 'WEB'}});
+  }
   return created;
 }
 

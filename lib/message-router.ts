@@ -444,7 +444,9 @@ async function handleCash(
     sourceHash: hash,
   });
 
-  if (!created) throw new DomainError('INSTRUCTION_NOT_CREATED');
+  // The unique source identity already exists: this is a replay or a losing
+  // concurrent worker. Report an idempotent skip; do not create another row.
+  if (!created) return {created: false, reviewSubmitted: false, reasons: ['IDEMPOTENT_SKIP']};
 
   return {created: true, reviewSubmitted: false, reasons: []};
 }
