@@ -30,6 +30,9 @@ const SCHEMA_FILE = join(APP_ROOT, 'db', 'standalone', 'schema.sql');
 const EXTRA_SCHEMA_FILES = [
   join(APP_ROOT, 'db', 'standalone', '002_raw_import.sql'),
   join(APP_ROOT, 'db', 'standalone', '003_phase2_identity_media.sql'),
+  join(APP_ROOT, 'db', 'standalone', '004_phase3_router_state.sql'),
+  join(APP_ROOT, 'db', 'standalone', '005_phase3_vessel_correlation.sql'),
+  join(APP_ROOT, 'db', 'standalone', '006_phase3_review_queue.sql'),
 ];
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;

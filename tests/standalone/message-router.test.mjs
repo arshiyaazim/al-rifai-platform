@@ -6,7 +6,7 @@ import test from 'node:test';
 import {row} from '../../lib/standalone/db.ts';
 import {routePendingMessages} from '../../lib/message-router.ts';
 
-const admin = {id: 'a'.repeat(64), role: 'ADMIN' as const};
+const admin = {id: 'a'.repeat(64), role: 'ADMIN'};
 
 async function ensureAccount(id, label = 'Test Account', adminJid = '8801880446111@s.whatsapp.net') {
   await row(
@@ -607,4 +607,274 @@ test('vessel: program source messages table tracks references', async () => {
   assert.equal(src.source_role, 'primary');
   assert.equal(src.account_id, 'wa-01');
   assert.equal(src.chat_jid, '120363000000000001@g.us');
+});
+
+// ──────────────────────────────────────────────────────────────────────
+// Router: Review Queue (Increment 4)
+// ──────────────────────────────────────────────────────────────────────
+
+test('review: INCOMPLETE_VESSEL_ORDER — missing master mobile', async () => {
+  await ensureAccount('wa-01');
+  const before = await row('SELECT count(*)::int AS n FROM review_items');
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-incomplete-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77');
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.reviewItems, 1);
+  const after = await row('SELECT count(*)::int AS n FROM review_items');
+  assert.equal(after.n, before.n + 1);
+
+  const item = await row("SELECT * FROM review_items WHERE domain = 'PROGRAM' ORDER BY created at DESC LIMIT 1");
+  assert.ok(item);
+  assert.equal(item.state, 'PENDING');
+  const payload = item.payload;
+  assert.ok((payload).missingFields);
+});
+
+test('review: EXTRACTION_FAILED — unparsable vessel message', async () => {
+  await ensureAccount('wa-01');
+  const before = await row('SELECT count(*)::int AS n FROM review_items');
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-extract-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Hello, this is not a vessel order at all');
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.reviewItems, 1);
+  const after = await row('SELECT count(*)::int AS n FROM review_items');
+  assert.equal(after.n, before.n + 1);
+
+  const item = await row("SELECT * FROM review_items WHERE domain = 'PROGRAM' ORDER BY created at DESC LIMIT 1");
+  assert.ok(item);
+  assert.equal(item.state, 'PENDING');
+});
+
+test('review: VESSEL_DUPLICATE_CANDIDATE — ±1 day duplicate', async () => {
+  await ensureAccount('wa-01');
+  // Create an existing program
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-dup-orig-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n17/11/26(D)');
+  const r1 = await routePendingMessages(admin, 10);
+  assert.equal(r1.programs, 1);
+
+  // Same mother/lighter, +1 day → duplicate warning → review
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-dup-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n18/11/26(D)');
+  const r2 = await routePendingMessages(admin, 10);
+  assert.equal(r2.programs, 0, 'Duplicate should not create new program');
+  assert.equal(r2.reviewItems, 1, 'Duplicate warning should go to review');
+});
+
+test('review: INCOMPLETE_CASH_INSTRUCTION — missing amount', async () => {
+  await ensureAccount('wa-01');
+  const before = await row('SELECT count(*)::int AS n FROM cash_submissions');
+  await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-review-cash-incomplete-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
+    'ID: 01712345678 Rahim Uddin 01812345678(B) /- duty pay');
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.reviewItems, 1);
+  const after = await row('SELECT count(*)::int AS n FROM cash_submissions');
+  assert.equal(after.n, before.n + 1);
+
+  const sub = await row('SELECT * FROM cash_submissions ORDER BY created_at DESC LIMIT 1');
+  assert.ok(sub);
+  assert.equal(sub.state, 'PENDING_REVIEW');
+});
+
+test('review: deduplication — same review item not created twice', async () => {
+  await ensureAccount('wa-01');
+  // Process same unparsable message twice
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-dedup-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Hello, this is not a vessel order at all');
+  const r1 = await routePendingMessages(admin, 10);
+  assert.equal(r1.reviewItems, 1);
+
+  // Replay same message
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-dedup-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Hello, this is not a vessel order at all', 'PENDING');
+  const r2 = await routePendingMessages(admin, 10);
+  assert.equal(r2.reviewItems, 0, 'Duplicate review item should not be created');
+});
+
+test('review: group participant authorization — unauthorized participant', async () => {
+  await ensureAccount('wa-01');
+  // Create the group authorization table
+  await row(`
+    CREATE TABLE IF NOT EXISTS escort_client_group_authorizations (
+      id text PRIMARY KEY,
+      account_id text NOT NULL,
+      group_jid text NOT NULL,
+      participant_jid text NOT NULL,
+      client_contact_id text NOT NULL,
+      active boolean NOT NULL DEFAULT true,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  // Do NOT authorize 8801722222222 for this group
+  const before = await countPrograms();
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-group-unauth-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111');
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.programs, 0, 'Unauthorized group participant should not create programs');
+  assert.equal(result.byMessage.filter((m) => m.classification === 'GROUP_PARTICIPANT_NOT_AUTHORIZED').length, 1);
+  const after = await countPrograms();
+  assert.equal(after, before);
+});
+
+test('review: group participant authorization — authorized participant', async () => {
+  await ensureAccount('wa-01');
+  // Create the group authorization table and authorize the participant
+  await row(`
+    CREATE TABLE IF NOT EXISTS escort_client_group_authorizations (
+      id text PRIMARY KEY,
+      account_id text NOT NULL,
+      group_jid text NOT NULL,
+      participant_jid text NOT NULL,
+      client_contact_id text NOT NULL,
+      active boolean NOT NULL DEFAULT true,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await row("INSERT INTO escort_client_group_authorizations (id, account_id, group_jid, participant_jid, client_contact_id, active) VALUES ('ga-1','wa-01','120363000000000001@g.us','8801722222222@s.whatsapp.net','cc-1',true) ON CONFLICT DO NOTHING");
+  const before = await countPrograms();
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-group-auth-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n17/11/26(D)');
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.programs, 1, 'Authorized group participant should create program');
+  const after = await countPrograms();
+  assert.equal(after, before + 1);
+});
+
+test('review: WA-02 business processing rejected', async () => {
+  await ensureAccount('wa-02', 'WA-02 Account', '8801999999999@s.whatsapp.net');
+  const before = await countPrograms();
+  await stageMessage('wa-02', '120363000000000001@g.us', 'msg-review-wa02-1', 'INCOMING', '8801999999999@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111');
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.programs, 0, 'WA-02 should not create vessel programs');
+  const after = await countPrograms();
+  assert.equal(after, before);
+});
+
+test('review: ambiguous Admin confirmation → review candidate', async () => {
+  await ensureAccount('wa-01');
+  // Create two draft programs with same mother+lighter in same chat
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-ambig-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n17/11/26(D)');
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-ambig-2', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n18/11/26(D)');
+  const r1 = await routePendingMessages(admin, 10);
+  assert.equal(r1.programs, 2, 'Two different dates create two programs');
+
+  // Admin outgoing confirmation — ambiguous (2 matching programs)
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-ambig-2', 'OUTGOING', '8801880446111@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nEscort Name: Rahim\nEscort Mobile: 01922222222\nStart Date: 17/11/26\nShift: D');
+  const r2 = await routePendingMessages(admin, 10);
+  // Ambiguous confirmation should not auto-confirm
+  assert.equal(r2.confirmations, 0, 'Ambiguous confirmation should not auto-confirm');
+});
+
+test('review: wrong-chat confirmation → unmatched review', async () => {
+  await ensureAccount('wa-01');
+  // Create draft in group chat
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-wrongchat-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n17/11/26(D)');
+  const r1 = await routePendingMessages(admin, 10);
+  assert.equal(r1.programs, 1);
+
+  // Admin outgoing confirmation in DIRECT chat (different conversation)
+  await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-review-wrongchat-2', 'OUTGOING', '8801880446111@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nEscort Name: Rahim\nEscort Mobile: 01922222222');
+  const r2 = await routePendingMessages(admin, 10);
+  // Confirmation in different chat should not match
+  assert.equal(r2.confirmations, 0, 'Confirmation in different chat should not match');
+});
+
+test('review: multiple lighter vessels remain separate programs', async () => {
+  await ensureAccount('wa-01');
+  const before = await countPrograms();
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-multi-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\nLighter Vessel: L-78\nMaster mobile: 01911111111');
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.programs, 2, 'Two lighter vessels create two separate programs');
+  const after = await countPrograms();
+  assert.equal(after, before + 2);
+});
+
+test('review: no automatic Cash posting', async () => {
+  await ensureAccount('wa-01');
+  const beforeLedger = await row('SELECT count(*)::int AS n FROM ledger_entries');
+  await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-review-nopost-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
+    'ID: 01712345678 Rahim Uddin 01812345678(B) 1,250.50/- duty pay');
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.instructions, 1);
+
+  const instr = await row("SELECT state FROM cash_instructions WHERE source_message_id = 'msg-review-nopost-1'");
+  assert.equal(instr.state, 'REVIEW', 'Instruction should remain in REVIEW');
+
+  const afterLedger = await row('SELECT count(*)::int AS n FROM ledger_entries');
+  assert.equal(afterLedger.n, beforeLedger.n, 'No automatic ledger entries');
+});
+
+test('review: concurrent retry — same message processed by two workers', async () => {
+  await ensureAccount('wa-01');
+  await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-review-concurrent-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
+    'ID: 01712345678 Rahim Uddin 01812345678(B) 1,250.50/- duty pay');
+
+  const r1 = await routePendingMessages(admin, 10);
+  const r2 = await routePendingMessages(admin, 10);
+  assert.equal(r1.instructions + r2.instructions, 1,
+    'Concurrent workers must not create duplicate cash instructions');
+  const count = await row("SELECT count(*)::int AS n FROM cash_instructions WHERE source_channel = 'WHATSAPP'");
+  assert.equal(count.n, 1);
+});
+
+test('review: crash recovery — stuck PROCESSING message recovered', async () => {
+  await ensureAccount('wa-01');
+  await row(
+    `INSERT INTO whatsapp_messages
+       (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash,
+        processing_status, retry_count, last_processed_at)
+     VALUES ('wa-01','8801844836824@s.whatsapp.net','msg-review-stuck-1','OUTGOING','8801880446111@s.whatsapp.net',
+       now(),'ID: 01712345678 Rahim Uddin 01812345678(B) 500/- test',encode(digest('w','sha256'),'hex'),
+       'PROCESSING', 0, now() - interval '40 minutes')
+     ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO NOTHING`);
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.instructions, 1, 'Stuck PROCESSING message should be recovered');
+  assert.equal(result.errors, 0);
+});
+
+test('review: source evidence linkage — review item references source message', async () => {
+  await ensureAccount('wa-01');
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-source-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77');
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.reviewItems, 1);
+
+  const item = await row("SELECT * FROM review_items WHERE domain = 'PROGRAM' ORDER BY created_at DESC LIMIT 1");
+  assert.ok(item);
+  const payload = item.payload;
+  assert.equal(payload.sourceMessageId, 'msg-review-source-1');
+  assert.equal(payload.sourceChatJid, '120363000000000001@g.us');
+  assert.equal(payload.sourceAccountId, 'wa-01');
+});
+
+test('review: similar but legitimate transactions create separate review items', async () => {
+  await ensureAccount('wa-01');
+  const before = await row('SELECT count(*)::int AS n FROM review_items');
+  // Two different incomplete vessel orders
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-similar-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77');
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-similar-2', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV Ritaj\nLighter Vessel: L-88');
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.reviewItems, 2, 'Different incomplete orders create separate review items');
+  const after = await row('SELECT count(*)::int AS n FROM review_items');
+  assert.equal(after.n, before.n + 2);
 });
