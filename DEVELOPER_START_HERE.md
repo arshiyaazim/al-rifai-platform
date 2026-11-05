@@ -81,7 +81,7 @@ the deployed SQLite direct-import / tail worker.
 
 **Compose-defined resource limits:** app **512 MiB**, sync **192 MiB**. Measured 2026-11-05 after Phase 2: app **~70 MiB**, sync **~32 MiB**. Disk **55 GB used / 194 GB total** (~139 GB free); `alrifai_v2` ~75 MB; media store **26 MB / 97 files**. Numbers are a dated snapshot, not current telemetry.
 
-**Runtime baseline:** HTTPS health 200 with database OK and schema `1.2.0`; authenticated access to the workspace pages including `/messages`; both sync checkpoints advancing. Deployed image `local/al-rifai-platform:20261105-phase2` (`sha256:d8719b0f…`); rollback image `20261105-v3` (`sha256:c29d837c…`) retained. Confirm actual digests from Docker before any rollback.
+**Runtime baseline:** HTTPS health 200 with database OK and schema `1.2.0`; authenticated access to the workspace pages including `/messages`; both sync checkpoints advancing. Deployed image `local/al-rifai-platform:20261105-phase2` (`sha256:2950c068…`, built from `09b2a51`); rollback image `20261105-v3` (`sha256:c29d837c…`) retained. Confirm actual digests from Docker before any rollback.
 
 ## 4. Code and directory map
 
