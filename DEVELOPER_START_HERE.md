@@ -11,8 +11,8 @@
 | Item | Current value / source |
 |---|---|
 | Git repository | https://github.com/arshiyaazim/al-rifai-platform |
-| Git branch | `feature/phase3-router-cash-vessel` (verified at `0a319e3` for test-environment setup; this docs-only correction follows on the same branch); `main` untouched at `e6becfc` |
-| Verified baseline | `e6becfc` (Phase 2, `main`, untouched); Phase 3 verified at `0a319e3` for test preparation (`cff8a67` is the implementation commit). |
+| Git branch | `feature/phase3-router-cash-vessel` (test-DB creation verified at `6ab35c7`; this docs-only commit records schema initialization); `main` untouched at `e6becfc` |
+| Verified baseline | `e6becfc` (Phase 2, `main`, untouched); Phase 3 test environment verified at `6ab35c7` (`cff8a67` is the implementation commit). |
 | Local Git checkout (VPS) | `/opt/al-rifai-platform` (`main` at `e6becfc`) |
 | Phase 3 test worktree (VPS) | `/opt/al-rifai-phase3-test` at `0a319e3` (separate worktree; production source unchanged) |
 | Standalone app source / root `.env` (VPS) | `/opt/vps/al-rifai-standalone/apps/al-rifai` |
@@ -20,7 +20,7 @@
 | Login | https://app.al-rifai.iamazim.com/login |
 | Public health | https://app.al-rifai.iamazim.com/api/health |
 | Production PostgreSQL DB | `alrifai_v2`, schema `public`, version `1.2.0` (deployed; must not be migrated by Phase 3 work) |
-| Isolated test DB | `alrifai_v2_test`, owner `alrifai_app`, **empty**; the Phase 3 installer would apply schema `1.3.3` (001–007) here only. Tests must set `PGDATABASE=alrifai_v2_test`. |
+| Isolated test DB | `alrifai_v2_test`, owner `alrifai_app`, **initialized at schema `1.3.3`** (001–007), 32 tables, 0 business rows. Tests must set `PGDATABASE=alrifai_v2_test`. |
 | Legacy PostgreSQL DB | `alrifai` — retained, **not** active application DB |
 | WhatsApp source WA-01 | `/var/lib/vps/whatsapp/wa-01/store/messages.db` |
 | WhatsApp source WA-02 | `/var/lib/vps/whatsapp/wa-02/store/messages.db` |
@@ -204,7 +204,8 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 ## 8. Database and secrets
 
 - **Current database:** `alrifai_v2`, PostgreSQL, schema version `1.2.0` (deployed); local migrations 004–007 define `1.3.3` (CI PENDING); legacy `alrifai` retained for rollback and not part of the new application's business state.
-- **Isolated Phase 3 test DB:** `alrifai_v2_test` was created on the existing `vps-infra-postgres-1` (owner `alrifai_app`, UTF8) and contains **0 user tables**. It is separate from `alrifai_v2`/`alrifai`, holds no production rows, and must be the explicit `PGDATABASE` for Phase 3 installation/migration/integration tests. Production `alrifai_v2` is not migrated or modified.
+- **Isolated Phase 3 test DB:** `alrifai_v2_test` on the existing `vps-infra-postgres-1` (owner `alrifai_app`, UTF8) is **initialized at schema `1.3.3`**: 32 tables, 5 functions, 14 triggers, 0 users / 0 messages / 0 programs / 0 instructions / 0 postings. Migrations 004–007 are present (`whatsapp_messages.processing_*`, `program_source_messages`, `escort_client_group_authorizations`, `review_items.category`, the category-aware review index, cash-submission source columns). It is separate from `alrifai_v2`/`alrifai` and must be the explicit `PGDATABASE` for Phase 3 installation/migration/integration tests. Production `alrifai_v2` remains `1.2.0` and is not migrated or modified.
+- **Installer repeat-safety:** a second run without `--force` safely refuses with `ALREADY_INSTALLED` and changes nothing (verified: still 1.3.3 / 32 tables / 0 rows). A forced re-run is **NOT VERIFIED**: `db/standalone/schema.sql` uses plain `CREATE TABLE`/`CREATE FUNCTION`/`CREATE TRIGGER` (not `IF NOT EXISTS`), so `--force` would fail on the first existing object. Do not use `--force` until the baseline is made repeat-safe.
 - **Installer:** fresh `schema.sql` + `002_raw_import.sql` + `003_phase2_identity_media.sql`, all idempotent (deployed schema v1.2.0). Local Phase 3 migrations `004_phase3_router_state.sql` through `007_phase3_review_queue_ui.sql` are committed on `cff8a67` (additive/idempotent, schema v1.3.3); CI PENDING, not applied to production; production schema remains v1.2.0 and is not migrated. Do not reintroduce the legacy migration chain just to match historical DB structure.
 - **Phase 2 tables/columns:** `whatsapp_media` (one row per captured attachment, unique per account/chat/message, FK to the message) and identity evidence columns on `identity_aliases` (`display_name`, `name_source`, `canonical_jid`, `person_key`, first/last seen, `metadata`). The live migration was applied with a verified `pg_dump` (`/var/lib/vps/al-rifai/backups/pre-phase2-20261105-1111.dump`) and preserved all 34,090 pre-change messages.
 - **Dedup key:** `(account_id, chat_jid, message_id)`. `(account_id, message_id)` alone loses one known WA-01 duplicate-ID-across-chat case.
