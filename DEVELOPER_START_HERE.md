@@ -2,7 +2,7 @@
 
 > **Canonical current-state developer map — not a changelog.** Read this first before modifying code, database, Docker, WhatsApp ingestion, or deployment.
 >
-> **Last reconciled:** 2026-11-06. **Source:** `feature/phase3-router-cash-vessel` at Increment 4 checkpoint `f606678` plus the Increment 5 working tree; GitHub `main` remains at `e6becfc` (Phase 2). Repository source files and locally executed test results. **Runtime facts below are agent-measured unless marked dated.**
+> **Last reconciled:** 2026-11-05. **Source:** `feature/phase3-router-cash-vessel` at commit `cff8a67` (Phase 3 Increments 5 & 6 — Review Queue UI, CI & Tests); local session branch `arena/e574efa6-al-rifai-platform` at `cff8a67`; GitHub `main` remains at `e6becfc` (Phase 2). Repository source files and locally executed test results. **Runtime facts below are agent-measured unless marked dated.**
 >
 > **Priority:** **BUILD → RUN → LIVE → IMPROVE**. Do not block releases on unrelated legacy data migration, historical Git branches, exhaustive tests, or non-blocking cleanup. Never claim a workflow is live solely because code exists.
 
@@ -11,8 +11,8 @@
 | Item | Current value / source |
 |---|---|
 | Git repository | https://github.com/arshiyaazim/al-rifai-platform |
-| Git branch | `feature/phase3-router-cash-vessel` (Increment 5 working branch); `main` untouched |
-| Verified baseline | `f6066785c6544bc267554316c994e82e4a50c2a5` (Increment 4 checkpoint, preserved) |
+| Git branch | `arena/e574efa6-al-rifai-platform` (session working branch at `cff8a67`); `feature/phase3-router-cash-vessel` at `cff8a67` on origin; `main` untouched at `e6becfc` |
+| Verified baseline | `e6becfc` (Phase 2, `main`, untouched); current commit `cff8a67` (Phase 3 Increments 5 & 6). `f606678` Increment 4 checkpoint is not present in this checkout. |
 | Local Git checkout (VPS) | `/opt/al-rifai-platform` |
 | Standalone app source / root `.env` (VPS) | `/opt/vps/al-rifai-standalone/apps/al-rifai` |
 | Public application | https://app.al-rifai.iamazim.com |
@@ -160,6 +160,8 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 
 **Fresh-data policy:** Owner does not require historical business data import. Agent reported **0 programs, 0 cash instructions, 0 employees and 0 postings** after removing temporary test records. Raw WhatsApp history is retained. Do not confuse “empty new business DB” with “broken app.”
 
+**Test evidence — this session (2026-11-05):** `npm run test:unit` executed: **67 pass / 0 fail** (shift-boundary, unified-auth-policy, media, identity, message-classifier, review-ui). DB-dependent suites (message-router, review-api, domain, whatsapp) require PostgreSQL `alrifai_v2` and a root `.env` — absent in this sandbox, not executed here. CI workflow `.github/workflows/ci.yml` is present and prepared but not executed on GitHub (no Actions evidence; no production credentials).
+
 ## 6. Pipeline/workflow inventory
 
 **Counting rule:** A pipeline is one independently meaningful end-to-end business/data flow. Below are **15 tracked logical pipelines**, **not** a claim that 15 background workers exist. Recount when adding/removing a flow. Status reflects the weakest critical step.
@@ -200,7 +202,7 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 ## 8. Database and secrets
 
 - **Current database:** `alrifai_v2`, PostgreSQL, schema version `1.2.0` (deployed); local migration 004 proposes `1.3.0` (CI PENDING); legacy `alrifai` retained for rollback and not part of the new application's business state.
-- **Installer:** fresh `schema.sql` + `002_raw_import.sql` + `003_phase2_identity_media.sql`, all idempotent (deployed schema v1.2.0). Local Phase 3 migration `004_phase3_router_state.sql` proposes v1.3.0 (CI PENDING, not applied to production). Do not reintroduce the legacy migration chain just to match historical DB structure.
+- **Installer:** fresh `schema.sql` + `002_raw_import.sql` + `003_phase2_identity_media.sql`, all idempotent (deployed schema v1.2.0). Local Phase 3 migrations `004_phase3_router_state.sql` through `007_phase3_review_queue_ui.sql` are committed on `cff8a67` (additive/idempotent, schema v1.3.3); CI PENDING, not applied to production; production schema remains v1.2.0 and is not migrated. Do not reintroduce the legacy migration chain just to match historical DB structure.
 - **Phase 2 tables/columns:** `whatsapp_media` (one row per captured attachment, unique per account/chat/message, FK to the message) and identity evidence columns on `identity_aliases` (`display_name`, `name_source`, `canonical_jid`, `person_key`, first/last seen, `metadata`). The live migration was applied with a verified `pg_dump` (`/var/lib/vps/al-rifai/backups/pre-phase2-20261105-1111.dump`) and preserved all 34,090 pre-change messages.
 - **Dedup key:** `(account_id, chat_jid, message_id)`. `(account_id, message_id)` alone loses one known WA-01 duplicate-ID-across-chat case.
 - **Central configuration:** `/opt/vps/al-rifai-standalone/apps/al-rifai/.env`; shared loader `lib/env.mjs`; `pnpm env:check` prints missing key names, not values.
@@ -257,7 +259,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 - Frontend Integration: IMPLEMENTED — Review Queue pages/components, Cash review integration, Vessel review integration, role-based actions, source evidence and audit history. LOCALLY VERIFIED: typecheck+lint+build+unit+DB tests pass. PRODUCTION NOT DEPLOYED.
 - Docs: IMPLEMENTED — `DEVELOPER_START_HERE.md` updated in place; migration 007 added.
 
-**Delivery boundary:** Local implementation package complete. No VPS deployment. No GitHub push. No production changes. Owner approval required before merge.
+**Delivery boundary:** Local implementation package complete (`cff8a67` plus this documentation refresh). No VPS deployment. GitHub push status: `cff8a67` is present on origin `feature/phase3-router-cash-vessel`; this session's documentation refresh is pushed on `arena/e574efa6-al-rifai-platform` (session branch policy — no push to `main`, no merge into `main`). No production deployment.
 | 6 | Domain conversation routing | Cash/Vessel/HR/Recruitment/CRM routed to proper handlers; no unauthorized automatic posting |
 | 7 | Vessel rates and missing release/parser logic | Owner-configured rates; end-to-end order/release flow |
 | 8 | Recruitment, employee conversations and AI assistant | Incremental modules, measured and deployed separately |
