@@ -167,7 +167,13 @@ async function main() {
       );
     }
     for (const participant of participants) {
-      const participantJid = participant.phase3_match_form ?? participant.canonical_jid ?? participant.participant_jid;
+      // `phase3_match_form` is a human-readable note, not an identity. Use the
+      // actual approved participant identity and reject anything that is not a
+      // numeric/JID form before it reaches the authorization table.
+      const participantJid = participant.participant_jid ?? participant.canonical_jid;
+      if (!/^[0-9]{6,20}(@[A-Za-z0-9.]+)?$/.test(String(participantJid ?? ''))) {
+        throw new ActivationError('ARTIFACT_PARTICIPANT_JID_INVALID');
+      }
       await client.query(
         `INSERT INTO escort_client_group_authorizations
            (id, account_id, group_jid, participant_jid, client_contact_id, active)
