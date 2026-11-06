@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import {
   canonicalPnJid,
   identityConfidence,
+  jidForms,
   jidKind,
+  jidsMatch,
   normalizeAccountJid,
   personKey,
   phoneFromJid,
@@ -48,4 +50,14 @@ test('the person key prefers the canonical JID', () => {
   assert.equal(personKey(canonical, '123456789012345@lid'), canonical);
   assert.equal(personKey(null, '123456789012345@lid'), '123456789012345@lid');
   assert.equal(personKey(null, null), null);
+});
+
+test('identity matching supports bare, full, LID and device-qualified forms without widening the identity', () => {
+  assert.equal(jidsMatch('8801700000000', '8801700000000@s.whatsapp.net'), true);
+  assert.equal(jidsMatch('8801700000000@s.whatsapp.net', '8801700000000'), true);
+  assert.equal(jidsMatch('8801700000000:27@s.whatsapp.net', '8801700000000@s.whatsapp.net'), true);
+  assert.equal(jidsMatch('123456789012345@lid', '123456789012345'), true);
+  assert.equal(jidsMatch('8801700000000', '8801700000001'), false);
+  assert.equal(jidsMatch('', '8801700000000'), false);
+  assert.ok(jidForms('8801700000000:27@s.whatsapp.net').includes('8801700000000'));
 });

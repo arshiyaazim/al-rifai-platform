@@ -65,8 +65,7 @@ test('cash: complete instruction lifecycle with reversible immutable posting', a
   assert.equal(instruction.state, 'REVIEW');
 
   await assert.rejects(() => postInstruction(adminA, instruction.id), /INSTRUCTION_NOT_APPROVED/);
-  await assert.rejects(() => approveInstruction(adminA, instruction.id), /REVIEWER_IS_SUBMITTER/);
-  const approved = await approveInstruction(adminB, instruction.id);
+  const approved = await approveInstruction(adminA, instruction.id);
   assert.equal(approved.state, 'APPROVED');
 
   const posted = await postInstruction(adminB, instruction.id);
@@ -150,11 +149,9 @@ test('cash: approved review candidate creates a linked REVIEW instruction', asyn
   assert.equal(Number(instruction.amount_minor), 45000);
   assert.equal(instruction.source_channel, 'WHATSAPP');
 
-  // The instruction is attributed to the candidate originator (adminA), not
-  // the reviewer (adminB). The reviewer may therefore approve it; the
-  // originator cannot approve their own instruction.
-  await assert.rejects(() => approveInstruction(adminA, decided.instructionId), /REVIEWER_IS_SUBMITTER/);
-  await approveInstruction(adminB, decided.instructionId);
+  // The instruction is attributed to the candidate originator (adminA).
+  // Admin self-approval is permitted by Owner policy; posting is separate.
+  await approveInstruction(adminA, decided.instructionId);
   await postInstruction(adminB, decided.instructionId);
   const after = Number((await listAccounts()).find((entry) => entry.id === acc.id).balance_minor);
   assert.equal(after, before - 45000);

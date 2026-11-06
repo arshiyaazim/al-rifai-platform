@@ -63,6 +63,10 @@ export const CAPABILITIES = [
   'whatsapp.manage',
   'whatsapp.route',
   'audit.read',
+  'ai.read',
+  'ai.use',
+  'ai.admin',
+  'ai.send',
   'user.manage',
   'workspace.admin',
 ] as const;
@@ -86,6 +90,10 @@ export const ADMIN_ONLY_CAPABILITIES: readonly Capability[] = [
   'whatsapp.manage',
   'whatsapp.route',
   'audit.read',
+  'ai.read',
+  'ai.use',
+  'ai.admin',
+  'ai.send',
   'user.manage',
 ];
 
@@ -104,7 +112,7 @@ const ROLE_CAPABILITIES: Record<AuthRole, readonly Capability[]> = {
     'attendance.read', 'attendance.submit', 'attendance.manage',
     'payroll.read', 'payroll.manage', 'review.decide',
     'whatsapp.read', 'whatsapp.manage', 'whatsapp.route',
-    'audit.read', 'user.manage',
+    'audit.read', 'ai.read', 'ai.use', 'ai.admin', 'ai.send', 'user.manage',
   ],
   // USER may read and stage work for review but never writes a financial or
   // operational fact directly. Admin-only capabilities stay out of this list.

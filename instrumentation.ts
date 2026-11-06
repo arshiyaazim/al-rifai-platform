@@ -29,5 +29,17 @@ export async function register() {
   } catch (error) {
     const code = error instanceof Error && /^[A-Z][A-Z0-9_]{3,80}$/.test(error.message) ? error.message : 'PHASE3_ROUTER_WORKER_FAILED';
     console.error(`Phase 3 router worker bootstrap failed (${code}).`);
+  }  try {
+    const {startAiWa02Worker} = await import('./lib/ai/worker.ts');
+    const worker = startAiWa02Worker();
+    if (worker.started) {
+      console.error(`WA-02 AI worker started (interval=${worker.intervalMs}ms, limit=${worker.limit}).`);
+    } else {
+      console.error(`WA-02 AI worker not started (${worker.reason ?? 'UNKNOWN'}).`);
+    }
+  } catch (error) {
+    const code = error instanceof Error && /^[A-Z][A-Z0-9_]{3,80}$/.test(error.message) ? error.message : 'AI_WA02_WORKER_FAILED';
+    console.error(`WA-02 AI worker bootstrap failed (${code}).`);
   }
+
 }

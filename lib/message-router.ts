@@ -34,6 +34,7 @@ import {createInstruction} from './standalone/finance.ts';
 import {createProgram, potentialDuplicates} from './standalone/programs.ts';
 import {submitForReview} from './standalone/review.ts';
 import {classifyDomain, type Domain} from './message-classifier.ts';
+import {jidsMatch} from './whatsapp-identity.mjs';
 import type {WhatsAppAccount} from './standalone/whatsapp.ts';
 
 export type RouterResult = {
@@ -333,18 +334,20 @@ async function isGroupParticipantAuthorized(
     };
   }
 
-  const auth = await row<{participant_jid: string | null}>(
+  const auth = await rows<{participant_jid: string}>(
     `SELECT participant_jid
            FROM escort_client_group_authorizations
           WHERE account_id = $1
             AND group_jid = $2
-            AND participant_jid = $3
-            AND active = true
-          LIMIT 1`,
-    [accountId, chatJid, senderJid ?? ''],
+            AND active = true`,
+    [accountId, chatJid],
   );
 
-  if (!auth || !auth.participant_jid) {
+  // Compare normalized identity forms. The bridge stores bare sender IDs while
+  // legacy authorization rows used full PN/LID JIDs; exact string comparison
+  // would fail closed for every approved participant.
+  const matched = auth.some((entry) => jidsMatch(entry.participant_jid, senderJid));
+  if (!matched) {
     return {authorized: false, reason: 'GROUP_PARTICIPANT_NOT_AUTHORIZED'};
   }
 
@@ -788,7 +791,7 @@ async function handleConfirmation(
     return {confirmed: false, classification: vesselAuth.reason as string};
   }
 
-  const isAdmin = accountAdminJids.includes(message.sender_jid ?? '');
+  const isAdmin = accountAdminJids.some((jid) => jidsMatch(jid, message.sender_jid));
   if (!isAdmin) {
     return {confirmed: false, classification: 'OUTGOING_NON_ADMIN'};
   }
@@ -900,7 +903,7 @@ export async function routePendingMessages(
 
         // Cash: only WA-01 Admin OUTGOING messages in Accountant conversation
         if (domain === 'CASH' && message.direction === 'OUTGOING') {
-          const isAdmin = adminJids.includes(message.sender_jid ?? '');
+          const isAdmin = adminJids.some((jid) => jidsMatch(jid, message.sender_jid));
           const isWa01 = message.account_id === 'wa-01';
           if (!isAdmin) {
             classification = 'CASH:NON_ADMIN_SENDER';

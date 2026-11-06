@@ -2,7 +2,7 @@
 
 > **Canonical current-state developer map — not a changelog.** Read this first before modifying code, database, Docker, WhatsApp ingestion, or deployment.
 >
-> **Last reconciled:** 2026-11-06. **Source:** `main` at `ebd6ccb` (tag `v1.4.0-phase3-rc2`); production cut over 2026-11-06 18:14 UTC (Live Router cutover gate, complete Cash lifecycle, capability enforcement, transaction-aware audit, incremental migration runner; **95/95 integration tests**, 69/69 unit tests); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
+> **Last reconciled:** 2026-11-06. **Source:** `main` at `ebd6ccb` (tag `v1.4.0-phase3-rc2`); production cut over 2026-11-06 18:14 UTC (Live Router cutover gate, complete Cash lifecycle, capability enforcement, transaction-aware audit, incremental migration runner; **104/104 integration tests**, 77/77 unit tests); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
 >
 > **Priority:** **BUILD → RUN → LIVE → IMPROVE**. Do not block releases on unrelated legacy data migration, historical Git branches, exhaustive tests, or non-blocking cleanup. Never claim a workflow is live solely because code exists.
 
@@ -120,7 +120,7 @@ verified [`docs/PHASE3_CUTOVER_RUNBOOK.md`](./docs/PHASE3_CUTOVER_RUNBOOK.md).
 | Login | https://app.al-rifai.iamazim.com/login |
 | Public health | https://app.al-rifai.iamazim.com/api/health |
 | Production PostgreSQL DB | `alrifai_v2_phase3`, schema `public`, version `1.4.0` (live) |
-| Isolated test DB | `alrifai_v2_test`, owner `alrifai_app`, **schema `1.4.0`** (001–008 + migration ledger), 35 tables. Tests must set `PGDATABASE=alrifai_v2_test`. |
+| Isolated test DB | `alrifai_v2_test`, owner `alrifai_app`, **schema `1.5.0`** (001–009 + migration ledger), 45 tables. Tests must set `PGDATABASE=alrifai_v2_test`. |
 | Cold rollback DB | `alrifai_v2`, schema `1.2.0`, preserved untouched |
 | Legacy PostgreSQL DB | `alrifai` — retained, **not** active application DB |
 | WhatsApp source WA-01 | `/var/lib/vps/whatsapp/wa-01/store/messages.db` |
@@ -270,7 +270,7 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 
 **Fresh-data policy:** Owner does not require historical business data import. Agent reported **0 programs, 0 cash instructions, 0 employees and 0 postings** after removing temporary test records. Raw WhatsApp history is retained. Do not confuse “empty new business DB” with “broken app.”
 
-**Test evidence — this session (2026-11-06):** `pnpm test:unit` executed: **69 pass / 0 fail** (shift-boundary, unified-auth-policy, media, identity, message-classifier, review-ui, router-worker; re-confirmed after `pnpm install --frozen-lockfile`). DB-dependent suites now run against the isolated `alrifai_v2_test` database: **95/95 pass** (domain 10, WhatsApp adapter 1, router 50, cutover 18, Review API 7, Cash lifecycle 7, users 2). `scripts/standalone/migrate.mjs` provides the previously missing `db:migrate` path. GitHub Actions remains billing-locked; the workflow is updated for schema `1.4.0` but has not executed. No production credentials.
+**Test evidence — this session (2026-11-06):** `pnpm test:unit` executed: **69 pass / 0 fail** (shift-boundary, unified-auth-policy, media, identity, message-classifier, review-ui, router-worker; re-confirmed after `pnpm install --frozen-lockfile`). DB-dependent suites now run against the isolated `alrifai_v2_test` database: **104/104 pass** (domain 10, WhatsApp adapter 1, router 52, cutover 18, Review API 7, Cash lifecycle 7, users 2, AI assistant 7). Unit suite: **77/77**. `scripts/standalone/migrate.mjs` provides the previously missing `db:migrate` path. GitHub Actions remains billing-locked; the workflow is updated for schema `1.4.0` but has not executed. No production credentials.
 
 ## 6. Pipeline/workflow inventory
 
@@ -305,9 +305,10 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 - `tests/standalone/review-api.test.mjs` — **7/7**.
 - `tests/standalone/cash-lifecycle.test.mjs` — **5/5**.
 - `tests/standalone/users.test.mjs` — **2/2**.
+- `tests/standalone/ai-assistant.test.mjs` — **7/7**.
 - `tests/standalone/router-worker.test.mjs` — **2/2** (unit gate).
-- Combined: **95/95 integration tests**, run sequentially with `--test-concurrency=1`. Unit suite: **69/69**.
-- Migration: `alrifai_v2_test` 1.3.3 → 1.4.0, 35 tables, 7 ledger rows; repeat run is a no-op. Fresh disposable DB: install 34 tables/1.4.0; migrate 35 tables; `install --force` succeeds.
+- Combined: **104/104 integration tests**, run sequentially with `--test-concurrency=1`. Unit suite: **77/77**.
+- Migration: `alrifai_v2_test` is at 1.5.0, 45 tables, 8 migration rows; migration 009 adds the AI foundation. Fresh disposable DB: install 44 tables/1.5.0; migrate 45 tables; repeat migration is a no-op.
 - The Live Router remains default-disabled in production; test activation is synthetic and confined to the test DB.
 - Production is now on `alrifai_v2_phase3` at `1.4.0`; the router/Vessel flags remain off, so no Phase 3 business routing or financial posting is active.
 
@@ -326,7 +327,7 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 
 ## 8. Database and secrets
 
-- **Current database:** `alrifai_v2_phase3`, PostgreSQL, schema `1.4.0` (live since 2026-11-06 18:14 UTC). `alrifai_v2` remains schema `1.2.0` as the cold rollback database. Migration 008 and the final-sync procedure were verified on test, fresh and production-copy databases. Legacy `alrifai` is retained for rollback and is not part of the new application's business state.
+- **Current database:** `alrifai_v2_phase3`, PostgreSQL, production schema `1.4.0` (live since 2026-11-06 18:14 UTC); the AI development branch requires migration 009 / schema 1.5.0, not applied to production. `alrifai_v2` remains schema `1.2.0` as the cold rollback database. Migration 008 and the final-sync procedure were verified on test, fresh and production-copy databases. Legacy `alrifai` is retained for rollback and is not part of the new application's business state.
 - **Isolated Phase 3 test DB:** `alrifai_v2_test` on the existing `vps-infra-postgres-1` (owner `alrifai_app`, UTF8) is at schema `1.4.0`: 35 tables (including `schema_migrations`), 5 functions, 15 triggers. Migrations 002–008 are applied, including `cash_submissions.instruction_id`, `cash_reversals`, `cash_reconciliations`, and the extended ledger source values. It is separate from `alrifai_v2`/`alrifai` and must be the explicit `PGDATABASE` for installation/migration/integration tests. The cold rollback DB `alrifai_v2` remains `1.2.0` and is not migrated or modified.
 - **Installer repeat-safety:** a second run without `--force` refuses with `ALREADY_INSTALLED`. `--force` now skips the non-idempotent baseline and re-applies only the additive layers + grants; verified on the disposable fresh DB. Prefer `pnpm db:migrate` for a controlled upgrade.
 - **Installer/migrations:** fresh `schema.sql` + additive `002`–`008`, all idempotent, schema `1.4.0`. `scripts/standalone/migrate.mjs` is the incremental, checksum-tracked path. The live schema is `1.4.0`; the cold rollback DB remains `1.2.0`. Do not reintroduce the legacy migration chain just to match historical DB structure.
@@ -337,6 +338,7 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 - Frontend-created login passwords are **hashed**, not stored in plaintext. Bootstrap admin password can be provided via `.env`; use `pnpm admin:reset` for recovery.
 - WA session keys and media decryption material remain in bridge-owned storage; not copied into the main business DB. The worker uses a media key in memory only.
 - **Phase 3 activation keys:** `PHASE3_ROUTER_WORKER_ENABLED` (default `0`), `PHASE3_ROUTER_WORKER_INTERVAL_MS`, `PHASE3_ROUTER_WORKER_LIMIT`; `ALRIFAI_VESSEL_PROCESSING_ENABLED` (production `0`; deferred Vessel rows stay `PENDING`). The DB gate `phase3_router_enabled` + per-account watermark/chat allowlist is still required.
+- **WA-02 AI keys:** `AI_WA02_ENABLED=0`, `AI_OUTBOUND_ENABLED=0`, `AI_WA02_INTERVAL_MS`, `AI_WA02_LIMIT`; DB gates `ai_wa02_enabled=true` and `ai_wa02_start_rowid:wa-02`. No live sender; see `docs/PHASE3_AI_ASSISTANT.md`.
 - **Media directory:** `/var/lib/vps/al-rifai/media` (host), `/media` in containers; owned `10001:10001`, mode `0700`, written by the root `sync` process and read-only to `app`. It is outside Git and the image, so it survives rebuilds and container recreation.
 - The owner prioritizes rapid delivery and simple configuration, not enterprise security tooling. Keep existing functional authentication and do not introduce new infrastructure as a prerequisite to ordinary feature work.
 
@@ -388,7 +390,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 - Audit integrity: IMPLEMENTED — `recordAudit(input, client)` participates in the caller's transaction; review decisions apply domain writes on the same client.
 - Migration/CI: IMPLEMENTED — `scripts/standalone/migrate.mjs`, shared grants, idempotent `install --force`, CI updated for schema `1.4.0` and the full suite. Not executed on GitHub (billing lock).
 - Frontend: IMPLEMENTED — Cash candidate decisions, reversal, reconciliation, instruction audit detail, Super Admin user administration.
-- Verification: 69/69 unit, 95/95 integration, typecheck, lint, Next build, Docker build, `pnpm audit --prod` clean. PRODUCTION NOT DEPLOYED.
+- Verification: 77/77 unit, 104/104 integration, typecheck, lint, Next build, Docker build, `pnpm audit --prod` clean. Production remains 1.4.0; AI development schema 1.5.0 is not deployed.
 
 **Delivery boundary:** Implementation and integration tests complete on `feature/phase3-router-cash-vessel` at `7b0330c`; pushed to origin. No production deployment. Production readiness is **BLOCKED** pending the items in the audit block below.
 | 6 | Domain conversation routing | Cash/Vessel/HR/Recruitment/CRM routed to proper handlers; no unauthorized automatic posting |

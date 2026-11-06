@@ -109,8 +109,8 @@ test('finance: instruction, approval, posting, ledger balance', async () => {
   assert.equal(instruction.state, 'REVIEW');
 
   await assert.rejects(() => postInstruction(adminA, instruction.id), /INSTRUCTION_NOT_APPROVED/);
-  await assert.rejects(() => approveInstruction(adminA, instruction.id), /REVIEWER_IS_SUBMITTER/);
-  await approveInstruction(adminB, instruction.id);
+  const selfApproved = await approveInstruction(adminA, instruction.id);
+  assert.equal(selfApproved.state, 'APPROVED');
   const posted = await postInstruction(adminB, instruction.id);
   assert.equal(posted.state, 'POSTED');
 

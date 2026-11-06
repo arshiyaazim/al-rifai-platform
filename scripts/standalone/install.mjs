@@ -36,6 +36,7 @@ const EXTRA_SCHEMA_FILES = [
   join(APP_ROOT, 'db', 'standalone', '006_phase3_review_queue.sql'),
   join(APP_ROOT, 'db', 'standalone', '007_phase3_review_queue_ui.sql'),
   join(APP_ROOT, 'db', 'standalone', '008_phase3_cash_lifecycle.sql'),
+  join(APP_ROOT, 'db', 'standalone', '009_phase3_ai_assistant.sql'),
 ];
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;
@@ -51,6 +52,10 @@ const TARGET_TABLES = [
   'whatsapp_media',
   // Phase 3 Cash lifecycle
   'cash_reversals', 'cash_reconciliations',
+  // Phase 3 AI communication foundation
+  'ai_contacts', 'ai_admin_jids', 'ai_conversations', 'ai_messages',
+  'ai_applicant_drafts', 'ai_job_catalog', 'ai_outbound_messages',
+  'ai_tool_runs', 'ai_escalations', 'ai_order_drafts',
 ];
 
 class InstallError extends Error {

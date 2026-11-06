@@ -8,7 +8,8 @@
 - **Release branch merged:** `feature/phase3-router-cash-vessel` → `main`
 - **Merge commit:** `8cd9436` (cutover-safety fix)
 - **Cutover executed:** 2026-11-06 18:14 UTC
-- **Live database:** `alrifai_v2_phase3` (schema 1.4.0)
+- **Live database:** `alrifai_v2_phase3` (production schema 1.4.0)
+- **AI development:** migration 009 / schema 1.5.0 — not deployed; see [`docs/PHASE3_AI_ASSISTANT.md`](./docs/PHASE3_AI_ASSISTANT.md)
 - **Rollback database:** `alrifai_v2` (schema 1.2.0, preserved)
 - **Release tag:** `v1.4.0-phase3-rc2` (the earlier `v1.4.0-phase3-rc` is retained)
 - **Cutover runbook:** See [`docs/PHASE3_CUTOVER_RUNBOOK.md`](./docs/PHASE3_CUTOVER_RUNBOOK.md)
@@ -353,10 +354,10 @@ The current schema is `1.4.0` (migrations 002–008).
 ## 7. Tests
 
 ```bash
-pnpm test:unit        # pure functions (69 assertions)
+pnpm test:unit        # pure functions (77 assertions)
 pnpm test:standalone  # all DB suites: domain, WhatsApp adapter, router,
-                      # cutover, Review Queue, Cash lifecycle and users
-                      # (95 integration tests)
+                      # cutover, Review Queue, Cash lifecycle, users and AI
+                      # (104 integration tests)
 ```
 
 The integration tests are destructive to their schema: run them against a

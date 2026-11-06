@@ -20,12 +20,15 @@ const READ_WRITE = [
   'login_throttle_state',
   // Phase 3 Cash lifecycle: a reconciliation row is updated when it is closed.
   'cash_reconciliations',
+  // Phase 3 AI communication foundation
+  'ai_contacts', 'ai_admin_jids', 'ai_conversations', 'ai_applicant_drafts',
+  'ai_job_catalog', 'ai_outbound_messages', 'ai_escalations', 'ai_order_drafts',
 ];
 
 const APPEND_ONLY = [
   'cash_portal_audit', 'program_events', 'audit_events',
   'cash_submission_reviews', 'review_decisions', 'cash_postings', 'ledger_entries',
-  'cash_reversals',
+  'cash_reversals', 'ai_messages', 'ai_tool_runs',
 ];
 
 const DELETE_ONLY = ['cash_portal_sessions', 'login_throttle_state'];
