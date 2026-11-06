@@ -822,16 +822,19 @@ export async function routePendingMessages(
           const vesselResult = await handleVessel(actor, message, text);
           result.programs += vesselResult.programsCreated ?? (vesselResult.created ? 1 : 0);
           result.reviewItems += vesselResult.reviewSubmitted ? 1 : 0;
-          // Preserve the specific WA-02 rejection reason; every other no-op
-          // vessel outcome keeps the existing NO_VALID_BLOCK fallback.
-          const wa02Rejection = vesselResult.reasons.find(
-            (reason) => reason === 'VESSEL_WA02_NOT_AUTHORIZED',
+          // Preserve the specific rejection reasons (WA-02 account and
+          // unauthorized group participant); every other no-op vessel outcome
+          // keeps the existing NO_VALID_BLOCK fallback.
+          const vesselRejection = vesselResult.reasons.find(
+            (reason) =>
+              reason === 'VESSEL_WA02_NOT_AUTHORIZED' ||
+              reason === 'GROUP_PARTICIPANT_NOT_AUTHORIZED',
           );
           classification = vesselResult.created
             ? `VESSEL:PROGRAM_DRAFT`
             : vesselResult.reviewSubmitted
               ? `VESSEL:REVIEW_SUBMITTED:${vesselResult.reasons.join(',')}`
-              : (wa02Rejection ?? 'VESSEL:NO_VALID_BLOCK');
+              : (vesselRejection ?? 'VESSEL:NO_VALID_BLOCK');
           action = vesselResult.created ? 'program_draft_created'
             : vesselResult.reviewSubmitted ? 'vessel_review_submitted' : 'vessel_no_valid_block';
         } else if (
