@@ -5,7 +5,7 @@
 **Release candidate code commit:** `06f7c66`
 **Documentation tip:** this documentation commit (child of `06f7c66`)
 **Schema:** `1.4.0`
-**Feature branch:** pushed to `origin/feature/phase3-router-cash-vessel` at `1a5d92e`
+**Feature branch:** pushed to `origin/feature/phase3-router-cash-vessel`; code commit `06f7c66`, documentation tip `bd8f08b`
 **Production deployment:** NOT EXECUTED
 
 ## Image

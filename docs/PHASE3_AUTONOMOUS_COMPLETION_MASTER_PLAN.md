@@ -337,7 +337,7 @@ All DB commands run with `--test-concurrency=1` and an explicit
 | 2026-11-06 | Dependency remediation | **Complete** — Next.js 16.4.1, Zod 4.6.6, fast-uri 3.1.9; `pnpm audit --prod` clean |
 | 2026-11-06 | Verification | **95/95 integration tests**, 69/69 unit tests, typecheck, lint, Next build and Docker build pass |
 | 2026-11-06 | Phase E polish/docs | **Complete** — README, developer map, PR description, release checklist and rollback runbook updated |
-| 2026-11-06 | Phase F release candidate | **Pushed** — commits `39a9023`…`1a5d92e`; image `sha256:010e42bf…`; evidence in `docs/PHASE3_RELEASE_EVIDENCE.md`; main merge and production deployment await Owner approval |
+| 2026-11-06 | Phase F release candidate | **Pushed** — commits `39a9023`…`06f7c66`; image `sha256:d9e7f765…`; evidence in `docs/PHASE3_RELEASE_EVIDENCE.md`; main merge and production deployment await Owner approval |
 | 2026-11-06 | Second-pass reassessment | **Complete** — automatic router worker, Vessel deferral gate, Cash account assignment, candidate originator fix, payroll/reporting integrity, legacy bootstrap removal |
 | 2026-11-06 | Production-copy migration rehearsal | **Complete** — real 34,420-message dump restored, migrated 1.2.0→1.4.0, all data preserved |
 | 2026-11-06 | Automatic pipeline + HTTP lifecycle on copy | **Verified** — image `phase3-rc-final3`, synthetic Cash/Vessel messages, assign/approve/post/reverse/reconcile |
