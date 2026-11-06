@@ -5,6 +5,7 @@ import {listAttendance} from '@/lib/standalone/attendance';
 import {listInstructions, listLedger} from '@/lib/standalone/finance';
 import {programPayList} from '@/lib/standalone/payroll';
 import {listAudit} from '@/lib/standalone/audit';
+import {assertCapability} from '@/lib/standalone/authz';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,9 +22,15 @@ const csv = (rows: Array<Record<string, unknown>>) => {
 
 export async function GET(request: Request) {
   try {
-    await actorFor(request, {csrf: false});
+    const actor = await actorFor(request, {csrf: false});
     const url = new URL(request.url);
     const type = url.searchParams.get('type') ?? 'employees';
+    if (type === 'audit') assertCapability(actor as never, 'audit.read');
+    else if (type === 'cash' || type === 'ledger') assertCapability(actor as never, 'cash.read');
+    else if (type === 'payroll') assertCapability(actor as never, 'payroll.read');
+    else if (type === 'programs') assertCapability(actor as never, 'vessel.read');
+    else if (type === 'employees') assertCapability(actor as never, 'employee.read');
+    else if (type === 'attendance') assertCapability(actor as never, 'attendance.read');
     let rows: Array<Record<string, unknown>> = [];
     if (type === 'employees') rows = (await listEmployees({})) as never;
     else if (type === 'programs') rows = (await listPrograms({})) as never;

@@ -1,0 +1,431 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feature/phase3-router-cash-vessel]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '22.x'
+  PG_VERSION: '16'
+
+jobs:
+  lint-and-typecheck:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install -g pnpm@11.25.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run lint
+        run: pnpm lint
+
+      - name: Run typecheck
+        run: pnpm typecheck
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install -g pnpm@11.25.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run unit tests
+        run: pnpm test:unit
+
+  domain-integration-tests:
+    name: Domain Integration Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: alrifai_app
+          POSTGRES_PASSWORD: owner-secret
+          POSTGRES_DB: alrifai_v2
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U alrifai_app -d alrifai_v2"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install -g pnpm@11.25.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install disposable database schema
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: |
+          PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'alrifai_runtime') THEN CREATE ROLE alrifai_runtime LOGIN PASSWORD 'runtime-secret'; END IF; END \$\$;"
+          node --experimental-strip-types scripts/standalone/install.mjs --preflight
+          node --experimental-strip-types scripts/standalone/install.mjs \
+            --admin-user owner --admin-password 'test-secret' --admin-name 'Owner'
+
+      - name: Run domain integration tests
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: pnpm test:standalone
+
+  router-tests:
+    name: Router Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: alrifai_app
+          POSTGRES_PASSWORD: owner-secret
+          POSTGRES_DB: alrifai_v2
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U alrifai_app -d alrifai_v2"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install -g pnpm@11.25.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install disposable database schema
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: |
+          PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'alrifai_runtime') THEN CREATE ROLE alrifai_runtime LOGIN PASSWORD 'runtime-secret'; END IF; END \$\$;"
+          node --experimental-strip-types scripts/standalone/install.mjs --preflight
+          node --experimental-strip-types scripts/standalone/install.mjs \
+            --admin-user owner --admin-password 'test-secret' --admin-name 'Owner'
+
+      - name: Run router tests
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: node --experimental-strip-types --test --test-concurrency=1 tests/standalone/message-router.test.mjs tests/standalone/router-cutover.test.mjs
+
+  review-queue-tests:
+    name: Review Queue Integration Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: alrifai_app
+          POSTGRES_PASSWORD: owner-secret
+          POSTGRES_DB: alrifai_v2
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U alrifai_app -d alrifai_v2"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install -g pnpm@11.25.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install disposable database schema
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: |
+          PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'alrifai_runtime') THEN CREATE ROLE alrifai_runtime LOGIN PASSWORD 'runtime-secret'; END IF; END \$\$;"
+          node --experimental-strip-types scripts/standalone/install.mjs --preflight
+          node --experimental-strip-types scripts/standalone/install.mjs \
+            --admin-user owner --admin-password 'test-secret' --admin-name 'Owner'
+
+      - name: Run Review Queue integration tests
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: pnpm test:review
+
+  cash-lifecycle-tests:
+    name: Cash Lifecycle Integration Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: alrifai_app
+          POSTGRES_PASSWORD: owner-secret
+          POSTGRES_DB: alrifai_v2
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U alrifai_app -d alrifai_v2"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install -g pnpm@11.25.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install disposable database schema
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: |
+          PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'alrifai_runtime') THEN CREATE ROLE alrifai_runtime LOGIN PASSWORD 'runtime-secret'; END IF; END \$\$;"
+          node --experimental-strip-types scripts/standalone/install.mjs \
+            --admin-user owner --admin-password 'test-secret' --admin-name 'Owner'
+
+      - name: Run Cash lifecycle tests
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: node --experimental-strip-types --test --test-concurrency=1 tests/standalone/cash-lifecycle.test.mjs tests/standalone/users.test.mjs
+
+  migration-validation:
+    name: Migration Validation
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: alrifai_app
+          POSTGRES_PASSWORD: owner-secret
+          POSTGRES_DB: alrifai_v2
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U alrifai_app -d alrifai_v2"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install -g pnpm@11.25.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply full migration chain to disposable DB
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: |
+          PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'alrifai_runtime') THEN CREATE ROLE alrifai_runtime LOGIN PASSWORD 'runtime-secret'; END IF; END \$\$;"
+          node --experimental-strip-types scripts/standalone/install.mjs --preflight
+          node --experimental-strip-types scripts/standalone/install.mjs \
+            --admin-user owner --admin-password 'test-secret' --admin-name 'Owner'
+          node --experimental-strip-types scripts/standalone/migrate.mjs
+          node --experimental-strip-types scripts/standalone/migrate.mjs
+
+      - name: Verify schema version is 1.4.0
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+        run: |
+          VERSION=$(PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -t -A -c "SELECT value FROM schema_meta WHERE key = 'schema_version'")
+          test "$VERSION" = "1.4.0"
+          TABLES=$(PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -t -A -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
+          test "$TABLES" = "35"
+
+  nextjs-build:
+    name: Next.js Build
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install -g pnpm@11.25.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Next.js build
+        run: pnpm build
+
+  docker-build-validation:
+    name: Docker Build Validation
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Dockerfile syntax
+        run: |
+          test -f Dockerfile
+          grep -E '^FROM ' Dockerfile
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (no push)
+        run: |
+          docker build --target build -t al-rifai-platform:ci-test .
+
+      - name: Verify no tracked env files or private keys in repo
+        run: |
+          TRACKED_ENV=$(git ls-files '.env' '.env.*' | grep -v '^\.env\.example$' || true)
+          if [ -n "$TRACKED_ENV" ]; then
+            echo "ERROR: Tracked .env file found in repository: $TRACKED_ENV"
+            exit 1
+          fi
+          if git grep -E -- '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' -- ':!.github/workflows/ci.yml'; then
+            echo "ERROR: Private key material found in repository"
+            exit 1
+          fi
+
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs:
+      - lint-and-typecheck
+      - unit-tests
+      - domain-integration-tests
+      - router-tests
+      - review-queue-tests
+      - cash-lifecycle-tests
+      - migration-validation
+      - nextjs-build
+      - docker-build-validation
+    if: always()
+    steps:
+      - name: Enforce all upstream checks succeeded
+        run: |
+          RESULTS="${{ needs.lint-and-typecheck.result }} ${{ needs.unit-tests.result }} ${{ needs.domain-integration-tests.result }} ${{ needs.router-tests.result }} ${{ needs.review-queue-tests.result }} ${{ needs.cash-lifecycle-tests.result }} ${{ needs.migration-validation.result }} ${{ needs.nextjs-build.result }} ${{ needs.docker-build-validation.result }}"
+          echo "CI job results for ${{ github.ref }}: $RESULTS"
+          for r in $RESULTS; do
+            if [ "$r" != "success" ]; then
+              echo "ERROR: One or more CI jobs did not succeed"
+              exit 1
+            fi
+          done

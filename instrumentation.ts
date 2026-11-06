@@ -1,9 +1,8 @@
-// Server start hook. Live Cash continuation must run from boot, not only after
-// the first candidate-API request; otherwise the projection stays dormant while
-// the ingestion worker keeps storing messages.
+// Server start hook. The optional Phase 3 router runs from boot so newly
+// ingested rows can reach the shared domain services without a manual API call.
+// It is default-disabled by env and by the database activation gate.
 //
-// Failure here is logged and never blocks the web server: the Cash projection is
-// review-only and re-runs on the next boot.
+// Failure here is logged and never blocks the web server; a later tick retries.
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   try {
@@ -16,15 +15,19 @@ export async function register() {
     console.error(`Configuration load failed (${error instanceof Error ? error.message : 'ENV_LOAD_FAILED'}).`);
   }
   try {
-    const { bootstrapLiveCashSync } = await import('./candidates/identity-review/host');
-    const result = await bootstrapLiveCashSync();
-    if (result.started) {
-      console.error('Live Cash continuation started (review-only).');
+    // The optional continuous Phase 3 router. It is default-disabled by env and
+    // by the database activation gate; when enabled it lets newly ingested
+    // WhatsApp rows reach the same domain services the manual route endpoint
+    // uses, without adding another container or a second business path.
+    const {startPhase3RouterWorker} = await import('./lib/phase3-router-worker.ts');
+    const worker = startPhase3RouterWorker();
+    if (worker.started) {
+      console.error(`Phase 3 router worker started (interval=${worker.intervalMs}ms, limit=${worker.limit}).`);
     } else {
-      console.error(`Live Cash continuation not started (${result.reason ?? 'UNKNOWN'}).`);
+      console.error(`Phase 3 router worker not started (${worker.reason ?? 'UNKNOWN'}).`);
     }
   } catch (error) {
-    const code = error instanceof Error && /^[A-Z][A-Z0-9_]{3,80}$/.test(error.message) ? error.message : 'LIVE_CASH_BOOTSTRAP_FAILED';
-    console.error(`Live Cash continuation bootstrap failed (${code}).`);
+    const code = error instanceof Error && /^[A-Z][A-Z0-9_]{3,80}$/.test(error.message) ? error.message : 'PHASE3_ROUTER_WORKER_FAILED';
+    console.error(`Phase 3 router worker bootstrap failed (${code}).`);
   }
 }

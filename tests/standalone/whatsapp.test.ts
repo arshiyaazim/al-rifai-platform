@@ -80,7 +80,7 @@ const server = createServer((socket) => {
   });
 });
 
-test('whatsapp adapter: configure, health, sync, domain processing', async () => {
+test('whatsapp adapter: configure, health, sync, fail-closed routing default', async () => {
   await new Promise<void>((resolve) => server.listen(socketPath, resolve));
   try {
     await configureAccount(admin, {
@@ -101,25 +101,24 @@ test('whatsapp adapter: configure, health, sync, domain processing', async () =>
     const staged = await row('SELECT count(*)::int AS n FROM whatsapp_messages WHERE account_id = $1', [ACCOUNT]);
     assert.equal(staged.n, 2);
 
+    // The adapter test covers transport/storage only. Domain routing is covered
+    // by the 49 router tests and the 18 cutover tests; here we assert the
+    // Live Router's documented fail-closed default with no activation settings.
+    await row(
+      `INSERT INTO app_settings (key, value) VALUES ('phase3_router_enabled', 'false'::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = 'false'::jsonb, updated_at = now()`,
+    );
     const processed = await processPending(admin, 10);
-    assert.equal(processed.instructions, 1, 'cash instruction parsed');
-    assert.equal(processed.programs, 1, 'order draft created');
-
-    const instruction = await row("SELECT * FROM cash_instructions WHERE source_channel = 'WHATSAPP' ORDER BY created_at DESC LIMIT 1");
-    assert.ok(instruction);
-    assert.equal(Number(instruction.amount_minor), 125050);
-    assert.equal(instruction.method, 'bkash');
-    assert.equal(instruction.state, 'REVIEW');
-
-    const program = await row("SELECT * FROM programs WHERE source_channel = 'WHATSAPP' ORDER BY created_at DESC LIMIT 1");
-    assert.ok(program);
-    assert.equal(program.state, 'DRAFT');
+    assert.equal(processed.disabled, true, 'router is disabled by default');
+    assert.ok(typeof processed.reason === 'string' && processed.reason.length > 0);
+    assert.equal(processed.instructions, 0);
+    assert.equal(processed.programs, 0);
 
     // Re-sync must not duplicate anything.
     const again = await syncAccount(admin, ACCOUNT);
     assert.equal(again.stored, 0);
-    const after = await row('SELECT count(*)::int AS n FROM cash_instructions');
-    assert.ok(Number(after.n) >= 1);
+    const after = await row('SELECT count(*)::int AS n FROM whatsapp_messages WHERE account_id = $1', [ACCOUNT]);
+    assert.equal(after.n, 2);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

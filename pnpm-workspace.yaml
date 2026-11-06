@@ -9,12 +9,12 @@ allowBuilds:
 
 # Targeted audited security fixes only. No general minimum-age bypass.
 minimumReleaseAgeExclude:
-  - next@16.3.8
-  - eslint-config-next@16.3.8
+  - next@16.4.1
+  - eslint-config-next@16.4.1
   - '@babel/core@7.29.6'
   - browserslist@4.28.7
   - baseline-browser-mapping@2.11.0
-  - fast-uri@3.1.8
+  - fast-uri@3.1.9
   - source-map-js@1.2.2
   - sharp@0.35.5
 
@@ -22,6 +22,6 @@ overrides:
   "@babel/core": "7.29.6"
   "browserslist": "4.28.7"
   "baseline-browser-mapping": "2.11.0"
-  "fast-uri": "3.1.8"
+  "fast-uri": "3.1.9"
   "source-map-js": "1.2.2"
   "sharp": "0.35.5"

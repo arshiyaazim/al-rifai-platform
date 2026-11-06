@@ -31,26 +31,63 @@ export const SESSION_TOKEN_PATTERN = /^[a-f0-9]{64}$/;
 export const UNIFIED_AUTH_MODES: readonly UnifiedAuthMode[] = ['off', 'shadow', 'on'];
 
 /**
- * Feature capabilities. `cash.post` is intentionally absent: posting remains
- * prohibited and must never be expressible as a grantable permission.
+ * Feature capabilities. The standalone platform supports the complete Cash
+ * lifecycle, so posting, reversal and reconciliation are explicit capabilities
+ * rather than an absent/forbidden concept inherited from the legacy freeze.
+ * Every capability is still enforced server-side and every financial action is
+ * separately audited.
  */
 export const CAPABILITIES = [
   'cash.read',
   'cash.submit',
   'cash.review',
+  'cash.post',
+  'cash.reverse',
+  'cash.reconcile',
+  'cash.ledger',
+  'cash.account.manage',
   'vessel.read',
   'vessel.submit',
-  'employee.submit',
-  'attendance.submit',
   'vessel.command',
+  'vessel.release',
+  'employee.read',
+  'employee.submit',
+  'employee.manage',
+  'attendance.read',
+  'attendance.submit',
+  'attendance.manage',
+  'payroll.read',
+  'payroll.manage',
+  'review.decide',
+  'whatsapp.read',
+  'whatsapp.manage',
+  'whatsapp.route',
   'audit.read',
+  'user.manage',
   'workspace.admin',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
 
 /** Capabilities that only make sense for an ADMIN account. */
-export const ADMIN_ONLY_CAPABILITIES: readonly Capability[] = ['cash.review'];
+export const ADMIN_ONLY_CAPABILITIES: readonly Capability[] = [
+  'cash.review',
+  'cash.post',
+  'cash.reverse',
+  'cash.reconcile',
+  'cash.ledger',
+  'cash.account.manage',
+  'vessel.command',
+  'vessel.release',
+  'employee.manage',
+  'attendance.manage',
+  'payroll.manage',
+  'review.decide',
+  'whatsapp.manage',
+  'whatsapp.route',
+  'audit.read',
+  'user.manage',
+];
 
 /**
  * Capabilities that are never grantable through the Admin Panel. Workspace
@@ -59,10 +96,25 @@ export const ADMIN_ONLY_CAPABILITIES: readonly Capability[] = ['cash.review'];
 export const SUPER_ADMIN_ONLY_CAPABILITIES: readonly Capability[] = ['workspace.admin'];
 
 const ROLE_CAPABILITIES: Record<AuthRole, readonly Capability[]> = {
-  ADMIN: ['cash.read', 'cash.submit', 'cash.review', 'vessel.read', 'vessel.command', 'vessel.submit', 'employee.submit', 'attendance.submit', 'audit.read'],
-  // USER may stage work for review but never write it directly: vessel.command and
-  // cash.review stay admin-only, and cash.post is absent entirely.
-  USER: ['cash.read', 'cash.submit', 'vessel.read', 'vessel.submit', 'employee.submit', 'attendance.submit'],
+  ADMIN: [
+    'cash.read', 'cash.submit', 'cash.review', 'cash.post', 'cash.reverse', 'cash.reconcile',
+    'cash.ledger', 'cash.account.manage',
+    'vessel.read', 'vessel.submit', 'vessel.command', 'vessel.release',
+    'employee.read', 'employee.submit', 'employee.manage',
+    'attendance.read', 'attendance.submit', 'attendance.manage',
+    'payroll.read', 'payroll.manage', 'review.decide',
+    'whatsapp.read', 'whatsapp.manage', 'whatsapp.route',
+    'audit.read', 'user.manage',
+  ],
+  // USER may read and stage work for review but never writes a financial or
+  // operational fact directly. Admin-only capabilities stay out of this list.
+  USER: [
+    'cash.read', 'cash.submit',
+    'vessel.read', 'vessel.submit',
+    'employee.read', 'employee.submit',
+    'attendance.read', 'attendance.submit',
+    'payroll.read', 'whatsapp.read',
+  ],
 };
 
 export class UnifiedAuthError extends Error {

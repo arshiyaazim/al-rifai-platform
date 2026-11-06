@@ -1,5 +1,6 @@
 import {readFileSync, statSync} from 'node:fs';
 import {actorFor, errorResponse} from '../_shared';
+import {assertCapability} from '@/lib/standalone/authz';
 import {DomainError} from '@/lib/standalone/db';
 import {getMedia} from '@/lib/standalone/messages';
 import {attachmentName, resolveMediaPath} from '@/lib/standalone/media-storage';
@@ -22,7 +23,8 @@ function disposition(mime: string, filename: string | null) {
  */
 export async function GET(request: Request) {
   try {
-    await actorFor(request, {csrf: false});
+    const actor = await actorFor(request, {csrf: false});
+    assertCapability(actor as never, 'whatsapp.read');
     const url = new URL(request.url);
     const account = url.searchParams.get('account');
     const chat = url.searchParams.get('chat');

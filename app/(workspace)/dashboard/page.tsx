@@ -1,26 +1,30 @@
 import Link from 'next/link';
 import {row, rows} from '@/lib/standalone/db';
+import {reviewQueueCounts} from '@/lib/standalone/review';
 import {money, when} from '@/lib/standalone/session';
+import {reviewCategoryLabel} from '@/lib/review-ui';
 
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
-  const stats = await row<{
-    employees: string; programs: string; reviews: string; cash_pending: string;
-    payable: string; unresolved: string; attendance_today: string; instructions: string;
-  }>(`SELECT
-      (SELECT count(*)::text FROM employees WHERE state = 'ACTIVE') AS employees,
-      (SELECT count(*)::text FROM programs WHERE state NOT IN ('VOIDED','COMPLETED')) AS programs,
-      (SELECT count(*)::text FROM review_items WHERE state = 'PENDING') AS reviews,
-      (SELECT count(*)::text FROM cash_instructions WHERE state = 'REVIEW') AS cash_pending,
-      (SELECT coalesce(sum(total_minor),0)::text FROM program_pay WHERE state = 'CALCULATED') AS payable,
-      (SELECT count(*)::text FROM program_pay WHERE state = 'UNRESOLVED') AS unresolved,
-      (SELECT count(*)::text FROM attendance WHERE duty_date = current_date AND state = 'PRESENT') AS attendance_today,
-      (SELECT count(*)::text FROM cash_instructions) AS instructions`);
-
-  const audit = await rows<{at: string; actor: string; action: string; entity: string; entity_id: string | null}>(
-    'SELECT at, actor, action, entity, entity_id FROM audit_events ORDER BY at DESC, id DESC LIMIT 12',
-  );
+  const [stats, audit, reviewCounts] = await Promise.all([
+    row<{
+      employees: string; programs: string; reviews: string; cash_pending: string;
+      payable: string; unresolved: string; attendance_today: string; instructions: string;
+    }>(`SELECT
+        (SELECT count(*)::text FROM employees WHERE state = 'ACTIVE') AS employees,
+        (SELECT count(*)::text FROM programs WHERE state NOT IN ('VOIDED','COMPLETED')) AS programs,
+        (SELECT count(*)::text FROM review_items WHERE state = 'PENDING') AS reviews,
+        (SELECT count(*)::text FROM cash_instructions WHERE state = 'REVIEW') AS cash_pending,
+        (SELECT coalesce(sum(total_minor),0)::text FROM program_pay WHERE state = 'CALCULATED') AS payable,
+        (SELECT count(*)::text FROM program_pay WHERE state = 'UNRESOLVED') AS unresolved,
+        (SELECT count(*)::text FROM attendance WHERE duty_date = current_date AND state = 'PRESENT') AS attendance_today,
+        (SELECT count(*)::text FROM cash_instructions) AS instructions`),
+    rows<{at: string; actor: string; action: string; entity: string; entity_id: string | null}>(
+      'SELECT at, actor, action, entity, entity_id FROM audit_events ORDER BY at DESC, id DESC LIMIT 12',
+    ),
+    reviewQueueCounts(),
+  ]);
   const alerts: string[] = [];
   if (Number(stats?.unresolved)) alerts.push(`${stats?.unresolved} program(s) have unresolved pay — set a rate and an end date.`);
   if (Number(stats?.reviews)) alerts.push(`${stats?.reviews} submission(s) await a decision.`);
@@ -47,6 +51,27 @@ export default async function DashboardPage() {
           <ul>{alerts.map((alert) => <li key={alert}>{alert}</li>)}</ul>
         </div>
       ) : null}
+
+      <section className="card">
+        <div className="page-head" style={{marginBottom: 8}}>
+          <div><h3>Review Queue</h3></div>
+          <Link href="/review">Open queue →</Link>
+        </div>
+        <div className="grid-cards" style={{marginBottom: 12}}>
+          <div className="stat"><div className="label">Review items pending</div><div className="value">{reviewCounts.pending}</div></div>
+          <div className="stat"><div className="label">Cash candidates pending</div><div className="value">{reviewCounts.cashPending}</div></div>
+          <div className="stat"><div className="label">Total pending</div><div className="value">{reviewCounts.pending + reviewCounts.cashPending}</div></div>
+        </div>
+        {Object.keys(reviewCounts.byCategory).length ? (
+          <div className="row-actions">
+            {Object.entries(reviewCounts.byCategory).map(([category, count]) => (
+              <Link key={category} href={`/review?category=${encodeURIComponent(category)}`} className="pill warn">
+                {reviewCategoryLabel(category)} · {count}
+              </Link>
+            ))}
+          </div>
+        ) : <p className="muted">No pending review items by category.</p>}
+      </section>
 
       <div className="split">
         <section className="card">

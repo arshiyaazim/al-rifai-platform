@@ -1,12 +1,14 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../_shared';
-import {configureAccount, health, integrationStatus, listAccounts, syncAccount, processPending} from '@/lib/standalone/whatsapp';
+import {assertCapability} from '@/lib/standalone/authz';
+import {configureAccount, health, integrationStatus, listAccounts, syncAccount, processPending, routePending} from '@/lib/standalone/whatsapp';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
-    await actorFor(request, {csrf: false});
+    const actor = await actorFor(request, {csrf: false});
+    assertCapability(actor as never, 'whatsapp.read');
     const url = new URL(request.url);
     const accountId = url.searchParams.get('account');
     if (accountId && url.searchParams.get('health') === '1') return ok(await health(accountId));
@@ -21,6 +23,7 @@ export async function POST(request: Request) {
     const actor = await actorFor(request);
     if (actor.role !== 'ADMIN') return ok({error: 'ADMIN_REQUIRED'}, 403);
     const body = await bodyOf<{action?: string; accountId?: string} & Record<string, unknown>>(request);
+    assertCapability(actor as never, body.action === 'process' || body.action === 'route' ? 'whatsapp.route' : 'whatsapp.manage');
     if (body.action === 'configure') {
       const adminJids = typeof body.adminJids === 'string'
         ? body.adminJids.split(',').map((value) => value.trim()).filter(Boolean)
@@ -37,6 +40,7 @@ export async function POST(request: Request) {
     if (body.action === 'health') return ok(await health(String(body.accountId)));
     if (body.action === 'sync') return ok(await syncAccount(actor, String(body.accountId)));
     if (body.action === 'process') return ok(await processPending(actor, Number(body.limit) || 100));
+    if (body.action === 'route') return ok(await routePending(actor, Number(body.limit) || 100));
     return ok({error: 'UNKNOWN_ACTION'}, 400);
   } catch (error) {
     return errorResponse(error);

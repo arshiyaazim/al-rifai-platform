@@ -1,4 +1,5 @@
 import {actorFor, errorResponse, ok} from '../_shared';
+import {assertCapability} from '@/lib/standalone/authz';
 import {listChats, listMessages, messageStats} from '@/lib/standalone/messages';
 
 export const runtime = 'nodejs';
@@ -7,7 +8,8 @@ export const dynamic = 'force-dynamic';
 /** Read-only inbox API. Same data the /messages page renders. */
 export async function GET(request: Request) {
   try {
-    await actorFor(request, {csrf: false});
+    const actor = await actorFor(request, {csrf: false});
+    assertCapability(actor as never, 'whatsapp.read');
     const url = new URL(request.url);
     const view = url.searchParams.get('view') ?? 'messages';
     if (view === 'stats') return ok({rows: await messageStats()});

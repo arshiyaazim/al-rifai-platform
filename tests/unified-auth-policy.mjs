@@ -94,7 +94,8 @@ test('role defaults never imply workspace administration', () => {
   // RBAC-2B gave USER the staging capabilities: a USER may create or edit and
   // send the work to review, while the command capabilities stay Admin-only.
   assert.deepEqual(resolveCapabilities('USER', []),
-    ['attendance.submit', 'cash.read', 'cash.submit', 'employee.submit', 'vessel.read', 'vessel.submit']);
+    ['attendance.read', 'attendance.submit', 'cash.read', 'cash.submit', 'employee.read',
+      'employee.submit', 'payroll.read', 'vessel.read', 'vessel.submit', 'whatsapp.read']);
   assert.equal(hasCapability({role: 'ADMIN'}, 'workspace.admin'), false);
   assert.equal(hasCapability({role: 'USER'}, 'workspace.admin'), false);
   assert.equal(hasCapability({role: 'USER'}, 'cash.review'), false);
@@ -102,8 +103,13 @@ test('role defaults never imply workspace administration', () => {
   // Explicit grants are additive and unknown codes are ignored.
   assert.deepEqual(normalizeCapabilities(['cash.read', 'nonsense', 'cash.read', 7]), ['cash.read']);
   assert.equal(hasCapability({role: 'USER', capabilities: ['audit.read']}, 'audit.read'), true);
-  // Nothing can grant cash posting: the capability does not exist.
-  assert.equal(CAPABILITIES.includes('cash.post'), false);
+  // The standalone platform supports the complete Cash lifecycle, but posting
+  // is an explicit Admin capability and is never a USER default.
+  assert.equal(CAPABILITIES.includes('cash.post'), true);
+  assert.equal(hasCapability({role: 'USER'}, 'cash.post'), false);
+  assert.equal(hasCapability({role: 'ADMIN'}, 'cash.post'), true);
+  assert.equal(hasCapability({role: 'USER'}, 'cash.reverse'), false);
+  assert.equal(hasCapability({role: 'USER'}, 'cash.reconcile'), false);
 });
 
 test('Super Admin identity requires an allowlisted id and the ADMIN role', () => {

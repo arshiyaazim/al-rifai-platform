@@ -20,6 +20,7 @@ import {fileURLToPath} from 'node:url';
 import {dirname, join} from 'node:path';
 import pg from 'pg';
 import {loadEnv, secret, setting} from '../../lib/env.mjs';
+import {grantRuntime} from './grants.mjs';
 
 loadEnv();
 
@@ -30,6 +31,11 @@ const SCHEMA_FILE = join(APP_ROOT, 'db', 'standalone', 'schema.sql');
 const EXTRA_SCHEMA_FILES = [
   join(APP_ROOT, 'db', 'standalone', '002_raw_import.sql'),
   join(APP_ROOT, 'db', 'standalone', '003_phase2_identity_media.sql'),
+  join(APP_ROOT, 'db', 'standalone', '004_phase3_router_state.sql'),
+  join(APP_ROOT, 'db', 'standalone', '005_phase3_vessel_correlation.sql'),
+  join(APP_ROOT, 'db', 'standalone', '006_phase3_review_queue.sql'),
+  join(APP_ROOT, 'db', 'standalone', '007_phase3_review_queue_ui.sql'),
+  join(APP_ROOT, 'db', 'standalone', '008_phase3_cash_lifecycle.sql'),
 ];
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;
@@ -43,6 +49,8 @@ const TARGET_TABLES = [
   'whatsapp_chats', 'whatsapp_messages', 'whatsapp_cursors',
   'whatsapp_import_runs', 'whatsapp_sync_state', 'identity_aliases',
   'whatsapp_media',
+  // Phase 3 Cash lifecycle
+  'cash_reversals', 'cash_reconciliations',
 ];
 
 class InstallError extends Error {
@@ -151,40 +159,6 @@ async function verify(client, config) {
   return {tables: present.size, ...meter.rows[0]};
 }
 
-async function grantRuntime(client, config, runtimeUser) {
-  if (!IDENT.test(runtimeUser)) throw new InstallError('INVALID_RUNTIME_ROLE');
-  const schema = config.schema;
-  await client.query(`GRANT USAGE ON SCHEMA "${schema}" TO "${runtimeUser}"`);
-  const readWrite = [
-    'cash_portal_users', 'cash_portal_sessions', 'employees', 'programs',
-    'program_assignments', 'attendance', 'program_pay', 'cash_instructions',
-    'cash_submissions', 'review_items', 'whatsapp_messages', 'whatsapp_cursors',
-    'app_settings', 'schema_meta', 'cash_accounts', 'whatsapp_accounts',
-    'whatsapp_chats', 'rate_config',
-    // Phase 2 ingestion: the worker records import runs, checkpoints, identity
-    // evidence and media rows with the least-privilege runtime role.
-    'whatsapp_import_runs', 'whatsapp_sync_state', 'identity_aliases',
-    'whatsapp_media',
-  ];
-  const appendOnly = ['cash_portal_audit', 'program_events', 'audit_events',
-    'cash_submission_reviews', 'review_decisions', 'cash_postings', 'ledger_entries'];
-  const readOnly = [];
-  for (const table of readWrite) {
-    await client.query(`GRANT SELECT, INSERT, UPDATE ON "${schema}"."${table}" TO "${runtimeUser}"`);
-  }
-  for (const table of appendOnly) {
-    await client.query(`GRANT SELECT, INSERT ON "${schema}"."${table}" TO "${runtimeUser}"`);
-  }
-  for (const table of readOnly) {
-    await client.query(`GRANT SELECT ON "${schema}"."${table}" TO "${runtimeUser}"`);
-  }
-  await client.query(`GRANT DELETE ON "${schema}"."cash_portal_sessions" TO "${runtimeUser}"`);
-  await client.query(`GRANT DELETE ON "${schema}"."login_throttle_state" TO "${runtimeUser}"`);
-  await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA "${schema}" TO "${runtimeUser}"`);
-  await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".compute_program_pay(text) TO "${runtimeUser}"`);
-  await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".normalize_mobile(text) TO "${runtimeUser}"`);
-}
-
 async function main() {
   const owner = connection('owner');
   const runtimeUser = env('ALRIFAI_REVIEW_DB_USER');
@@ -224,15 +198,20 @@ async function main() {
     }
     await client.query(`SET search_path TO "${owner.schema}"`);
     await client.query('BEGIN');
-    await client.query(schemaSql);
+    // `--force` on an installed schema means "apply additive layers and grants",
+    // never "re-run the non-idempotent baseline". The baseline contains plain
+    // CREATE TABLE/CREATE FUNCTION statements and cannot be replayed safely.
+    if (!state.alreadyInstalled) {
+      await client.query(schemaSql);
+      console.log(JSON.stringify({step: 'schema', applied: SCHEMA_FILE, schema: owner.schema}));
+    }
     for (const file of EXTRA_SCHEMA_FILES) {
       if (!existsSync(file)) continue;
       await client.query(readFileSync(file, 'utf8'));
       console.log(JSON.stringify({step: 'schema', applied: file, schema: owner.schema}));
     }
-    await grantRuntime(client, owner, runtimeUser);
+    await grantRuntime(client, {schema: owner.schema, runtimeUser});
     await client.query('COMMIT');
-    console.log(JSON.stringify({step: 'schema', applied: SCHEMA_FILE, schema: owner.schema}));
 
     if (flag('admin-user') || setting('ALRIFAI_BOOTSTRAP_ADMIN_USERNAME')) {
       const username = arg('admin-user') ?? setting('ALRIFAI_BOOTSTRAP_ADMIN_USERNAME');

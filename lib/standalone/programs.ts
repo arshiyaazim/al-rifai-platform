@@ -1,5 +1,7 @@
+import type {PoolClient} from 'pg';
 import {row, rows, tx, text, optionalText, isoDate, shift, mobile, optionalMobile, DomainError, type Actor} from './db.ts';
 import {recordAudit, stableId} from './audit.ts';
+import {assertCapability} from './authz.ts';
 
 export type ProgramInput = {
   motherVessel: string;
@@ -65,7 +67,7 @@ export type ProgramSource = {
   commandKey?: string | null;
 };
 
-export async function createProgram(actor: Actor, input: ProgramInput, source: ProgramSource = {}) {
+async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, input: ProgramInput, source: ProgramSource) {
   const commandKey = source.commandKey ?? null;
   const channel = source.channel ?? 'WEB';
   const motherVessel = text(input.motherVessel, 'motherVessel', {max: 120});
@@ -92,53 +94,58 @@ export async function createProgram(actor: Actor, input: ProgramInput, source: P
   const id = programId(motherVessel, lighterVessel, startDate, startShift);
   const state = escortMobile ? 'ASSIGNED' : 'DRAFT';
 
-  return tx(async (client) => {
-    if (escortMobile) {
+  if (escortMobile) {
       const name = optionalText(input.escortName, 'escortName', 150) ?? escortMobile;
-      await client.query(
-        `INSERT INTO employees (employee_mobile, preferred_name, duty_type, created_by)
-         VALUES ($1,$2,'escort',$3) ON CONFLICT (employee_mobile) DO NOTHING`,
-        [escortMobile, name, actor.id],
-      );
-    }
-    const inserted = await client.query<ProgramRow>(
+    await client.query(
+      `INSERT INTO employees (employee_mobile, preferred_name, duty_type, created_by)
+       VALUES ($1,$2,'escort',$3) ON CONFLICT (employee_mobile) DO NOTHING`,
+      [escortMobile, name, actor.id],
+    );
+  }
+  const inserted = await client.query<ProgramRow>(
       `INSERT INTO programs
          (id, mother_vessel, lighter_vessel, master_mobile, destination, escort_name, escort_mobile,
           start_date, start_shift, end_date, end_shift, state, source_channel, source_message_id,
           source_chat_jid, created_by, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-       RETURNING *`,
-      [id, motherVessel, lighterVessel, masterMobile, destination,
-        optionalText(input.escortName, 'escortName', 150), escortMobile,
-        startDate, startShift, endDate, endShift, state, channel,
-        source.messageId ?? null, source.chatJid ?? null, actor.id, notes],
-    );
-    if (escortMobile) {
-      await client.query(
-        `INSERT INTO program_assignments
-           (id, program_id, employee_mobile, start_date, start_shift, source, created_by)
-         VALUES ($1,$2,$3,$4,$5,'WEB',$6)`,
-        [stableId('asg', ['assignment', id, escortMobile, startDate, startShift]), id, escortMobile, startDate, startShift, actor.id],
-      );
-    }
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+     RETURNING *`,
+    [id, motherVessel, lighterVessel, masterMobile, destination,
+      optionalText(input.escortName, 'escortName', 150), escortMobile,
+      startDate, startShift, endDate, endShift, state, channel,
+      source.messageId ?? null, source.chatJid ?? null, actor.id, notes],
+  );
+  if (escortMobile) {
     await client.query(
-      `INSERT INTO program_events (program_id, action, command_key, actor, payload)
-       VALUES ($1,'CREATE_PROGRAM',$2,$3,$4::jsonb)`,
-      [id, commandKey ? `create:${commandKey}` : null, actor.id, JSON.stringify({motherVessel, lighterVessel, startDate, startShift})],
+      `INSERT INTO program_assignments
+         (id, program_id, employee_mobile, start_date, start_shift, source, created_by)
+       VALUES ($1,$2,$3,$4,$5,'WEB',$6)`,
+      [stableId('asg', ['assignment', id, escortMobile, startDate, startShift]), id, escortMobile, startDate, startShift, actor.id],
     );
-    await recordAudit({actor, action: 'PROGRAM_CREATED', entity: 'program', entityId: id,
-      detail: {motherVessel, lighterVessel, startDate, startShift, escortMobile}});
-    return {program: inserted.rows[0], potentialDuplicates: duplicates};
-  });
+  }
+  await client.query(
+    `INSERT INTO program_events (program_id, action, command_key, actor, payload)
+     VALUES ($1,'CREATE_PROGRAM',$2,$3,$4::jsonb)`,
+    [id, commandKey ? `create:${commandKey}` : null, actor.id, JSON.stringify({motherVessel, lighterVessel, startDate, startShift})],
+  );
+  await recordAudit({actor, action: 'PROGRAM_CREATED', entity: 'program', entityId: id,
+    detail: {motherVessel, lighterVessel, startDate, startShift, escortMobile}}, client);
+  return {program: inserted.rows[0], potentialDuplicates: duplicates};
 }
 
-export async function assignEscort(
+export async function createProgram(actor: Actor, input: ProgramInput, source: ProgramSource = {}, client?: Pick<PoolClient, 'query'>) {
+  assertCapability(actor, 'vessel.command');
+  if (client) return createProgramOn(client, actor, input, source);
+  return tx((txClient) => createProgramOn(txClient, actor, input, source));
+}
+
+async function assignEscortOn(
+  client: Pick<PoolClient, 'query'>,
   actor: Actor,
   programIdValue: string,
   input: {employeeMobile: string; startDate?: string; startShift?: string; employeeName?: string; replace?: boolean},
 ) {
   const employeeMobile = mobile(input.employeeMobile, 'employeeMobile');
-  return tx(async (client) => {
+  {
     const program = await client.query<ProgramRow>('SELECT * FROM programs WHERE id = $1 FOR UPDATE', [programIdValue]);
     if (!program.rowCount) throw new DomainError('PROGRAM_NOT_FOUND', 404);
     const current = program.rows[0];
@@ -186,19 +193,31 @@ export async function assignEscort(
         JSON.stringify({employeeMobile, startDate, startShift, predecessor})],
     );
     await recordAudit({actor, action: 'ESCORT_ASSIGNED', entity: 'program', entityId: current.id,
-      detail: {employeeMobile, startDate, startShift}});
+      detail: {employeeMobile, startDate, startShift}}, client);
     return {programId: current.id, assignmentId};
-  });
+  }
 }
 
-export async function releaseProgram(
+export async function assignEscort(
+  actor: Actor,
+  programIdValue: string,
+  input: {employeeMobile: string; startDate?: string; startShift?: string; employeeName?: string; replace?: boolean},
+  client?: Pick<PoolClient, 'query'>,
+) {
+  assertCapability(actor, 'vessel.command');
+  if (client) return assignEscortOn(client, actor, programIdValue, input);
+  return tx((txClient) => assignEscortOn(txClient, actor, programIdValue, input));
+}
+
+async function releaseProgramOn(
+  client: Pick<PoolClient, 'query'>,
   actor: Actor,
   programIdValue: string,
   input: {endDate: string; endShift: string; note?: string},
 ) {
   const endDate = isoDate(input.endDate, 'endDate');
   const endShift = shift(input.endShift, 'endShift');
-  return tx(async (client) => {
+  {
     const program = await client.query<ProgramRow>('SELECT * FROM programs WHERE id = $1 FOR UPDATE', [programIdValue]);
     if (!program.rowCount) throw new DomainError('PROGRAM_NOT_FOUND', 404);
     const current = program.rows[0];
@@ -219,14 +238,25 @@ export async function releaseProgram(
        VALUES ($1,'RELEASE_PROGRAM',$2,$3::jsonb)`,
       [current.id, actor.id, JSON.stringify({endDate, endShift, note: optionalText(input.note, 'note', 500)})],
     );
-    await recordAudit({actor, action: 'PROGRAM_RELEASED', entity: 'program', entityId: current.id, detail: {endDate, endShift}});
+    await recordAudit({actor, action: 'PROGRAM_RELEASED', entity: 'program', entityId: current.id, detail: {endDate, endShift}}, client);
     return {programId: current.id};
-  });
+  }
 }
 
-export async function voidProgram(actor: Actor, programIdValue: string, reason: string) {
+export async function releaseProgram(
+  actor: Actor,
+  programIdValue: string,
+  input: {endDate: string; endShift: string; note?: string},
+  client?: Pick<PoolClient, 'query'>,
+) {
+  assertCapability(actor, 'vessel.release');
+  if (client) return releaseProgramOn(client, actor, programIdValue, input);
+  return tx((txClient) => releaseProgramOn(txClient, actor, programIdValue, input));
+}
+
+async function voidProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, programIdValue: string, reason: string) {
   const note = text(reason, 'reason', {max: 500});
-  return tx(async (client) => {
+  {
     const program = await client.query<ProgramRow>('SELECT * FROM programs WHERE id = $1 FOR UPDATE', [programIdValue]);
     if (!program.rowCount) throw new DomainError('PROGRAM_NOT_FOUND', 404);
     await client.query(`UPDATE programs SET state = 'VOIDED', revision = revision + 1 WHERE id = $1`, [programIdValue]);
@@ -235,9 +265,15 @@ export async function voidProgram(actor: Actor, programIdValue: string, reason: 
       `INSERT INTO program_events (program_id, action, actor, payload) VALUES ($1,'VOID_PROGRAM',$2,$3::jsonb)`,
       [programIdValue, actor.id, JSON.stringify({reason: note})],
     );
-    await recordAudit({actor, action: 'PROGRAM_VOIDED', entity: 'program', entityId: programIdValue, detail: {reason: note}});
+    await recordAudit({actor, action: 'PROGRAM_VOIDED', entity: 'program', entityId: programIdValue, detail: {reason: note}}, client);
     return {programId: programIdValue};
-  });
+  }
+}
+
+export async function voidProgram(actor: Actor, programIdValue: string, reason: string, client?: Pick<PoolClient, 'query'>) {
+  assertCapability(actor, 'vessel.command');
+  if (client) return voidProgramOn(client, actor, programIdValue, reason);
+  return tx((txClient) => voidProgramOn(txClient, actor, programIdValue, reason));
 }
 
 export async function listPrograms(filters: {q?: string; state?: string; escort?: string; limit?: number} = {}) {

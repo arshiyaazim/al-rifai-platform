@@ -76,8 +76,8 @@ export async function listMessages(query: MessageQuery = {}) {
   if (query.q) {
     params.push(`%${query.q}%`);
     where.push(`(m.text_content ILIKE $${params.length} OR m.chat_jid ILIKE $${params.length}
-      OR m.sender_jid ILIKE $${params.length} OR ci.display_name ILIKE $${params.length}
-      OR si.display_name ILIKE $${params.length})`);
+      OR m.sender_jid ILIKE $${params.length} OR m.message_id ILIKE $${params.length}
+      OR ci.display_name ILIKE $${params.length} OR si.display_name ILIKE $${params.length})`);
   }
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   params.push(limit, offset);

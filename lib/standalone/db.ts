@@ -1,7 +1,14 @@
 import type {Pool, PoolClient, QueryResultRow} from 'pg';
 import {createPool} from '../../db/postgres.mjs';
 
-export type Actor = {id: string; username?: string; role: 'ADMIN' | 'USER'; displayName?: string};
+export type Actor = {
+  id: string;
+  username?: string;
+  role: 'ADMIN' | 'USER';
+  displayName?: string;
+  capabilities?: string[];
+  superAdmin?: boolean;
+};
 
 export class DomainError extends Error {
   status: number;
