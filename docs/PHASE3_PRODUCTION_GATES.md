@@ -170,9 +170,10 @@ PGHOST=vps-infra-postgres-1 PGDATABASE=alrifai_v2_phase3 \
 It prints counts only (no JIDs): 9 allowlisted chats, 26 participants, 0 WA-02
 business chats, current WA-01 bridge maximum, and the number of pending
 authorized messages above the watermark. `19634` is the historical continuity
-watermark; the current bridge maximum was 19636 at audit time. The script
-refuses a watermark above the bridge maximum and never derives it from the
-maximum.
+watermark; the current bridge maximum was 19636 at audit time, and the verified
+dry run on 2026-11-06 reported **0 pending authorized messages** above it (the
+two newer rows are outside the 9-chat allowlist). The script refuses a
+watermark above the bridge maximum and never derives it from the maximum.
 
 ### 4.2 Apply allowlists (router still disabled)
 
@@ -326,7 +327,9 @@ verify inbound messages create conversation rows, applicant/order drafts and
 escalations — with no outbound message leaving the process.
 
 `ai_wa02_start_rowid:wa-02` must be an explicit number; do not use a moving
-maximum. Recommended: the current WA-02 bridge maximum reviewed at activation.
+maximum. The WA-02 bridge maximum was **15184** at audit time. Recommended:
+`15184`, which skips pre-activation backlog; a lower value requires explicit
+Owner approval and a privacy review of the skipped conversations.
 
 ### 5.5 Stage B — first controlled outbound test
 
