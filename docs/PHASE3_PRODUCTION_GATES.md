@@ -80,6 +80,21 @@ Migration rehearsal evidence (2026-11-06):
 - Bridge acceptance is recorded as `BRIDGE_ACCEPTED`, not as delivered.
 - Gate-4 narrow automatic replies exist but are off by default.
 
+### Four business domains
+
+- **Accounts:** instruction → review → approval (including audited sole-Admin
+  self-approval) → explicit posting → ledger → reports; no automatic WhatsApp
+  posting.
+- **Vessel Register:** create, search/filter, detail view, edit, assign/replace
+  escort, in-duty, release, complete and void — all through the authenticated
+  UI/API with program events and audit.
+- **Employee:** create, search/filter, profile, edit, status change, assignment
+  and attendance history.
+- **Attendance:** record, correct with reason and previous-value audit, date/
+  employee filters, monthly summary and CSV export.
+- **Admin Assistant:** employee, Cash, vessel, attendance/absent and running-duty
+  queries through scoped tools.
+
 ---
 
 ## 3. Gate 1 — Production migration and image deployment

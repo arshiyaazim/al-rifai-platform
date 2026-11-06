@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import test, {before} from 'node:test';
 import {rows, row} from '../../lib/standalone/db.ts';
 import {createEmployee, listEmployees} from '../../lib/standalone/employees.ts';
-import {createProgram, assignEscort, releaseProgram, listPrograms} from '../../lib/standalone/programs.ts';
-import {recordAttendance, attendanceSummary} from '../../lib/standalone/attendance.ts';
+import {createProgram, assignEscort, releaseProgram, listPrograms, updateProgram, startProgramDuty, completeProgram} from '../../lib/standalone/programs.ts';
+import {recordAttendance, attendanceSummary, listAttendance} from '../../lib/standalone/attendance.ts';
 import {createInstruction, approveInstruction, postInstruction, listAccounts, createLedgerEntry, incomeExpense} from '../../lib/standalone/finance.ts';
 import {submitForReview, decideReview} from '../../lib/standalone/review.ts';
 import {upsertRate, monthlySalary} from '../../lib/standalone/payroll.ts';
@@ -96,6 +96,44 @@ test('attendance: record + upsert + summary', async () => {
   assert.equal(summary[0].present, 1);
   const count = await row('SELECT count(*)::int AS n FROM attendance');
   assert.equal(count.n, 1);
+});
+
+test('programs: edit, start duty and complete with audit evidence', async () => {
+  const created = await createProgram(adminA, {
+    motherVessel: 'MV Edit', lighterVessel: 'L-EDIT', startDate: '2026-12-10', startShift: 'D',
+  });
+  const updated = await updateProgram(adminA, created.program.id, {
+    destination: 'Chattogram', startDate: '2026-12-11', startShift: 'N', masterMobile: '01711111111',
+  });
+  assert.equal(updated.program.destination, 'Chattogram');
+  assert.equal(updated.program.start_date, '2026-12-11');
+  assert.equal(updated.program.start_shift, 'N');
+  await assert.rejects(() => updateProgram(user, created.program.id, {destination: 'X'}), /CAPABILITY_REQUIRED/);
+
+  const started = await startProgramDuty(adminA, created.program.id);
+  assert.equal(started.state, 'IN_DUTY');
+  await releaseProgram(adminA, created.program.id, {endDate: '2026-12-12', endShift: 'N'});
+  const completed = await completeProgram(adminA, created.program.id);
+  assert.equal(completed.state, 'COMPLETED');
+
+  const audit = await rows("SELECT action FROM audit_events WHERE entity_id = $1 ORDER BY id", [created.program.id]);
+  const actions = audit.map((entry) => entry.action);
+  assert.ok(actions.includes('PROGRAM_UPDATED'));
+  assert.ok(actions.includes('PROGRAM_IN_DUTY'));
+  assert.ok(actions.includes('PROGRAM_COMPLETED'));
+  await assert.rejects(() => updateProgram(adminA, created.program.id, {destination: 'X'}), /PROGRAM_COMPLETED/);
+});
+
+test('attendance: correction reason, audit trail and date filters', async () => {
+  await recordAttendance(adminA, {employeeMobile: '+8801712345678', dutyDate: '2026-11-05', shift: 'D', state: 'PRESENT', hours: 10});
+  await recordAttendance(adminA, {employeeMobile: '+8801712345678', dutyDate: '2026-11-05', shift: 'D', state: 'ABSENT', hours: 0, reason: 'No show confirmed by supervisor'});
+  const corrected = await row("SELECT detail FROM audit_events WHERE action='ATTENDANCE_CORRECTED' ORDER BY id DESC LIMIT 1");
+  assert.equal(corrected.detail.reason, 'No show confirmed by supervisor');
+  assert.equal(corrected.detail.previous.state, 'PRESENT');
+  const filtered = await listAttendance({employee: '+8801712345678', from: '2026-11-05', to: '2026-11-05'});
+  assert.equal(filtered.length, 1);
+  assert.equal(filtered[0].state, 'ABSENT');
+  await assert.rejects(() => recordAttendance(user, {employeeMobile: '+8801712345678', dutyDate: '2026-11-06', shift: 'D'}), /CAPABILITY_REQUIRED/);
 });
 
 test('finance: instruction, approval, posting, ledger balance', async () => {

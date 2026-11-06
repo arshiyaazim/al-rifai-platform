@@ -34,6 +34,7 @@ export type ProgramRow = {
   source_channel: string;
   source_message_id: string | null;
   confirmation_message_id: string | null;
+  notes: string | null;
   created_at: string;
 };
 
@@ -274,6 +275,114 @@ export async function voidProgram(actor: Actor, programIdValue: string, reason: 
   assertCapability(actor, 'vessel.command');
   if (client) return voidProgramOn(client, actor, programIdValue, reason);
   return tx((txClient) => voidProgramOn(txClient, actor, programIdValue, reason));
+}
+
+export type ProgramUpdateInput = {
+  motherVessel?: string;
+  lighterVessel?: string;
+  masterMobile?: string | null;
+  destination?: string | null;
+  startDate?: string;
+  startShift?: string;
+  notes?: string | null;
+};
+
+/** Edit an active program without changing its immutable identity or history. */
+export async function updateProgram(actor: Actor, programIdValue: string, input: ProgramUpdateInput) {
+  assertCapability(actor, 'vessel.command');
+  return tx(async (client) => {
+    const found = await client.query<ProgramRow>('SELECT * FROM programs WHERE id = $1 FOR UPDATE', [programIdValue]);
+    if (!found.rowCount) throw new DomainError('PROGRAM_NOT_FOUND', 404);
+    const current = found.rows[0];
+    if (current.state === 'VOIDED') throw new DomainError('PROGRAM_VOIDED', 409);
+    if (current.state === 'COMPLETED') throw new DomainError('PROGRAM_COMPLETED', 409);
+
+    const motherVessel = input.motherVessel === undefined ? current.mother_vessel : text(input.motherVessel, 'motherVessel', {max: 120});
+    const lighterVessel = input.lighterVessel === undefined ? current.lighter_vessel : text(input.lighterVessel, 'lighterVessel', {max: 120});
+    const startDate = input.startDate === undefined ? current.start_date : isoDate(input.startDate, 'startDate');
+    const startShift = input.startShift === undefined ? current.start_shift : shift(input.startShift, 'startShift');
+    const destination = input.destination === undefined ? current.destination : optionalText(input.destination, 'destination', 160);
+    const notes = input.notes === undefined ? current.notes : optionalText(input.notes, 'notes', 2000);
+    const masterMobileRaw = input.masterMobile === undefined ? current.master_mobile : optionalText(input.masterMobile, 'masterMobile', 40);
+    const masterMobile = masterMobileRaw
+      ? masterMobileRaw.replace(/[^0-9]/g, '').replace(/^880(1[3-9][0-9]{8})$/, '0$1')
+      : null;
+    if (masterMobile !== null && !/^01[3-9][0-9]{8}$/.test(masterMobile)) {
+      throw new DomainError('INVALID_MASTERMOBILE');
+    }
+
+    if (startDate !== current.start_date || lower(motherVessel) !== lower(current.mother_vessel) || lower(lighterVessel) !== lower(current.lighter_vessel)) {
+      const duplicates = await potentialDuplicates({motherVessel, lighterVessel, startDate, excludeId: current.id});
+      if (duplicates.some((candidate) => candidate.start_date === startDate)) {
+        throw new DomainError('DUPLICATE_PROGRAM', 409, duplicates.find((candidate) => candidate.start_date === startDate)?.id);
+      }
+    }
+
+    const updated = await client.query<ProgramRow>(
+      `UPDATE programs
+          SET mother_vessel=$2, lighter_vessel=$3, master_mobile=$4, destination=$5,
+              start_date=$6, start_shift=$7, notes=$8, revision=revision+1
+        WHERE id=$1
+        RETURNING *, start_date::text AS start_date, end_date::text AS end_date`,
+      [current.id, motherVessel, lighterVessel, masterMobile, destination, startDate, startShift, notes],
+    );
+    await client.query(
+      `INSERT INTO program_events (program_id, action, actor, payload)
+       VALUES ($1,'UPDATE_PROGRAM',$2,$3::jsonb)`,
+      [current.id, actor.id, JSON.stringify({before: {
+        motherVessel: current.mother_vessel, lighterVessel: current.lighter_vessel,
+        masterMobile: current.master_mobile, destination: current.destination,
+        startDate: current.start_date, startShift: current.start_shift,
+      }, after: {motherVessel, lighterVessel, masterMobile, destination, startDate, startShift}})],
+    );
+    await recordAudit({actor, action: 'PROGRAM_UPDATED', entity: 'program', entityId: current.id,
+      detail: {startDate, startShift, destination}}, client);
+    return {program: updated.rows[0]};
+  });
+}
+
+/** Mark an assigned/draft program as actually running. */
+export async function startProgramDuty(actor: Actor, programIdValue: string) {
+  assertCapability(actor, 'vessel.command');
+  return tx(async (client) => {
+    const found = await client.query<ProgramRow>('SELECT * FROM programs WHERE id = $1 FOR UPDATE', [programIdValue]);
+    if (!found.rowCount) throw new DomainError('PROGRAM_NOT_FOUND', 404);
+    const current = found.rows[0];
+    if (!['DRAFT', 'CONFIRMED', 'ASSIGNED'].includes(current.state)) {
+      throw new DomainError('PROGRAM_NOT_STARTABLE', 409);
+    }
+    await client.query("UPDATE programs SET state='IN_DUTY', revision=revision+1 WHERE id=$1", [current.id]);
+    await client.query(
+      "INSERT INTO program_events (program_id, action, actor, payload) VALUES ($1,'START_DUTY',$2,'{}'::jsonb)",
+      [current.id, actor.id],
+    );
+    await recordAudit({actor, action: 'PROGRAM_IN_DUTY', entity: 'program', entityId: current.id}, client);
+    return {programId: current.id, state: 'IN_DUTY'};
+  });
+}
+
+/** Close an operational program after release. */
+export async function completeProgram(actor: Actor, programIdValue: string) {
+  assertCapability(actor, 'vessel.release');
+  return tx(async (client) => {
+    const found = await client.query<ProgramRow>('SELECT * FROM programs WHERE id = $1 FOR UPDATE', [programIdValue]);
+    if (!found.rowCount) throw new DomainError('PROGRAM_NOT_FOUND', 404);
+    const current = found.rows[0];
+    if (current.state === 'VOIDED') throw new DomainError('PROGRAM_VOIDED', 409);
+    if (!['RELEASED', 'IN_DUTY'].includes(current.state)) throw new DomainError('PROGRAM_NOT_COMPLETABLE', 409);
+    if (!current.end_date) throw new DomainError('RELEASE_DATE_REQUIRED', 409);
+    await client.query("UPDATE programs SET state='COMPLETED', revision=revision+1 WHERE id=$1", [current.id]);
+    await client.query(
+      "INSERT INTO program_events (program_id, action, actor, payload) VALUES ($1,'COMPLETE_PROGRAM',$2,'{}'::jsonb)",
+      [current.id, actor.id],
+    );
+    await recordAudit({actor, action: 'PROGRAM_COMPLETED', entity: 'program', entityId: current.id}, client);
+    return {programId: current.id, state: 'COMPLETED'};
+  });
+}
+
+function lower(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 export async function listPrograms(filters: {q?: string; state?: string; escort?: string; limit?: number} = {}) {

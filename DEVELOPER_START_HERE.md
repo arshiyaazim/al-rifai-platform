@@ -2,7 +2,7 @@
 
 > **Canonical current-state developer map — not a changelog.** Read this first before modifying code, database, Docker, WhatsApp ingestion, or deployment.
 >
-> **Last reconciled:** 2026-11-06. **Source:** `main` at `ebd6ccb` (tag `v1.4.0-phase3-rc2`); production cut over 2026-11-06 18:14 UTC (Live Router cutover gate, complete Cash lifecycle, capability enforcement, transaction-aware audit, incremental migration runner; **110/110 integration tests**, 83/83 unit tests); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
+> **Last reconciled:** 2026-11-06. **Source:** `main` at `ebd6ccb` (tag `v1.4.0-phase3-rc2`); production cut over 2026-11-06 18:14 UTC (Live Router cutover gate, complete Cash lifecycle, capability enforcement, transaction-aware audit, incremental migration runner; **112/112 integration tests**, 83/83 unit tests); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
 >
 > **Priority:** **BUILD → RUN → LIVE → IMPROVE**. Do not block releases on unrelated legacy data migration, historical Git branches, exhaustive tests, or non-blocking cleanup. Never claim a workflow is live solely because code exists.
 
@@ -270,7 +270,7 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 
 **Fresh-data policy:** Owner does not require historical business data import. Agent reported **0 programs, 0 cash instructions, 0 employees and 0 postings** after removing temporary test records. Raw WhatsApp history is retained. Do not confuse “empty new business DB” with “broken app.”
 
-**Test evidence — this session (2026-11-06):** `pnpm test:unit` executed: **69 pass / 0 fail** (shift-boundary, unified-auth-policy, media, identity, message-classifier, review-ui, router-worker; re-confirmed after `pnpm install --frozen-lockfile`). DB-dependent suites now run against the isolated `alrifai_v2_test` database: **110/110 pass** (domain 10, WhatsApp adapter 1, router 52, cutover 18, Review API 7, Cash lifecycle 7, users 2, AI assistant 7, AI sender 6). Unit suite: **83/83**. `scripts/standalone/migrate.mjs` provides the previously missing `db:migrate` path. GitHub Actions remains billing-locked; the workflow is updated for schema `1.4.0` but has not executed. No production credentials.
+**Test evidence — this session (2026-11-06):** `pnpm test:unit` executed: **69 pass / 0 fail** (shift-boundary, unified-auth-policy, media, identity, message-classifier, review-ui, router-worker; re-confirmed after `pnpm install --frozen-lockfile`). DB-dependent suites now run against the isolated `alrifai_v2_test` database: **112/112 pass** (domain 12, WhatsApp adapter 1, router 52, cutover 18, Review API 7, Cash lifecycle 7, users 2, AI assistant 7, AI sender 6). Unit suite: **83/83**. `scripts/standalone/migrate.mjs` provides the previously missing `db:migrate` path. GitHub Actions remains billing-locked; the workflow is updated for schema `1.4.0` but has not executed. No production credentials.
 
 ## 6. Pipeline/workflow inventory
 
@@ -307,8 +307,9 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 - `tests/standalone/users.test.mjs` — **2/2**.
 - `tests/standalone/ai-assistant.test.mjs` — **7/7**.
 - `tests/standalone/ai-sender.test.mjs` — **6/6**.
+- `tests/standalone/domain.test.ts` — **12/12** (Accounts, Vessel lifecycle, Employee, Attendance, Payroll).
 - `tests/standalone/router-worker.test.mjs` — **2/2** (unit gate).
-- Combined: **110/110 integration tests**, run sequentially with `--test-concurrency=1`. Unit suite: **83/83**.
+- Combined: **112/112 integration tests**, run sequentially with `--test-concurrency=1`. Unit suite: **83/83**.
 - Migration: `alrifai_v2_test` is at 1.5.0, 46 tables, 8 migration rows; migration 009 adds the AI foundation. Fresh disposable DB and migrated DB now both report 46 tables and 8 ledger rows; repeat migration is a no-op.
 - The Live Router remains default-disabled in production; test activation is synthetic and confined to the test DB.
 - Production is now on `alrifai_v2_phase3` at `1.4.0`; the router/Vessel flags remain off, so no Phase 3 business routing or financial posting is active.

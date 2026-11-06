@@ -38,6 +38,7 @@
 | `lib/ai/sender.ts` | Controlled outbound lifecycle, idempotency and ambiguity handling |
 | `lib/ai/llm.ts` | Optional OpenAI-compatible rephrasing layer with numeric guard |
 | `scripts/standalone/wa01-activation.mjs` | Dry-run WA-01 activation applier from the protected artifact |
+| `app/(workspace)/vessel/[id]/page.tsx` | Program detail: edit, assign/replace escort, in-duty, release, complete, void, evidence and events |
 | `app/api/assistant/route.ts` | Admin assistant/draft/applicant/order API |
 | `compose.phase3.yaml` | Production override for `alrifai_v2_phase3` and flags off |
 

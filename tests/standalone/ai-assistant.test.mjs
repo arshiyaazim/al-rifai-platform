@@ -82,6 +82,7 @@ test('verified employee receives only their own records', async () => {
   assert.equal(result.category, 'VERIFIED_EMPLOYEE');
   assert.match(result.response, /AI Test Employee/);
   assert.match(result.response, /Recorded program pay/);
+  assert.match(result.response, /Attendance/);
 
   const ctx = {
     accountId: 'wa-02', chatJid: employeeChat, senderJid: '8801712345678',
@@ -113,6 +114,9 @@ test('admin assistant answers from grounded employee, cash and vessel tools', as
   assert.equal(cashQuery.tool, 'cash_summary');
   const vesselQuery = await runAdminQuery(admin, 'vessel');
   assert.equal(vesselQuery.tool, 'vessel_lookup');
+  const attendanceQuery = await runAdminQuery(admin, `attendance ${new Date().toISOString().slice(0, 10)}`);
+  assert.equal(attendanceQuery.tool, 'attendance_report');
+  assert.match(attendanceQuery.answer, /Attendance/);
 });
 
 test('prompt injection is escalated and cannot invoke private tools', async () => {

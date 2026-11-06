@@ -3,6 +3,7 @@ import {listEmployees, getEmployee} from '../standalone/employees.ts';
 import {programsLookup} from './vessel.ts';
 import {listInstructions, listLedger, incomeExpense} from '../standalone/finance.ts';
 import {listAudit} from '../standalone/audit.ts';
+import {attendanceSummary, listAttendance} from '../standalone/attendance.ts';
 import {canAccessEmployee, canUseAdminTools, type AiCategory} from './policy.ts';
 import {createApplicantDraft, createOrderDraft, createOutboundDraft, escalate} from './store.ts';
 
@@ -85,6 +86,34 @@ export async function cashSummaryTool(ctx: AiContext, from: string, to: string) 
 export async function ledgerLookupTool(ctx: AiContext, from: string, to: string) {
   if (!canUseAdminTools(ctx.category)) return denied('ledger_lookup', 'ADMIN_REQUIRED');
   return {allowed: true, tool: 'ledger_lookup', data: await listLedger({from, to, limit: 100}), error: null};
+}
+
+export async function employeeAttendanceTool(ctx: AiContext, employeeMobile: string) {
+  if (!canAccessEmployee(ctx.category, ctx.employeeMobile, employeeMobile)) {
+    return denied('employee_attendance', 'EMPLOYEE_RECORD_NOT_AUTHORIZED');
+  }
+  const records = await listAttendance({employee: employeeMobile, limit: 60});
+  const month = new Date().toISOString().slice(0, 7);
+  const summary = (await attendanceSummary(month)).find((entry) => entry.employee_mobile === employeeMobile) ?? null;
+  return {allowed: true, tool: 'employee_attendance', data: {month, summary, records}, error: null};
+}
+
+export async function attendanceReportTool(ctx: AiContext, from: string, to: string) {
+  if (!canUseAdminTools(ctx.category)) return denied('attendance_report', 'ADMIN_REQUIRED');
+  const records = await listAttendance({from, to, limit: 500});
+  const absent = records.filter((entry) => entry.state === 'ABSENT');
+  return {
+    allowed: true,
+    tool: 'attendance_report',
+    data: {from, to, total: records.length, present: records.filter((entry) => entry.state === 'PRESENT').length,
+      absent, leave: records.filter((entry) => entry.state === 'LEAVE').length, records},
+    error: null,
+  };
+}
+
+export async function runningDutiesTool(ctx: AiContext) {
+  if (!canUseAdminTools(ctx.category)) return denied('running_duties', 'ADMIN_REQUIRED');
+  return {allowed: true, tool: 'running_duties', data: await programsLookup({query: ''}), error: null};
 }
 
 export async function applicantDraftTool(ctx: AiContext, fields: {

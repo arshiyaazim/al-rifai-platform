@@ -20,9 +20,10 @@ import {
 import {composeReply} from './llm.ts';
 import {outboundConfiguration, queueOutbound, sendOutbound} from './sender.ts';
 import {
-  applicantDraftTool, cashSummaryTool, employeeFinancialsTool, employeeProfileTool,
-  messageDraftTool, orderDraftTool, searchEmployeesTool, sourceConversationTool,
-  vesselLookupTool, conversationSummary, type AiContext,
+  applicantDraftTool, attendanceReportTool, cashSummaryTool, employeeAttendanceTool,
+  employeeFinancialsTool, employeeProfileTool, messageDraftTool, orderDraftTool,
+  searchEmployeesTool, sourceConversationTool, vesselLookupTool, conversationSummary,
+  type AiContext,
 } from './tools.ts';
 
 const SYSTEM: Actor = {id: 'system:wa02-ai', role: 'ADMIN'};
@@ -40,7 +41,7 @@ function compactEmployee(result: unknown): string {
   return `Employee: ${String(e.preferred_name ?? '—')} · ${String(e.employee_mobile ?? '—')} · ${String(e.state ?? '—')}`;
 }
 
-function employeeAnswer(profile: unknown, financials: unknown, vessels: unknown): string {
+function employeeAnswer(profile: unknown, financials: unknown, vessels: unknown, attendance: unknown): string {
   const p = profile as {employee?: Record<string, unknown>} | null;
   const f = financials as {data?: {pay?: Array<Record<string, unknown>>; instructions?: Array<Record<string, unknown>>}; pay?: Array<Record<string, unknown>>; instructions?: Array<Record<string, unknown>>} | null;
   const v = vessels as Array<Record<string, unknown>> | null;
@@ -51,6 +52,8 @@ function employeeAnswer(profile: unknown, financials: unknown, vessels: unknown)
   const active = (v ?? []).filter((program) => !['VOIDED', 'COMPLETED'].includes(String(program.state)));
   const payable = pay.reduce((total, entry) => total + Number(entry.total_minor ?? 0), 0);
   const paid = payments.filter((entry) => entry.state === 'POSTED').reduce((total, entry) => total + Number(entry.amount_minor ?? 0), 0);
+  const a = attendance as {data?: {summary?: {present?: number; absent?: number; leave?: number} | null; month?: string}} | null;
+  const summary = a?.data?.summary;
   const lines = [
     `Assalamu alaikum ${String(employee.preferred_name ?? '')}.`,
     `Employee: ${String(employee.preferred_name ?? '—')} (${String(employee.employee_mobile ?? '—')})`,
@@ -58,6 +61,9 @@ function employeeAnswer(profile: unknown, financials: unknown, vessels: unknown)
       ? `Current duty: ${active.map((program) => `${String(program.lighter_vessel ?? '—')} / ${String(program.mother_vessel ?? '—')} · ${String(program.state ?? '—')}`).join('; ')}`
       : 'Current duty: no active assignment is recorded.',
     `Recorded program pay: ${money(payable)}. Recorded posted payments: ${money(paid)}.`,
+    summary
+      ? `Attendance ${String(a?.data?.month ?? '')}: present ${Number(summary.present ?? 0)}, absent ${Number(summary.absent ?? 0)}, leave ${Number(summary.leave ?? 0)}.`
+      : 'Attendance: no attendance is recorded for the current month.',
     'Advances, food and transport entries are shown only where the office has recorded them; missing entries are not invented.',
   ];
   return lines.join('\n');
@@ -94,6 +100,17 @@ async function adminAnswer(ctx: AiContext, text: string) {
     return {
       answer: `Cash ${date}: income ${money(data.report.income)}, expense ${money(data.report.expense)}, reversals ${money(data.report.reversals)}, net ${money(data.report.net)}. Pending REVIEW instructions: ${data.pending.length}; POSTED instructions: ${data.posted.length}.`,
       tool: 'cash_summary', data,
+    };
+  }
+  if (/(attendance|উপস্থিতি|absent|অনুপস্থিত|leave|ছুটি)/i.test(lower)) {
+    const from = /20\d{2}-\d{2}-\d{2}/.exec(value)?.[0] ?? new Date().toISOString().slice(0, 10);
+    const result = await callTool(ctx, 'attendance_report', {from, to: from}, () => attendanceReportTool(ctx, from, from));
+    if (!result.allowed) return {answer: safePublicReply(), tool: 'attendance_report', data: null};
+    const data = result.data as {total: number; present: number; absent: Array<{preferred_name?: string; employee_mobile: string}>; leave: number};
+    return {
+      answer: `Attendance ${from}: ${data.total} record(s) · present ${data.present} · absent ${data.absent.length} · leave ${data.leave}.`
+        + (data.absent.length ? `\nAbsent: ${data.absent.map((entry) => `${entry.preferred_name ?? entry.employee_mobile}`).join(', ')}` : ''),
+      tool: 'attendance_report', data,
     };
   }
   if (/(vessel|lighter|mother|জাহাজ|লাইটার|মাদার)/i.test(lower)) {
@@ -209,12 +226,13 @@ export async function processWa02Message(input: {
     response = result.answer;
     tool = result.tool;
   } else if (contact.category === 'VERIFIED_EMPLOYEE' && contact.employeeMobile) {
-    const [profile, financials, vessels] = await Promise.all([
+    const [profile, financials, vessels, attendance] = await Promise.all([
       callTool(ctx, 'employee_profile', {employeeMobile: contact.employeeMobile}, () => employeeProfileTool(ctx, contact.employeeMobile as string)),
       callTool(ctx, 'employee_financials', {employeeMobile: contact.employeeMobile}, () => employeeFinancialsTool(ctx, contact.employeeMobile as string)),
       callTool(ctx, 'vessel_lookup', {query: ''}, () => vesselLookupTool(ctx, '')),
+      callTool(ctx, 'employee_attendance', {employeeMobile: contact.employeeMobile}, () => employeeAttendanceTool(ctx, contact.employeeMobile as string)),
     ]);
-    response = employeeAnswer(profile.data, financials.data, vessels.data as Array<Record<string, unknown>>);
+    response = employeeAnswer(profile.data, financials.data, vessels.data as Array<Record<string, unknown>>, attendance.data);
     tool = 'employee_support';
   } else if (contact.category === 'JOB_APPLICANT' || contact.category === 'UNKNOWN_CONTACT') {
     const jobs = await getJobCatalog();
