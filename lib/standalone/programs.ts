@@ -386,7 +386,7 @@ function lower(value: string): string {
 }
 
 export async function listPrograms(filters: {q?: string; state?: string; escort?: string; limit?: number} = {}) {
-  const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 500);
+  const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 10000);
   const q = (filters.q ?? '').trim().toLowerCase();
   return rows<ProgramListRow>(
     `SELECT p.*, p.start_date::text AS start_date, p.end_date::text AS end_date, pp.state AS pay_state, pp.total_minor::text, pp.salary_minor::text, pp.conveyance_minor::text

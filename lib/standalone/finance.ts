@@ -114,8 +114,9 @@ export async function createInstruction(actor: Actor, input: InstructionInput) {
   });
 }
 
-export async function listInstructions(filters: {state?: string; q?: string; limit?: number} = {}) {
-  const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 500);
+export async function listInstructions(filters: {state?: string; q?: string; limit?: number; offset?: number} = {}) {
+  const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 10000);
+  const offset = Math.max(Number(filters.offset) || 0, 0);
   const q = (filters.q ?? '').trim().toLowerCase();
   return rows(
     `SELECT i.*, a.code AS account_code,
@@ -125,9 +126,20 @@ export async function listInstructions(filters: {state?: string; q?: string; lim
        LEFT JOIN cash_reversals r ON r.instruction_id = i.id
       WHERE ($1::text IS NULL OR i.state = $1)
         AND ($2 = '' OR lower(i.employee_name) LIKE '%' || $2 || '%' OR coalesce(i.employee_mobile,'') LIKE '%' || $2 || '%')
-      ORDER BY i.created_at DESC LIMIT $3`,
-    [filters.state ?? null, q, limit],
+      ORDER BY i.created_at DESC LIMIT $3 OFFSET $4`,
+    [filters.state ?? null, q, limit, offset],
   );
+}
+
+export async function countInstructions(filters: {state?: string; q?: string} = {}) {
+  const q = (filters.q ?? '').trim().toLowerCase();
+  const result = await row<{n: number}>(
+    `SELECT count(*)::int AS n FROM cash_instructions i
+      WHERE ($1::text IS NULL OR i.state = $1)
+        AND ($2 = '' OR lower(i.employee_name) LIKE '%' || $2 || '%' OR coalesce(i.employee_mobile,'') LIKE '%' || $2 || '%')`,
+    [filters.state ?? null, q],
+  );
+  return Number(result?.n ?? 0);
 }
 
 export async function approveInstruction(actor: Actor, id: string) {
@@ -362,8 +374,9 @@ export async function createLedgerEntry(actor: Actor, input: LedgerInput) {
   });
 }
 
-export async function listLedger(filters: {accountId?: string; from?: string; to?: string; limit?: number} = {}) {
-  const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 500);
+export async function listLedger(filters: {accountId?: string; from?: string; to?: string; limit?: number; offset?: number} = {}) {
+  const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 10000);
+  const offset = Math.max(Number(filters.offset) || 0, 0);
   return rows(
     `SELECT l.id::text, l.entry_date::text AS entry_date, l.direction, l.amount_minor::text, l.category, l.description,
             l.source, l.created_by, l.created_at, a.code AS account_code
@@ -371,9 +384,20 @@ export async function listLedger(filters: {accountId?: string; from?: string; to
       WHERE ($1::text IS NULL OR l.account_id = $1)
         AND ($2::date IS NULL OR l.entry_date >= $2)
         AND ($3::date IS NULL OR l.entry_date <= $3)
-      ORDER BY l.entry_date DESC, l.id DESC LIMIT $4`,
-    [filters.accountId ?? null, filters.from ?? null, filters.to ?? null, limit],
+      ORDER BY l.entry_date DESC, l.id DESC LIMIT $4 OFFSET $5`,
+    [filters.accountId ?? null, filters.from ?? null, filters.to ?? null, limit, offset],
   );
+}
+
+export async function countLedger(filters: {accountId?: string; from?: string; to?: string} = {}) {
+  const result = await row<{n: number}>(
+    `SELECT count(*)::int AS n FROM ledger_entries l
+      WHERE ($1::text IS NULL OR l.account_id = $1)
+        AND ($2::date IS NULL OR l.entry_date >= $2)
+        AND ($3::date IS NULL OR l.entry_date <= $3)`,
+    [filters.accountId ?? null, filters.from ?? null, filters.to ?? null],
+  );
+  return Number(result?.n ?? 0);
 }
 
 export async function incomeExpense(from: string, to: string) {

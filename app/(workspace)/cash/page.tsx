@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import {incomeExpense, listAccounts, listInstructions, listLedger, listReconciliations} from '@/lib/standalone/finance';
+import {countInstructions, countLedger, incomeExpense, listAccounts, listInstructions, listLedger, listReconciliations} from '@/lib/standalone/finance';
 import {listCashReviewCandidates} from '@/lib/standalone/review';
 import {rows} from '@/lib/standalone/db';
 import {money, pageUser, when} from '@/lib/standalone/session';
@@ -9,14 +9,27 @@ import {formatReviewAmount, formatReviewTimestamp, reviewCategoryLabel, reviewCa
 
 export const dynamic = 'force-dynamic';
 
-export default async function CashPage() {
+export default async function CashPage({searchParams}: {searchParams: Promise<{q?: string; state?: string; page?: string; ledgerPage?: string; from?: string; to?: string}>}) {
   const user = await pageUser();
   const canReview = can(user as never, 'cash.review');
   const canReverse = can(user as never, 'cash.reverse');
   const canReconcile = can(user as never, 'cash.reconcile');
   const today = new Date().toISOString().slice(0, 10);
-  const [accounts, instructions, ledger, report, submissions, cashCandidates, reconciliations] = await Promise.all([
-    listAccounts(), listInstructions({}), listLedger({limit: 60}),
+  const filters = await searchParams;
+  const q = (filters.q ?? '').trim();
+  const state = filters.state ?? '';
+  const from = filters.from ?? '';
+  const to = filters.to ?? '';
+  const page = Math.max(1, Number(filters.page) || 1);
+  const ledgerPage = Math.max(1, Number(filters.ledgerPage) || 1);
+  const pageSize = 100;
+  const ledgerSize = 50;
+  const [accounts, instructions, instructionTotal, ledger, ledgerTotal, report, submissions, cashCandidates, reconciliations] = await Promise.all([
+    listAccounts(),
+    listInstructions({q, state: state || undefined, limit: pageSize, offset: (page - 1) * pageSize}),
+    countInstructions({q, state: state || undefined}),
+    listLedger({from: from || undefined, to: to || undefined, limit: ledgerSize, offset: (ledgerPage - 1) * ledgerSize}),
+    countLedger({from: from || undefined, to: to || undefined}),
     incomeExpense(`${today.slice(0, 8)}01`, today),
     rows<{id: string; state: string; submitted_by: string; created_at: string; instruction_id: string | null; display_name: string | null}>(
       'SELECT s.id, s.state, s.submitted_by, s.created_at, s.instruction_id, u.display_name FROM cash_submissions s LEFT JOIN cash_portal_users u ON u.id = s.submitted_by ORDER BY s.created_at DESC LIMIT 30',
@@ -25,6 +38,23 @@ export default async function CashPage() {
     listReconciliations(25),
   ]);
   const pending = instructions.filter((instruction) => (instruction as {state: string}).state === 'REVIEW').slice(0, 20);
+  const instructionPages = Math.max(1, Math.ceil(instructionTotal / pageSize));
+  const ledgerPages = Math.max(1, Math.ceil(ledgerTotal / ledgerSize));
+  const href = (overrides: Record<string, string | number>) => {
+    const values: Record<string, string> = {};
+    if (q) values.q = q;
+    if (state) values.state = state;
+    if (from) values.from = from;
+    if (to) values.to = to;
+    if (page > 1) values.page = String(page);
+    if (ledgerPage > 1) values.ledgerPage = String(ledgerPage);
+    for (const [key, value] of Object.entries(overrides)) {
+      if (String(value) === '' || value === 1) delete values[key];
+      else values[key] = String(value);
+    }
+    const search = new URLSearchParams(values).toString();
+    return search ? `/cash?${search}` : '/cash';
+  };
 
   return (
     <>
@@ -121,8 +151,23 @@ export default async function CashPage() {
         ) : <p className="muted">No cash review candidates are pending.</p>}
       </section>
 
+      <form method="get" className="card form compact" style={{marginBottom: 18}}>
+        <div className="grid">
+          <label><span>Search payee</span><input name="q" defaultValue={q} placeholder="Name or mobile" /></label>
+          <label><span>State</span>
+            <select name="state" defaultValue={state}>
+              <option value="">All states</option>
+              {['REVIEW','APPROVED','POSTED','REJECTED','VOID'].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label><span>Ledger from</span><input name="from" type="date" defaultValue={from} /></label>
+          <label><span>Ledger to</span><input name="to" type="date" defaultValue={to} /></label>
+        </div>
+        <button type="submit">Filter Cash</button>
+      </form>
+
       <section className="card">
-        <h3>Instructions ({instructions.length})</h3>
+        <h3>Instructions ({instructionTotal})</h3>
         {canReview ? (
           <ActionForm
             compact
@@ -140,7 +185,7 @@ export default async function CashPage() {
         <table>
           <thead><tr><th>Instruction</th><th>Payee</th><th>Account</th><th>Method</th><th>Amount</th><th>State</th><th>Source</th><th>Actions</th></tr></thead>
           <tbody>
-            {instructions.slice(0, 40).map((instruction) => {
+            {instructions.map((instruction) => {
               const item = instruction as unknown as {
                 id: string; employee_name: string; method: string; amount_minor: string; state: string;
                 account_code?: string | null; source_channel?: string | null; source_message_id?: string | null; source_block_key?: string | null;
@@ -185,15 +230,22 @@ export default async function CashPage() {
           </tbody>
         </table>
         {pending.length ? <p className="muted">{pending.length} instruction(s) awaiting approval. Posting remains a separate explicit admin action.</p> : null}
+        {instructionPages > 1 ? (
+          <div className="row-actions">
+            {page > 1 ? <Link href={href({page: page - 1})}>← Previous</Link> : null}
+            <span className="muted">Page {page} / {instructionPages}</span>
+            {page < instructionPages ? <Link href={href({page: page + 1})}>Next →</Link> : null}
+          </div>
+        ) : null}
       </section>
 
       <div className="split">
         <section className="card">
-          <h3>Ledger</h3>
+          <h3>Ledger ({ledgerTotal})</h3>
           <table>
             <thead><tr><th>Date</th><th>Account</th><th>Category</th><th>Amount</th></tr></thead>
             <tbody>
-              {ledger.slice(0, 30).map((entry) => {
+              {ledger.map((entry) => {
                 const item = entry as unknown as {id: string; entry_date: string; account_code: string; category: string; direction: string; amount_minor: string};
                 return (
                   <tr key={item.id}>
@@ -205,6 +257,13 @@ export default async function CashPage() {
               {!ledger.length ? <tr><td colSpan={4} className="muted">No ledger entries.</td></tr> : null}
             </tbody>
           </table>
+          {ledgerPages > 1 ? (
+            <div className="row-actions">
+              {ledgerPage > 1 ? <Link href={href({ledgerPage: ledgerPage - 1})}>← Previous</Link> : null}
+              <span className="muted">Page {ledgerPage} / {ledgerPages}</span>
+              {ledgerPage < ledgerPages ? <Link href={href({ledgerPage: ledgerPage + 1})}>Next →</Link> : null}
+            </div>
+          ) : null}
         </section>
 
         <section className="card">
