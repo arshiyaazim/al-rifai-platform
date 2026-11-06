@@ -77,29 +77,29 @@ function grab(text: string, label: RegExp): string | null {
 }
 
 const vessel = (value: string | null): string | null =>
-  value ? value.replace(/^\s*m\.?\s*v\.?\s*/i, '').trim() || null : null;
+  value ? value.replace(/^\s*(?:m\.?\s*v\.?|এম\s*\.?\s*ভি\s*\.?)\s*/i, '').trim() || null : null;
 
 function parseBlock(block: string, index: number): ReleaseSlipBlock {
   const text = bengali(block).replace(/\r/g, '');
-  const startRaw = grab(text, /^\s*Start(?:ing)?\s*(?:date)?\s*[:\-]\s*([^\n]+)/im);
-  const endRaw = grab(text, /^\s*(?:End|Release\s*Date|Release)\s*(?:date)?\s*[:\-]\s*([^\n]+)/im);
+  const startRaw = grab(text, /^\s*(?:Start(?:ing)?\s*(?:date)?|শুরু(?:র\s*তারিখ)?)\s*[:\-]\s*([^\n]+)/im);
+  const endRaw = grab(text, /^\s*(?:End|Release\s*Date|Release|শেষ\s*(?:তারিখ)?|রিলিজ\s*(?:তারিখ)?)\s*(?:date)?\s*[:\-]\s*([^\n]+)/im);
   const fields: ReleaseSlipBlock['fields'] = {
-    motherVessel: vessel(grab(text, /^\s*Mother\s*Vessel\s*[:\-]\s*([^\n]+)/im)),
-    lighterVessel: vessel(grab(text, /^\s*Lighter\s*Vessel\s*[:\-]\s*([^\n]+)/im)),
-    masterMobile: phone(grab(text, /^\s*Master\s*(?:mobile|number|no)\s*[:\-]\s*([^\n]+)/im)),
-    destination: grab(text, /^\s*(?:Destination|Ghat)\s*[:\-]\s*([^\n]+)/im),
-    escortName: grab(text, /^\s*Escort\s*Name\s*[:\-]\s*([^\n]+)/im),
-    escortMobile: phone(grab(text, /^\s*Escort\s*(?:mobile|number|no)\s*[:\-]\s*([^\n]+)/im)),
+    motherVessel: vessel(grab(text, /^\s*(?:Mother\s*Vessel|মাদার\s*ভেসেল)\s*[:\-]\s*([^\n]+)/im)),
+    lighterVessel: vessel(grab(text, /^\s*(?:Lighter\s*Vessel|লাইটার\s*ভেসেল)\s*[:\-]\s*([^\n]+)/im)),
+    masterMobile: phone(grab(text, /^\s*(?:Master\s*(?:mobile|number|no)|মাস্টার\s*মোবাইল)\s*[:\-]\s*([^\n]+)/im)),
+    destination: grab(text, /^\s*(?:Destination|Ghat|গন্তব্য)\s*[:\-]\s*([^\n]+)/im),
+    escortName: grab(text, /^\s*(?:Escort\s*Name|এসকর্ট\s*নাম)\s*[:\-]\s*([^\n]+)/im),
+    escortMobile: phone(grab(text, /^\s*(?:Escort\s*(?:mobile|number|no)|এসকর্ট\s*মোবাইল)\s*[:\-]\s*([^\n]+)/im)),
     startDate: date(startRaw),
     startShift: shift(startRaw),
     endDate: date(endRaw),
     endShift: shift(endRaw),
     totalDays: (() => {
-      const raw = grab(text, /^\s*Total\s*(?:duty\s*)?day[\s:\-]*([0-9]+)/im);
+      const raw = grab(text, /^\s*(?:Total\s*(?:duty\s*)?day|মোট\s*(?:ডিউটি\s*)?দিন)[\s:\-]*([0-9]+)/im);
       const value = raw ? Number(raw) : null;
       return value !== null && Number.isInteger(value) && value > 0 && value < 1000 ? value : null;
     })(),
-    foodBillMinor: money(grab(text, /^\s*Food\s*bill\s*[:\-]\s*([^\n]+)/im)),
+    foodBillMinor: money(grab(text, /^\s*(?:Food\s*bill|খাবার\s*বিল)\s*[:\-]\s*([^\n]+)/im)),
   };
   const reasons: string[] = [];
   if (!fields.escortMobile) reasons.push('ESCORT_MOBILE_UNRESOLVED');
@@ -111,17 +111,17 @@ function parseBlock(block: string, index: number): ReleaseSlipBlock {
 
 export function parseReleaseSlips(text: string): ReleaseSlipBlock[] {
   const normalized = bengali(String(text ?? '')).replace(/\r/g, '');
-  if (!/(?:^|\n)\s*-*\s*\(?\s*Escort\s*Release\s*\)?\s*-*(?:\n|$)/im.test(normalized)) {
+  if (!/(?:^|\n)\s*-*\s*\(?\s*(?:Escort\s*Release|এসকর্ট\s*রিলিজ|রিলিজ)\s*\)?\s*-*(?:\n|$)/im.test(normalized)) {
     // Label-only release messages are accepted only when both an escort mobile
     // and an explicit end/release date are present.
-    if (!/^\s*Escort\s*(?:mobile|number)\s*[:\-]/im.test(normalized) ||
-        !/^\s*(?:End|Release\s*Date)\s*(?:date)?\s*[:\-]/im.test(normalized)) {
+    if (!/^\s*(?:Escort\s*(?:mobile|number)|এসকর্ট\s*মোবাইল)\s*[:\-]/im.test(normalized) ||
+        !/^\s*(?:End|Release\s*Date|শেষ|রিলিজ\s*তারিখ)\s*(?:date)?\s*[:\-]/im.test(normalized)) {
       return [];
     }
     return [parseBlock(normalized, 0)];
   }
   const parts = normalized
-    .split(/\n\s*-*\s*\(?\s*Escort\s*Release\s*\)?\s*-*\s*\n/i)
+    .split(/\n\s*-*\s*\(?\s*(?:Escort\s*Release|এসকর্ট\s*রিলিজ|রিলিজ)\s*\)?\s*-*\s*\n/i)
     .map((part) => part.trim())
     .filter(Boolean);
   return parts.map(parseBlock);

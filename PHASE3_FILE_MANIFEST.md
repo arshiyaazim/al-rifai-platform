@@ -40,6 +40,12 @@
 | `scripts/standalone/wa01-activation.mjs` | Dry-run WA-01 activation applier from the protected artifact |
 | `app/(workspace)/vessel/[id]/page.tsx` | Program detail: edit, assign/replace escort, in-duty, release, complete, void, evidence and events |
 | `lib/release-slip.ts` | Pure escort release-slip parser |
+| `lib/business-rules.mjs` | Versioned phone/name/vessel normalization rules |
+| `lib/identity-resolution.mjs` | Identity decision levels |
+| `lib/employee-identity.ts` | DB-backed employee identity resolution |
+| `lib/authorized-contacts.ts` | Effective-dated Accountant/contact registry |
+| `scripts/standalone/manage-authorized-contact.mjs` | Registry update CLI |
+| `docs/ADAPTIVE_RULES.md` | Rule/identity/registry operating guide |
 | `scripts/standalone/backfill-cash-coverage.mjs` | Idempotent Cash coverage backfill; REVIEW only |
 | `tests/standalone/release-slip.test.mjs` | Release-slip parser tests |
 | `tests/standalone/history-extraction.test.mjs` | Cash payment-block parser tests |

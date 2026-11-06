@@ -6,6 +6,7 @@ import {rows, row} from '../../lib/standalone/db.ts';
 import {createEmployee, listEmployees} from '../../lib/standalone/employees.ts';
 import {createProgram, assignEscort, releaseProgram, listPrograms, updateProgram, startProgramDuty, completeProgram} from '../../lib/standalone/programs.ts';
 import {recordAttendance, attendanceSummary, listAttendance} from '../../lib/standalone/attendance.ts';
+import {resolveEmployeeIdentity} from '../../lib/employee-identity.ts';
 import {createInstruction, approveInstruction, postInstruction, listAccounts, createLedgerEntry, incomeExpense, countInstructions, countLedger} from '../../lib/standalone/finance.ts';
 import {submitForReview, decideReview} from '../../lib/standalone/review.ts';
 import {upsertRate, monthlySalary} from '../../lib/standalone/payroll.ts';
@@ -229,4 +230,14 @@ test('audit: append-only', async () => {
   const entry = await row('SELECT id FROM audit_events LIMIT 1');
   assert.ok(entry);
   await assert.rejects(() => row('DELETE FROM audit_events WHERE id = $1', [entry.id]), /IMMUTABLE|permission denied/);
+});
+
+test('identity: normalized phone is EXACT; name alone is never automatic', async () => {
+  const exact = await resolveEmployeeIdentity({phone: '01712-345678'});
+  assert.equal(exact.level, 'EXACT');
+  assert.equal(exact.employeeMobile, '+8801712345678');
+  assert.equal(exact.automatic, true);
+  const nameOnly = await resolveEmployeeIdentity({name: 'Rahim Uddin'});
+  assert.equal(nameOnly.automatic, false);
+  assert.ok(['CONTEXT_SUPPORTED', 'AMBIGUOUS'].includes(nameOnly.level));
 });

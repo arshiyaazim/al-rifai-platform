@@ -1101,3 +1101,46 @@ test('release: incomplete slip is reviewed and never releases', async () => {
   assert.equal(item.category, 'INCOMPLETE_VESSEL_ORDER');
   assert.equal(item.payload.releaseCategory, 'RELEASE_INCOMPLETE');
 });
+
+test('cash: effective-dated Accountant registry authorizes the approved chat', async () => {
+  await ensureAccount('wa-01');
+  await row(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ('phase3_authorized_contacts:wa-01',$1::jsonb,now())
+     ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`,
+    [JSON.stringify([{role: 'ACCOUNTANT', jid: '8801844836824@s.whatsapp.net', status: 'ACTIVE', effectiveFrom: '2026-01-01'}])],
+  );
+  await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-accountant-registry-1', 'OUTGOING',
+    '8801880446111@s.whatsapp.net', 'ID: 01712345678 Registry Test 01812345678(B) 500/-');
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.instructions, 1);
+});
+
+test('cash: registry fails closed for a non-approved Accountant chat', async () => {
+  await ensureAccount('wa-01');
+  await row(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ('phase3_authorized_contacts:wa-01',$1::jsonb,now())
+     ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`,
+    [JSON.stringify([{role: 'ACCOUNTANT', jid: '8801999999999@s.whatsapp.net', status: 'ACTIVE', effectiveFrom: '2026-01-01'}])],
+  );
+  await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-accountant-registry-2', 'OUTGOING',
+    '8801880446111@s.whatsapp.net', 'ID: 01712345678 Registry Test 01812345678(B) 500/-');
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.instructions, 0);
+  assert.equal(result.ignored, 1);
+  const message = await row("SELECT classification FROM whatsapp_messages WHERE message_id='msg-accountant-registry-2'");
+  assert.match(String(message.classification), /ACCOUNTANT_NOT_AUTHORIZED/);
+});
+
+test('cash: revoked Accountant entry is not authorized', async () => {
+  await ensureAccount('wa-01');
+  await row(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ('phase3_authorized_contacts:wa-01',$1::jsonb,now())
+     ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`,
+    [JSON.stringify([{role: 'ACCOUNTANT', jid: '8801844836824@s.whatsapp.net', status: 'REVOKED', effectiveFrom: '2026-01-01'}])],
+  );
+  await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-accountant-registry-3', 'OUTGOING',
+    '8801880446111@s.whatsapp.net', 'ID: 01712345678 Registry Test 01812345678(B) 500/-');
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.instructions, 0);
+  assert.equal(result.ignored, 1);
+});
