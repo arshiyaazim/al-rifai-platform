@@ -21,6 +21,8 @@
 | `lib/phase3-router-worker.ts` | Optional continuous router loop (default-disabled) |
 | `tests/standalone/router-worker.test.mjs` | Router worker gate tests |
 | `docs/PHASE3_AUTONOMOUS_COMPLETION_MASTER_PLAN.md` | Evidence-based completion plan and release decision record |
+| `docs/PHASE3_CUTOVER_RUNBOOK.md` | Evidence-backed final sync, separate-project cutover and divergence rollback |
+| `compose.phase3.yaml` | Production override for `alrifai_v2_phase3` and flags off |
 
 ## Modified files (highlights)
 

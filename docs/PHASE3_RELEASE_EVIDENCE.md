@@ -12,9 +12,9 @@
 
 | Field | Value |
 |---|---|
-| Tag | `al-rifai-platform:phase3-rc-final4` |
-| Manifest digest | `sha256:5ede13dfd0f452af5b41bd444321b03b151620844f5217958db71318c34ffaa2` |
-| Build source | code commit `71a12e2` |
+| Tag | `al-rifai-platform:phase3-rc-final5` |
+| Manifest digest | `sha256:8681b8ab63deaeb6a9d31f38a52b96c6027db577ca6ac757b0996f34a47983ae` |
+| Build source | cutover-safety commit on `feature/phase3-router-cash-vessel` |
 | Runtime | Node 22, Next.js 16.4.1, non-root `10001:10001` |
 
 The image was built locally only. It was not pushed, tagged as production, or
@@ -33,11 +33,11 @@ deployed.
 | Dependency audit | `pnpm audit --prod` | no known vulnerabilities |
 | Test DB migration | `scripts/standalone/migrate.mjs` | `1.3.3` → `1.4.0`, 35 tables, 7 ledger rows; repeat no-op |
 | Fresh disposable DB | installer + migrate + `--force` | install 34 tables/1.4.0; migrate 35 tables; `--force` pass |
-| Runtime smoke | release image `phase3-rc-final4` + authenticated HTTP | health 200/schema 1.4.0; dashboard/cash/review/vessel/settings 200; `/cash/[id]` 200 with audit |
+| Runtime smoke | release image `phase3-rc-final5` + authenticated HTTP | health 200/schema 1.4.0; dashboard/cash/review/vessel/settings 200; `/cash/[id]` 200 with audit |
 | Production-copy migration rehearsal | restored real `alrifai_v2` dump into `alrifai_v2_phase3_rehearsal` | 1.2.0 → 1.4.0; 34,420 messages / 2,010 chats / 2,597 aliases / 261 media / 3 users preserved |
-| Automatic WhatsApp pipeline | image `phase3-rc-final4` + rehearsal DB | post-cutover synthetic message → REVIEW instruction without manual route; history remained PENDING |
+| Automatic WhatsApp pipeline | image `phase3-rc-final5` + rehearsal DB | post-cutover synthetic message → REVIEW instruction without manual route; history remained PENDING |
 | Vessel activation gate | same image, flag 0 then 1 | deferred message stayed PENDING with flag 0; created DRAFT program after flag 1 |
-| HTTP lifecycle on production copy | image `phase3-rc-final4` | create → assign account → approve → post → reverse → reconcile; ledger DEBIT+CREDIT; audit complete |
+| HTTP lifecycle on production copy | image `phase3-rc-final5` | create → assign account → approve → post → reverse → reconcile; ledger DEBIT+CREDIT; audit complete |
 
 ## Integration suite breakdown
 
@@ -79,6 +79,33 @@ database `alrifai_v2_phase3_rehearsal`. Production was read-only for this step.
   `ALRIFAI_VESSEL_PROCESSING_ENABLED=0`; after restarting with `=1`, the same
   message created a DRAFT program. This proves the deployment gate does not lose
   deferred orders.
+
+## Cutover-safety correction (2026-11-06)
+
+The first cutover review found a real ingestion defect: the sync worker imported
+bridge chats only during the historical bootstrap. Production had two orphan
+chat JIDs (six messages) because later chats were never written to
+`whatsapp_chats`. The worker now imports chats on pending/recent/identity rounds.
+
+Final-sync rehearsal on an isolated clone of `alrifai_v2_phase3`:
+
+- checkpoints advanced from `wa-01 19629` / `wa-02 15179` to
+  `wa-01 19634` / `wa-02 15181`, matching production;
+- message hash matched production exactly;
+- media hash matched production exactly (188 stored / 76 failed);
+- orphan chats: **0**;
+- WA-01 chats: 759 (production had 756; the three missing bridge chats are now
+  imported);
+- one alias was intentionally normalized (`8801958122300` evidence source and
+  canonical person key); all other alias identity fields matched.
+
+The live delta at audit time was 7 messages, 2 WA-02 media rows and 5 WA-01
+aliases. The final cutover runbook requires re-measuring this delta immediately
+before switching.
+
+New release artifact: `compose.phase3.yaml` (separate `al-rifai-phase3` Compose
+project, `PGDATABASE=alrifai_v2_phase3`, both flags `0`). The old `al-rifai-v2`
+containers remain stopped and preserved for rollback.
 
 ## Safety confirmation
 
