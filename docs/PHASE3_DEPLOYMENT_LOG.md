@@ -148,12 +148,13 @@ created; `cash_portal_sessions` is back to its original single row.
 
 | Artifact | State |
 |---|---|
-| Old app container `alrifai-v2-app-1` | stopped, preserved |
-| Old sync container `alrifai-v2-sync-1` | stopped, preserved |
+| Old app container `alrifai-v2-app-1` | stopped, preserved — ID `dc23577f61b1…` |
+| Old sync container `alrifai-v2-sync-1` | stopped, preserved — ID `066f74023dba…` |
 | Old image `local/al-rifai-platform:20261105-phase2` | preserved |
 | Old DB `alrifai_v2` | intact, schema 1.2.0, 0 postings |
 | Pre-cutover dump | `/var/lib/vps/al-rifai/backups/alrifai_v2_FINAL_pre_cutover_20261106_191328.dump` |
 | Env backup | `/opt/vps/al-rifai-standalone/apps/al-rifai/.env.pre-phase3` |
+| Rollback IDs | `/var/lib/vps/al-rifai/backups/phase3-rollback-ids.txt` |
 | New DB `alrifai_v2_phase3` | live, retained for rollback/forensics |
 | Media directory | shared content-addressed store retained |
 | WhatsApp bridge stores | untouched |

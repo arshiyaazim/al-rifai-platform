@@ -42,9 +42,12 @@ unexpected behaviour or data-integrity concern).
    cp -p /opt/vps/al-rifai-standalone/apps/al-rifai/.env.pre-phase3 \
          /opt/vps/al-rifai-standalone/apps/al-rifai/.env
 
-   docker start alrifai-v2-app-1 alrifai-v2-sync-1
+   OLD_APP=$(docker ps -aq --filter label=com.docker.compose.project=al-rifai-v2 --filter label=com.docker.compose.service=app)
+   OLD_SYNC=$(docker ps -aq --filter label=com.docker.compose.project=al-rifai-v2 --filter label=com.docker.compose.service=sync)
+   docker start "$OLD_APP" "$OLD_SYNC"
    ```
    The old containers have their original `PGDATABASE=alrifai_v2` environment
+   (IDs are recorded in `/var/lib/vps/al-rifai/backups/phase3-rollback-ids.txt`).
    baked in and remain preserved while stopped. Do not recreate them with the
    Phase 3 override.
 

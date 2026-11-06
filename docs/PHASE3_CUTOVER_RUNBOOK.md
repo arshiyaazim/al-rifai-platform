@@ -326,8 +326,12 @@ docker compose -p al-rifai-phase3 \
 cp -p /opt/vps/al-rifai-standalone/apps/al-rifai/.env.pre-phase3 \
       /opt/vps/al-rifai-standalone/apps/al-rifai/.env
 
-# Restore the preserved Phase 2 containers
-docker start alrifai-v2-app-1 alrifai-v2-sync-1
+# Restore the preserved Phase 2 containers by Compose label (names may be
+# ambiguous in this Docker version; IDs are also recorded in
+# /var/lib/vps/al-rifai/backups/phase3-rollback-ids.txt)
+OLD_APP=$(docker ps -aq --filter label=com.docker.compose.project=al-rifai-v2 --filter label=com.docker.compose.service=app)
+OLD_SYNC=$(docker ps -aq --filter label=com.docker.compose.project=al-rifai-v2 --filter label=com.docker.compose.service=sync)
+docker start "$OLD_APP" "$OLD_SYNC"
 
 sleep 20
 curl -fsS https://app.al-rifai.iamazim.com/api/health
