@@ -159,3 +159,20 @@ Cash domains are separate and require a second approval.
 3. Approve or reject Scope C (2,161 historical REVIEW instructions).
 4. Confirm derived escorts (2) are acceptable as employee records.
 5. Confirm the 5 legacy Draft programs stay out of production.
+
+---
+
+## 7. Release candidate and production dry-run
+
+- Code commit: `98c9642`
+- Image: `local/al-rifai-platform:phase3-ai-rc-98c9642`
+- Digest: `sha256:e82d9450f2eea75b0950a3ffde61dea37826f25d386795746d64b87bbea68beb`
+- Tests: 83/83 unit, 112/112 integration; typecheck, lint and production audit clean.
+- Production dry-run (read-only): 216 employees, 23 rates, 94 programs,
+  93 pay rows, 439 attendance, 1,586 postings and 2,161 review instructions
+  would be imported; 0 rows exist today; **nothing was written**.
+- Production remained schema 1.5.0 with 0 employees, 0 programs, 0 attendance,
+  0 instructions and 0 postings after the dry-run.
+- The candidate also fixes cash pagination/filters and full CSV export, which
+  the current production image lacks. Activating the import therefore needs a
+  new approved image deployment in addition to the data import.
