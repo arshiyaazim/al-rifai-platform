@@ -630,6 +630,14 @@ async function syncAccount(client, account, options = {}) {
     const maxRow = Number(db.prepare('SELECT coalesce(max(rowid),0) AS m FROM messages').get().m);
     const pending = maxRow > checkpoint;
 
+    // New bridge chats must exist before their messages are shown in the Inbox.
+    // The original worker imported chats only during the historical bootstrap,
+    // leaving later chats as orphan message rows. Importing on pending/recent/
+    // identity rounds is idempotent and keeps chat labels/authorization in sync.
+    if (pending || options.identity || options.recent) {
+      await importChats(client, account, db);
+    }
+
     let identity = null;
     if (!pending && !options.recent) {
       if (options.identity) identity = await deriveIdentity(client, account, db, columns);

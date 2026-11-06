@@ -1,0 +1,22 @@
+# AL-RIFA'I — Phase 3 production override
+#
+# Use with the canonical compose file and a separate project name so the stopped
+# Phase 2 containers remain intact for rollback:
+#
+#   ALRIFAI_TAG=phase3-rc-final5 \
+#     docker compose -p al-rifai-phase3 \
+#       -f compose.yaml -f compose.phase3.yaml config
+#
+# This file changes only the database name and keeps both feature flags off.
+# It does not change ports, volumes, TLS, networks, users or restart policy.
+services:
+  app:
+    environment:
+      PGDATABASE: alrifai_v2_phase3
+      PHASE3_ROUTER_WORKER_ENABLED: "0"
+      ALRIFAI_VESSEL_PROCESSING_ENABLED: "0"
+  sync:
+    environment:
+      PGDATABASE: alrifai_v2_phase3
+      PHASE3_ROUTER_WORKER_ENABLED: "0"
+      ALRIFAI_VESSEL_PROCESSING_ENABLED: "0"
