@@ -118,7 +118,7 @@ export default async function SettingsPage() {
           />
         </section>
         <section className="card">
-          <h3>Authorized chats</h3>
+          <h3>Authorized chats (first 100 per account)</h3>
           <table>
             <thead><tr><th>Account</th><th>Chat</th><th>Purpose</th></tr></thead>
             <tbody>

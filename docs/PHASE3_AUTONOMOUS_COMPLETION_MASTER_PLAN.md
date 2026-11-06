@@ -5,7 +5,7 @@
 **Canonical repository:** `/opt/al-rifai-platform` (GitHub `arshiyaazim/al-rifai-platform`)
 **Development worktree:** `/opt/al-rifai-phase3-test` on `feature/phase3-router-cash-vessel`
 **Production database:** `alrifai_v2` (PostgreSQL 16, schema `public`, currently `1.2.0`)
-**Isolated test database:** `alrifai_v2_test` (PostgreSQL 16, schema `public`, currently `1.3.3`)
+**Isolated test database:** `alrifai_v2_test` (PostgreSQL 16, schema `public`, currently `1.4.0`)
 **Production application:** `local/al-rifai-platform:20261105-phase2`, HTTPS `https://app.al-rifai.iamazim.com`
 
 ---
@@ -44,7 +44,7 @@ Hard boundaries observed by this plan:
 | Running app | `al-rifai-v2-app-1` healthy; `local/al-rifai-platform:20261105-phase2`; HTTPS health 200, schema `1.2.0` | `docker ps`, `curl /api/health` |
 | Running sync | `al-rifai-v2-sync-1` up; both bridge stores mounted read-only | `docker ps`, `compose.yaml` |
 | Production DB | `alrifai_v2` at `1.2.0`; 34,376 raw WhatsApp messages; 0 programs, 0 instructions, 0 postings, 0 employees; 3 users | SQL over `vps-infra-postgres-1` |
-| Isolated test DB | `alrifai_v2_test` at `1.3.3`; 32 tables; runtime role grants present | SQL over `vps-infra-postgres-1` |
+| Isolated test DB | `alrifai_v2_test` at `1.4.0`; 35 tables; runtime role grants present | SQL over `vps-infra-postgres-1` |
 | Test database access | Host reaches PostgreSQL at `172.18.0.2:5432` on the Docker network; Node 22.23.4 + pnpm 11.25.0 installed locally for verification | direct connection + test run |
 | Baseline unit tests | 67/67 pass | `node --test` on six unit files |
 | Baseline router tests | 49/49 pass | `message-router.test.mjs` |
@@ -135,6 +135,13 @@ two failing baseline checks above are newly verified.
 | P1-6 user administration | Fixed | Super Admin `/api/users` + Settings panel |
 | P1-8/P1-9 CI coverage | Fixed | canonical `test:standalone`, cash job, 1.4.0 migration validation |
 | P1-7 richer reports | Remaining P2 | CSV exports exist; cash-position summary is optional follow-up |
+| P0-11 end-to-end pipeline was manual | Fixed | optional in-process router worker; automatic WhatsApp→instruction test on production copy |
+| P0-12 router Cash instruction had no account | Fixed | audited `instruction.account` action; approval now requires an account |
+| P0-13 candidate→instruction self-review deadlock | Fixed | instruction attributed to candidate originator, not reviewer; sole-admin test |
+| P0-14 disabled Vessel flag consumed messages | Fixed | disabled vessel messages stay PENDING and are processed after activation |
+| P1-10 payroll rate/historical inconsistency | Fixed | monthly salary uses stored `program_pay`; rate changes recompute only unreleased programs |
+| P1-11 reversal counted as income | Fixed | reversal/reconciliation credits separated from income; net includes them correctly |
+| P2 legacy live-cash bootstrap | Removed | instrumentation no longer imports the legacy candidate host |
 | P2 docs | In progress | README, developer map, release/rollback docs |
 
 ### P2 — quality, documentation and operational hardening
@@ -238,20 +245,22 @@ two failing baseline checks above are newly verified.
 |---|---|---|---|
 | Types | `pnpm typecheck` | none | 0 errors |
 | Lint | `pnpm lint` | none | 0 errors |
-| Unit | `pnpm test:unit` | none | all pass |
+| Unit | `pnpm test:unit` | none | 69/69 (includes router-worker gate) |
 | Domain | `tests/standalone/domain.test.ts` | test DB | all pass |
 | WhatsApp adapter | `tests/standalone/whatsapp.test.ts` | test DB | all pass |
-| Router | `tests/standalone/message-router.test.mjs` | test DB | 49/49 |
+| Router | `tests/standalone/message-router.test.mjs` | test DB | 50/50 |
 | Cutover | `tests/standalone/router-cutover.test.mjs` | test DB | 18/18 |
 | Review API | `tests/standalone/review-api.test.mjs` | test DB | 7/7 |
-| Cash lifecycle (new) | `tests/standalone/cash-lifecycle.test.mjs` | test DB | all pass |
+| Cash lifecycle | `tests/standalone/cash-lifecycle.test.mjs` | test DB | 7/7 |
+| Users | `tests/standalone/users.test.mjs` | test DB | 2/2 |
 | Migration | `pnpm db:migrate` twice | test DB | idempotent; `1.4.0` |
-| Fresh install | `install.mjs` on empty schema | disposable | 36 tables, `1.4.0` |
-| Existing upgrade | `install --force` / `db:migrate` on `1.2.0` copy | disposable | additive; no data loss |
+| Fresh install | `install.mjs` on empty schema | disposable | 34 tables, `1.4.0` |
+| Existing upgrade | `db:migrate` on a restored production copy | `alrifai_v2_phase3_rehearsal` | 1.2.0 → 1.4.0; 34,420 messages preserved |
+| Automatic pipeline | release image + rehearsal DB | `alrifai_v2_phase3_rehearsal` | Cash instruction created without manual route; Vessel deferred then created after activation |
 | Build | `pnpm build` | none | success |
 | Docker | `docker build` | none | success |
 | Audit | `pnpm audit --prod` | none | no critical/high |
-| Runtime smoke | authenticated HTTP + `/api/health` | test instance | 200, schema `1.4.0` |
+| Runtime smoke | authenticated HTTP + `/api/health` | release image + rehearsal DB | 200, schema `1.4.0` |
 
 All DB commands run with `--test-concurrency=1` and an explicit
 `PGDATABASE=alrifai_v2_test`. Production `alrifai_v2` is never the target.
@@ -326,9 +335,13 @@ All DB commands run with `--test-concurrency=1` and an explicit
 | 2026-11-06 | Phase C authorization/audit | **Complete in code + test DB** — capability matrix enforced, transaction-aware audit, client-aware review application, Super Admin user management |
 | 2026-11-06 | Phase D migration/CI | **Complete** — checksum-tracked `db:migrate`, idempotent `--force`, fresh-install + upgrade checks, CI updated to 1.4.0 |
 | 2026-11-06 | Dependency remediation | **Complete** — Next.js 16.4.1, Zod 4.6.6, fast-uri 3.1.9; `pnpm audit --prod` clean |
-| 2026-11-06 | Verification | **91/91 integration tests**, 67/67 unit tests, typecheck, lint, Next build and Docker build pass |
+| 2026-11-06 | Verification | **95/95 integration tests**, 69/69 unit tests, typecheck, lint, Next build and Docker build pass |
 | 2026-11-06 | Phase E polish/docs | **Complete** — README, developer map, PR description, release checklist and rollback runbook updated |
 | 2026-11-06 | Phase F release candidate | **Pushed** — commits `39a9023`…`1a5d92e`; image `sha256:010e42bf…`; evidence in `docs/PHASE3_RELEASE_EVIDENCE.md`; main merge and production deployment await Owner approval |
+| 2026-11-06 | Second-pass reassessment | **Complete** — automatic router worker, Vessel deferral gate, Cash account assignment, candidate originator fix, payroll/reporting integrity, legacy bootstrap removal |
+| 2026-11-06 | Production-copy migration rehearsal | **Complete** — real 34,420-message dump restored, migrated 1.2.0→1.4.0, all data preserved |
+| 2026-11-06 | Automatic pipeline + HTTP lifecycle on copy | **Verified** — image `phase3-rc-final2`, synthetic Cash/Vessel messages, assign/approve/post/reverse/reconcile |
+| 2026-11-06 | Final verification | **69/69 unit, 95/95 integration**, typecheck, lint, build, Docker build, audit clean |
 
 ### Newly verified during implementation
 
@@ -346,16 +359,60 @@ All DB commands run with `--test-concurrency=1` and an explicit
 
 ---
 
-## 9. Current handoff (2026-11-06)
+## 9. Second-pass independent reassessment (2026-11-06)
+
+The first release-candidate pass was re-opened after re-reading the deployed
+pipeline. These additional gaps were found and fixed:
+
+1. **The pipeline was not automatic.** The sync worker stored rows, but only an
+   Admin API call invoked the router. A default-disabled in-process worker
+   (`lib/phase3-router-worker.ts`, started from `instrumentation.ts`) now routes
+   new rows continuously when `PHASE3_ROUTER_WORKER_ENABLED=1` **and** the DB
+   activation gate is enabled. It adds no new container and uses the same
+   router, not a second business path.
+2. **Vessel-disabled messages were consumed.** The deployment flag now defers
+   Vessel messages instead of marking them COMPLETED. They stay `PENDING` and
+   are processed after activation; verified on the production copy.
+3. **Router Cash instructions had no paying account.** A new audited
+   `instruction.account` action assigns the account before approval; approval
+   now fails closed with `ACCOUNT_REQUIRED` until it is set.
+4. **Candidate→instruction self-review deadlock.** A candidate approval now
+   attributes the generated instruction to the candidate originator, not the
+   reviewing Admin, so a sole Admin can complete the workflow.
+5. **Payroll consistency.** Monthly salary uses the stored `program_pay`
+   calculation, so a later rate change does not rewrite released pay; rate
+   changes recompute only unreleased programs.
+6. **Reversal reporting.** Reversal/reconciliation credits are no longer counted
+   as income; net cash movement remains correct.
+7. **Legacy bootstrap removed from runtime.** The standalone app no longer
+   imports the legacy Live Cash candidate host at startup.
+
+### Production-copy migration rehearsal
+
+A real `pg_dump` of production `alrifai_v2` was restored into
+`alrifai_v2_phase3_rehearsal` and migrated. All 34,420 messages, 2,010 chats,
+2,597 aliases, 261 media rows and 3 users survived; schema moved 1.2.0→1.4.0,
+35 tables, 7 ledger rows. Historical messages stayed PENDING and untouched.
+The actual release image then automatically routed a synthetic post-cutover
+Cash message into a REVIEW instruction, and a Vessel message was deferred while
+disabled and created a DRAFT program after activation. An authenticated HTTP
+run completed assign-account → approve → post → reverse → reconcile, with the
+original DEBIT, contra CREDIT and full audit trail.
+
+## 10. Current handoff (2026-11-06)
 
 **State:** Phase 3 release candidate is complete on
-`feature/phase3-router-cash-vessel` at `1a5d92e`, pushed to GitHub. `main`
+`feature/phase3-router-cash-vessel` (current HEAD, pushed after this pass). `main`
 remains `e6becfc` (Phase 2). Production remains on image
 `local/al-rifai-platform:20261105-phase2`, DB `alrifai_v2` at `1.2.0`.
 
-**Verified:** 67/67 unit, 91/91 integration, typecheck, lint, Next build,
+**Verified:** 69/69 unit, 95/95 integration, typecheck, lint, Next build,
 Docker build, dependency audit clean, test DB at `1.4.0`, fresh disposable DB
-install/migrate/`--force` verified.
+install/migrate/`--force`, production-copy migration rehearsal, automatic
+WhatsApp Cash/Vessel routing and full HTTP Cash lifecycle on that copy.
+
+**Release image:** `al-rifai-platform:phase3-rc-final2`,
+`sha256:069cbe0bdb56475551b991ba3b56450d945825ad74b39bef65995b74ec37d048`.
 
 **Not done (requires Owner):**
 
@@ -366,14 +423,17 @@ install/migrate/`--force` verified.
    and captured watermarks.
 5. Any real Cash posting, reversal or reconciliation.
 
-**Next safe action after approval:** restore the production dump to an isolated
-copy, run `pnpm db:preflight` and `pnpm db:migrate`, verify `1.4.0` and the Cash
-read/audit pages, then follow `PHASE3_VPS_RELEASE_CHECKLIST.md`.
+**Next safe action after approval:** repeat the already-proven rehearsal against
+the exact approved dump, run `pnpm db:preflight` and `pnpm db:migrate`, verify
+`1.4.0`, then deploy the approved image and follow
+`PHASE3_VPS_RELEASE_CHECKLIST.md`. Set `PHASE3_ROUTER_WORKER_ENABLED=1` and
+`ALRIFAI_VESSEL_PROCESSING_ENABLED=1` only after the Owner-approved allowlists
+and watermarks are written.
 
 **Do not:** edit the legacy application, production DB, bridge stores or
 deployment `.env`; force-push; delete Phase 3 tables/records; auto-post funds.
 
-## 9. Handoff rule
+## 11. Handoff rule
 
 This file is the authoritative Phase 3 completion plan. Update the progress log
 and the relevant section in the same commit as the work. Do not append a daily

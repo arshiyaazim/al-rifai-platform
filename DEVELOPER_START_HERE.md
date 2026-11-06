@@ -2,7 +2,7 @@
 
 > **Canonical current-state developer map — not a changelog.** Read this first before modifying code, database, Docker, WhatsApp ingestion, or deployment.
 >
-> **Last reconciled:** 2026-11-06. **Source:** `feature/phase3-router-cash-vessel` at `1a5d92e` (pushed) (Live Router cutover gate, complete Cash lifecycle, capability enforcement, transaction-aware audit, incremental migration runner; **91/91 integration tests**, 67/67 unit tests); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
+> **Last reconciled:** 2026-11-06. **Source:** `feature/phase3-router-cash-vessel` at `1a5d92e` (pushed) (Live Router cutover gate, complete Cash lifecycle, capability enforcement, transaction-aware audit, incremental migration runner; **95/95 integration tests**, 69/69 unit tests); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
 >
 > **Priority:** **BUILD → RUN → LIVE → IMPROVE**. Do not block releases on unrelated legacy data migration, historical Git branches, exhaustive tests, or non-blocking cleanup. Never claim a workflow is live solely because code exists.
 
@@ -11,7 +11,7 @@
 | Item | Current value / source |
 |---|---|
 | Git repository | https://github.com/arshiyaazim/al-rifai-platform |
-| Git branch | `feature/phase3-router-cash-vessel` at `1a5d92e` (pushed; 91/91 integration, 67/67 unit); `main` untouched at `e6becfc` |
+| Git branch | `feature/phase3-router-cash-vessel` at current HEAD (pushed; 95/95 integration, 69/69 unit); `main` untouched at `e6becfc` |
 | Verified baseline | `e6becfc` (Phase 2, `main`, untouched); Phase 3 verified on the feature branch at the completion commit. |
 | Local Git checkout (VPS) | `/opt/al-rifai-platform` (`main` at `e6becfc`) |
 | Phase 3 test worktree (VPS) | `/opt/al-rifai-phase3-test` at the Task 5F.2B commit (separate worktree; production source unchanged) |
@@ -73,6 +73,7 @@ the deployed SQLite direct-import / tail worker.
 - **Existing infrastructure retained:** PostgreSQL and two paired WhatsApp bridges.
 - **No separate Redis/Kafka/vector database or extra messaging service** in this deployment.
 - **One primary application database**, with **35 tables** after the Phase 3 extensions and migration ledger (local test schema; production not deployed).
+- **Automatic routing is optional and default-disabled:** the in-process worker uses the same router as the manual API, so there is no second business path.
 - **Raw capture is not domain interpretation:** a message in PostgreSQL does not imply it has been classified into a cash instruction, vessel order, recruitment record, or AI conversation.
 - **Review Queue is read/write only through authenticated services:** the UI never decides, posts or settles; the API re-checks ADMIN + not-submitter + PENDING server-side.
 - **Media is content-addressed:** one file per SHA-256 under `/media/<account>/`; the database row links it to account, chat, message and sender evidence. Media keys stay in the bridge store and are never written to PostgreSQL.
@@ -168,7 +169,7 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 
 **Fresh-data policy:** Owner does not require historical business data import. Agent reported **0 programs, 0 cash instructions, 0 employees and 0 postings** after removing temporary test records. Raw WhatsApp history is retained. Do not confuse “empty new business DB” with “broken app.”
 
-**Test evidence — this session (2026-11-06):** `pnpm test:unit` executed: **67 pass / 0 fail** (shift-boundary, unified-auth-policy, media, identity, message-classifier, review-ui; re-confirmed in this environment after `pnpm install --frozen-lockfile`). DB-dependent suites now run against the isolated `alrifai_v2_test` database: **91/91 pass** (domain 9, WhatsApp adapter 1, router 49, cutover 18, Review API 7, Cash lifecycle 5, users 2). `scripts/standalone/migrate.mjs` provides the previously missing `db:migrate` path. GitHub Actions remains billing-locked; the workflow is updated for schema `1.4.0` but has not executed. No production credentials.
+**Test evidence — this session (2026-11-06):** `pnpm test:unit` executed: **69 pass / 0 fail** (shift-boundary, unified-auth-policy, media, identity, message-classifier, review-ui, router-worker; re-confirmed after `pnpm install --frozen-lockfile`). DB-dependent suites now run against the isolated `alrifai_v2_test` database: **95/95 pass** (domain 10, WhatsApp adapter 1, router 50, cutover 18, Review API 7, Cash lifecycle 7, users 2). `scripts/standalone/migrate.mjs` provides the previously missing `db:migrate` path. GitHub Actions remains billing-locked; the workflow is updated for schema `1.4.0` but has not executed. No production credentials.
 
 ## 6. Pipeline/workflow inventory
 
@@ -183,7 +184,7 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 | P05 | WA-01 new message → automatic DB tail | **LIVE** | New rows observed across restarts; checkpoint advances; no error | Outgoing/direct/edits samples as they arrive |
 | P06 | WA-02 new message → automatic DB tail | **LIVE** | New rows and post-deploy media observed; checkpoint advances; no error | Outgoing/direct samples as they arrive |
 | P07 | Raw message → shared identity/contact resolution | **PARTIAL** | One resolver for both accounts: 2,587 aliases, canonical PN, chat/participant names, bridge-only PN/LID links | Contact-book/push/profile names; WA-02 store lacks `resolved_*` and participant columns |
-| P08 | Raw message → domain classification/action | **IMPLEMENTED** | Phase 3 shared router + classifier; authorization via whatsapp_chats; processing state; Review Queue submission; Review Queue UI with filters, source evidence, extracted/missing fields, reasons, audit history and role-checked actions | Lint+typecheck+unit+DB tests pass locally; CI workflow prepared, not executed; production not deployed |
+| P08 | Raw message → domain classification/action | **IMPLEMENTED + TESTED** | Shared router + classifier; optional continuous worker (`PHASE3_ROUTER_WORKER_ENABLED`) routes new rows automatically; DB activation gate and per-account allowlist remain mandatory; Review Queue UI and role-checked actions | Production not deployed; Owner allowlist/watermark required |
 | P09 | Cash instruction → review → approval → posting → reversal → reconciliation | **IMPLEMENTED + TESTED** | Full lifecycle, immutable ledger, contra reversal, reconciliation, capability enforcement and audit; 5 lifecycle tests + 49 router tests | Production deployment; Owner acceptance of role matrix |
 | P10 | Vessel order → program → assignment → release | **IMPLEMENTED** | Router creates program DRAFT from WhatsApp vessel messages (WA-01 only); multi-lighter and multi-message correlation; confirmation via applyConfirmation in same chat; ±1-day duplicate warnings → Review Queue; vessel review panels for incomplete orders, duplicates, ambiguous confirmations, escort conflicts, original/normalized names and confirmation_message_id | Release and assignment parity; CI workflow prepared, not executed; production not deployed |
 | P11 | Employee → attendance → payroll | **PARTIAL** | Core tables/UI and rate calculation | Rate setup, attendance automation, extras |
@@ -198,12 +199,13 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 
 - `tests/standalone/domain.test.ts` — **9/9**.
 - `tests/standalone/whatsapp.test.ts` — **1/1** (adapter sync + fail-closed router default).
-- `tests/standalone/message-router.test.mjs` — **49/49**.
+- `tests/standalone/message-router.test.mjs` — **50/50**.
 - `tests/standalone/router-cutover.test.mjs` — **18/18**.
 - `tests/standalone/review-api.test.mjs` — **7/7**.
 - `tests/standalone/cash-lifecycle.test.mjs` — **5/5**.
 - `tests/standalone/users.test.mjs` — **2/2**.
-- Combined: **91/91 integration tests**, run sequentially with `--test-concurrency=1`. Unit suite: **67/67**.
+- `tests/standalone/router-worker.test.mjs` — **2/2** (unit gate).
+- Combined: **95/95 integration tests**, run sequentially with `--test-concurrency=1`. Unit suite: **69/69**.
 - Migration: `alrifai_v2_test` 1.3.3 → 1.4.0, 35 tables, 7 ledger rows; repeat run is a no-op. Fresh disposable DB: install 34 tables/1.4.0; migrate 35 tables; `install --force` succeeds.
 - The Live Router remains default-disabled in production; test activation is synthetic and confined to the test DB.
 - Production remains `1.2.0`; **no Phase 3 workflow is marked LIVE** and no production financial posting occurred.
@@ -223,7 +225,7 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 
 ## 8. Database and secrets
 
-- **Current database:** `alrifai_v2`, PostgreSQL, schema version `1.2.0` (deployed); the Phase 3 branch defines `1.4.0` through migration 008, verified only on the isolated test DB and a disposable fresh DB. Legacy `alrifai` is retained for rollback and is not part of the new application's business state.
+- **Current database:** `alrifai_v2`, PostgreSQL, schema version `1.2.0` (deployed); the Phase 3 branch defines `1.4.0` through migration 008, verified on the isolated test DB, a fresh disposable DB and a restored copy of real production data (`alrifai_v2_phase3_rehearsal`). Legacy `alrifai` is retained for rollback and is not part of the new application's business state.
 - **Isolated Phase 3 test DB:** `alrifai_v2_test` on the existing `vps-infra-postgres-1` (owner `alrifai_app`, UTF8) is at schema `1.4.0`: 35 tables (including `schema_migrations`), 5 functions, 15 triggers. Migrations 002–008 are applied, including `cash_submissions.instruction_id`, `cash_reversals`, `cash_reconciliations`, and the extended ledger source values. It is separate from `alrifai_v2`/`alrifai` and must be the explicit `PGDATABASE` for installation/migration/integration tests. Production `alrifai_v2` remains `1.2.0` and is not migrated or modified.
 - **Installer repeat-safety:** a second run without `--force` refuses with `ALREADY_INSTALLED`. `--force` now skips the non-idempotent baseline and re-applies only the additive layers + grants; verified on the disposable fresh DB. Prefer `pnpm db:migrate` for a controlled upgrade.
 - **Installer/migrations:** fresh `schema.sql` + additive `002`–`008`, all idempotent, schema `1.4.0`. `scripts/standalone/migrate.mjs` is the incremental, checksum-tracked path. Production schema remains `1.2.0` and is not migrated. Do not reintroduce the legacy migration chain just to match historical DB structure.
@@ -233,6 +235,7 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 - `.env` is **never committed**, copied into Docker images, or printed. `.env.example` holds placeholders only.
 - Frontend-created login passwords are **hashed**, not stored in plaintext. Bootstrap admin password can be provided via `.env`; use `pnpm admin:reset` for recovery.
 - WA session keys and media decryption material remain in bridge-owned storage; not copied into the main business DB. The worker uses a media key in memory only.
+- **Phase 3 activation keys:** `PHASE3_ROUTER_WORKER_ENABLED` (default `0`), `PHASE3_ROUTER_WORKER_INTERVAL_MS`, `PHASE3_ROUTER_WORKER_LIMIT`; `ALRIFAI_VESSEL_PROCESSING_ENABLED` (production `0`; deferred Vessel rows stay `PENDING`). The DB gate `phase3_router_enabled` + per-account watermark/chat allowlist is still required.
 - **Media directory:** `/var/lib/vps/al-rifai/media` (host), `/media` in containers; owned `10001:10001`, mode `0700`, written by the root `sync` process and read-only to `app`. It is outside Git and the image, so it survives rebuilds and container recreation.
 - The owner prioritizes rapid delivery and simple configuration, not enterprise security tooling. Keep existing functional authentication and do not introduce new infrastructure as a prerequisite to ordinary feature work.
 
@@ -267,7 +270,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 | Priority | Work | Acceptance |
 |---|---|---|
 | 1 | Keep GitHub `main`, the canonical checkout and the deployment source aligned | `origin/main` = local HEAD, and the deployment source matches the committed documentation/source |
-| 2 | Phase 3 release candidate | Code, migrations, tests and docs complete on `feature/phase3-router-cash-vessel`; 91/91 integration + 67/67 unit; production deployment gated on Owner approval, fresh backup and business allowlist |
+| 2 | Phase 3 release candidate | Code, migrations, tests and docs complete on `feature/phase3-router-cash-vessel`; 95/95 integration + 69/69 unit; production deployment gated on Owner approval, fresh backup and business allowlist |
 | 3 | Observe WA-02 outgoing/direct/edited samples | Real observed examples reach PostgreSQL once; checkpoint advances; no error |
 | 4 | Confirm document and sticker media | A live document/sticker attachment stored with SHA verification |
 | 5 | Complete identity map | Contact-book/push/profile names where the bridge exposes them; WA-02 store lacks `resolved_*` and participant columns |
@@ -275,7 +278,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 | 7 | Production Phase 3 migration/deploy | Owner approval, verified `pg_dump`, approved chats/participants/Admin JIDs, then follow `PHASE3_VPS_RELEASE_CHECKLIST.md` |
 
 **Phase 3 implementation state (all items):**
-- Router Foundation: IMPLEMENTED + TESTED — `lib/message-router.ts`, `lib/message-classifier.ts`, state/retry, Review Queue submission, per-account cutover watermark. 49/49 router tests, 18/18 cutover tests.
+- Router Foundation: IMPLEMENTED + TESTED — `lib/message-router.ts`, `lib/message-classifier.ts`, state/retry, Review Queue submission, per-account cutover watermark. 50/50 router tests, 18/18 cutover tests.
 - Cash Domain: IMPLEMENTED + TESTED — WA-01 Admin OUTGOING messages only → REVIEW; unparsable → PENDING_REVIEW candidate; candidate approval atomically creates a linked REVIEW instruction; automated writes attributed to `system:whatsapp-router`; no automatic posting. 5/5 Cash lifecycle tests.
 - Vessel Domain: IMPLEMENTED + TESTED — DRAFT programs, multi-message correlation, group participant authorization, confirmation via `applyConfirmation()`, WA-02 rejected.
 - Review Queue: IMPLEMENTED + TESTED — category-aware queue, source evidence, corrections, decisions, withdrawal, cash candidates, role-checked actions. 7/7 Review API tests + 17 UI unit tests.
@@ -284,7 +287,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 - Audit integrity: IMPLEMENTED — `recordAudit(input, client)` participates in the caller's transaction; review decisions apply domain writes on the same client.
 - Migration/CI: IMPLEMENTED — `scripts/standalone/migrate.mjs`, shared grants, idempotent `install --force`, CI updated for schema `1.4.0` and the full suite. Not executed on GitHub (billing lock).
 - Frontend: IMPLEMENTED — Cash candidate decisions, reversal, reconciliation, instruction audit detail, Super Admin user administration.
-- Verification: 67/67 unit, 91/91 integration, typecheck, lint, Next build, Docker build, `pnpm audit --prod` clean. PRODUCTION NOT DEPLOYED.
+- Verification: 69/69 unit, 95/95 integration, typecheck, lint, Next build, Docker build, `pnpm audit --prod` clean. PRODUCTION NOT DEPLOYED.
 
 **Delivery boundary:** Implementation and integration tests complete on `feature/phase3-router-cash-vessel` at `7b0330c`; pushed to origin. No production deployment. Production readiness is **BLOCKED** pending the items in the audit block below.
 | 6 | Domain conversation routing | Cash/Vessel/HR/Recruitment/CRM routed to proper handlers; no unauthorized automatic posting |
@@ -302,7 +305,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 - **Vessel authorization data:** `escort_client_group_authorizations` is still empty in production; group vessel intake remains fail-closed until the Owner populates approved participants. This is a deployment prerequisite, not a code defect.
 - **Cash lifecycle:** complete in code and tested in the isolated DB: candidate→instruction, approval, posting, immutable reversal, reconciliation, audit and capability enforcement. No automatic posting. Production execution requires the Owner-approved capability matrix and a separate decision to post real money.
 - **Dependency/security:** Next.js `16.4.1`, Zod `4.6.6`, fast-uri `3.1.9`; `pnpm audit --prod` reports no known vulnerabilities.
-- **Verification:** typecheck 0 errors, lint 0 errors, 67/67 unit tests, 91/91 integration tests, Next.js build and Docker build pass. CI workflow is updated but GitHub Actions remains billing-locked.
+- **Verification:** typecheck 0 errors, lint 0 errors, 69/69 unit tests, 95/95 integration tests, Next.js build and Docker build pass. CI workflow is updated but GitHub Actions remains billing-locked.
 - **Backup/rollback:** no fresh pre-Phase-3 production backup exists yet. Required before deployment. Application rollback to `20261105-phase2` remains safe because 004–008 are additive; a full DB rollback still needs a verified restore. Cash corrections use reversal, never mutation.
 - **Verdict:** the release candidate is code-complete and test-complete. Production deployment is **BLOCKED on explicit Owner approval**, a fresh verified backup, the production migration window, the business-chat/participant/Admin-JID allowlist, and acceptance of CI evidence.
 
@@ -377,7 +380,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 - **Claim query:** requires `source_rowid IS NOT NULL AND source_rowid > phase3_cutover_rowid:<m.account_id>` and `phase3_business_chats:<m.account_id>` contains `m.chat_jid`, while preserving the existing PENDING/FAILED/PROCESSING retry rules, `FOR UPDATE SKIP LOCKED`, retry limits and message identity.
 - **Historical safety:** no bulk UPDATE and no status rewrite. Historical rows retain their existing `processing_status` and are simply ineligible for Live Routing. Historical Backfill remains a separate path and is not gated by this watermark; it may parse an eligible historical message under its own authorization.
 - **Authorization:** capture `whatsapp_chats.authorized=true` is not business authorization. The explicit `phase3_business_chats` allowlist is required; the existing `whatsapp_chats` purpose/authorized checks, WA-01-only Cash/Vessel rules, `admin_jids` for Cash, group-participant authorization and WA-02 rejection remain in force.
-- **Tests:** new `tests/standalone/router-cutover.test.mjs` **18/18**; existing `message-router.test.mjs` **49/49**; combined **67/67**; Review API **7/7**; finance **3/3**. The tests use a synthetic test-only activation state and watermark; production remains disabled (0 `phase3_%` rows in production `app_settings`).
+- **Tests:** new `tests/standalone/router-cutover.test.mjs` **18/18**; existing `message-router.test.mjs` **50/50**; combined **68/68**; Review API **7/7**; finance **3/3**. The tests use a synthetic test-only activation state and watermark; production remains disabled (0 `phase3_%` rows in production `app_settings`).
 - **Remaining production prerequisites:** configure the three keys with the Owner-approved Cash/Orders chats, group participants and WA-01 Admin JID(s); capture the real per-account cutover watermarks at deployment (audit-time checkpoints wa-01 19,588 / wa-02 15,145; recapture at the actual cutover); fresh verified backup; incremental migration/grant path; maintenance window; CI evidence. **Production Phase 3 routing is not activated.**
 
 ## 11. Mandatory maintenance rule — overwrite current state, do not append history

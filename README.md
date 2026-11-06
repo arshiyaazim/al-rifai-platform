@@ -289,6 +289,13 @@ directly — no MCP grant, no per-chat profile entry, and no session material:
 * **worker** — `scripts/sync-worker.mjs` imports the historical rows once and then
   tails both accounts continuously; the checkpoint lives in `whatsapp_sync_state`
   and restarts never duplicate a row (`(account_id, chat_jid, message_id)`);
+* **router** — an optional in-process worker (`lib/phase3-router-worker.ts`) routes new
+  rows through the same shared router used by the manual API. It is
+  default-disabled by `PHASE3_ROUTER_WORKER_ENABLED=0` **and** by the database
+  gate (`phase3_router_enabled`, per-account watermark and business-chat
+  allowlist). Vessel intake has its own gate,
+  `ALRIFAI_VESSEL_PROCESSING_ENABLED`; while disabled, Vessel messages stay
+  `PENDING` and are processed after activation, never silently consumed;
 * **identity** — `identity_aliases` records the account, chat and participant
   JIDs plus the PN/LID links the bridge itself resolved. A name comes from the
   bridge's chat label; an unresolved LID stays explicitly unresolved and is never
@@ -324,9 +331,10 @@ The current schema is `1.4.0` (migrations 002–008).
 ## 7. Tests
 
 ```bash
-pnpm test:unit        # pure functions (67 assertions)
+pnpm test:unit        # pure functions (69 assertions)
 pnpm test:standalone  # all DB suites: domain, WhatsApp adapter, router,
                       # cutover, Review Queue, Cash lifecycle and users
+                      # (95 integration tests)
 ```
 
 The integration tests are destructive to their schema: run them against a
@@ -373,18 +381,25 @@ never point them at production.
   immediately before acting); third-party clients must do the same.
 * The first administrator must change the password before any write is allowed
   (`PASSWORD_CHANGE_REQUIRED`), by design.
-* Payroll covers duty-based program pay and monthly salary allocation. Conveyance
-  is reported per program and not allocated to a month (no verified travel date
-  is captured), and advances/food-bill rules are not implemented — they need an
-  owner decision, not an invention.
+* Payroll covers duty-based program pay and monthly salary allocation. Monthly
+  salary uses the stored `program_pay` calculation, so a later rate change does
+  not rewrite released pay. Conveyance is reported per program and not allocated
+  to a month (no verified travel date is captured), and advances/food-bill rules
+  are not implemented — they need an owner decision, not an invention.
 * Cash supports instruction, review, approval, posting, reversal and
-  reconciliation. Reversal is a contra ledger entry; original postings and
-  ledger rows are never edited. Reconciliation records variance but never posts
-  an automatic adjustment.
+  reconciliation. Router-created instructions may need an explicit paying
+  account before approval; the audited `instruction.account` action records it.
+  Reversal is a contra ledger entry; original postings and ledger rows are never
+  edited. Reconciliation records variance but never posts an automatic
+  adjustment.
 * Single currency (BDT by default) and single organization per installation.
 * English UI only.
-* Legacy AL-RIFA'I modules are preserved under `legacy-runtime/` and are not part
-  of the runtime; see `docs/STANDALONE-REMOVED.md`.
+* Legacy AL-RIFA'I modules are preserved for reference only and are not imported
+  by the standalone startup path. The legacy Live Cash bootstrap is no longer
+  called by `instrumentation.ts`; see `docs/STANDALONE-REMOVED.md`.
+* Message edits/deletions are captured in the raw store but an already-processed
+  message is not automatically reprocessed. This avoids duplicate financial or
+  vessel writes; a future edit-reconciliation workflow is a separate design.
 
 See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 `docs/STANDALONE-VERIFICATION.md` for the verification record.

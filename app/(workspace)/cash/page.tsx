@@ -45,6 +45,7 @@ export default async function CashPage() {
         ))}
         <div className="stat"><div className="label">Income ({report.from} → {report.to})</div><div className="value">{money(report.income)}</div></div>
         <div className="stat"><div className="label">Expense</div><div className="value">{money(report.expense)}</div></div>
+        <div className="stat"><div className="label">Reversals</div><div className="value">{money(report.reversals)}</div></div>
         <div className="stat"><div className="label">Net</div><div className="value">{money(report.net)}</div></div>
       </div>
 
@@ -122,19 +123,34 @@ export default async function CashPage() {
 
       <section className="card">
         <h3>Instructions ({instructions.length})</h3>
+        {canReview ? (
+          <ActionForm
+            compact
+            title="Assign paying account (REVIEW only)"
+            endpoint="/api/finance"
+            action="instruction.account"
+            submitLabel="Assign account"
+            fields={[
+              {name: 'id', label: 'Instruction id', required: true},
+              {name: 'accountId', label: 'Account', type: 'select', required: true,
+                options: accounts.map((account) => ({value: account.id, label: `${account.code} — ${account.name}`}))},
+            ]}
+          />
+        ) : null}
         <table>
-          <thead><tr><th>Instruction</th><th>Payee</th><th>Method</th><th>Amount</th><th>State</th><th>Source</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Instruction</th><th>Payee</th><th>Account</th><th>Method</th><th>Amount</th><th>State</th><th>Source</th><th>Actions</th></tr></thead>
           <tbody>
             {instructions.slice(0, 40).map((instruction) => {
               const item = instruction as unknown as {
                 id: string; employee_name: string; method: string; amount_minor: string; state: string;
-                source_channel?: string | null; source_message_id?: string | null; source_block_key?: string | null;
+                account_code?: string | null; source_channel?: string | null; source_message_id?: string | null; source_block_key?: string | null;
                 reversal_id?: string | null; reversed_at?: string | null; reversal_reason?: string | null;
               };
               return (
                 <tr key={item.id}>
                   <td><Link href={`/cash/${item.id}`} style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.id}</Link></td>
                   <td>{item.employee_name}</td>
+                  <td>{item.account_code ?? <span className="muted">unassigned</span>}</td>
                   <td>{item.method}</td>
                   <td>{money(item.amount_minor)}</td>
                   <td>
@@ -165,7 +181,7 @@ export default async function CashPage() {
                 </tr>
               );
             })}
-            {!instructions.length ? <tr><td colSpan={7} className="muted">No instructions yet.</td></tr> : null}
+            {!instructions.length ? <tr><td colSpan={8} className="muted">No instructions yet.</td></tr> : null}
           </tbody>
         </table>
         {pending.length ? <p className="muted">{pending.length} instruction(s) awaiting approval. Posting remains a separate explicit admin action.</p> : null}
@@ -272,7 +288,7 @@ export default async function CashPage() {
               };
               return (
                 <tr key={item.id}>
-                  <td>{item.period_start} → {item.period_end}<div className="muted" style={{fontFamily: 'ui-monospace, monospace', fontSize: 10}}>{item.id}</div></td>
+                  <td>{when(item.period_start).slice(0, 10)} → {when(item.period_end).slice(0, 10)}<div className="muted" style={{fontFamily: 'ui-monospace, monospace', fontSize: 10}}>{item.id}</div></td>
                   <td>{item.account_code}</td>
                   <td>{money(item.expected_balance_minor)}</td>
                   <td>{money(item.counted_balance_minor)}</td>

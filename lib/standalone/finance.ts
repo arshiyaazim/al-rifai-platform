@@ -134,13 +134,14 @@ export async function approveInstruction(actor: Actor, id: string) {
   assertCapability(actor, 'cash.review');
   if (actor.role !== 'ADMIN') throw new DomainError('ADMIN_REQUIRED', 403);
   return tx(async (client) => {
-    const found = await client.query<{state: string; created_by: string}>(
-      'SELECT state, created_by FROM cash_instructions WHERE id = $1 FOR UPDATE', [id],
+    const found = await client.query<{state: string; created_by: string; account_id: string | null}>(
+      'SELECT state, created_by, account_id FROM cash_instructions WHERE id = $1 FOR UPDATE', [id],
     );
     if (!found.rowCount) throw new DomainError('INSTRUCTION_NOT_FOUND', 404);
     const instruction = found.rows[0];
     if (instruction.state !== 'REVIEW') throw new DomainError('INSTRUCTION_NOT_PENDING', 409);
     if (instruction.created_by === actor.id) throw new DomainError('REVIEWER_IS_SUBMITTER', 403);
+    if (!instruction.account_id) throw new DomainError('ACCOUNT_REQUIRED', 400);
     await client.query(
       `UPDATE cash_instructions SET state='APPROVED', approved_at=now(), approved_by=$2 WHERE id=$1`,
       [id, actor.id],
@@ -155,8 +156,8 @@ export async function rejectInstruction(actor: Actor, id: string, reason: string
   if (actor.role !== 'ADMIN') throw new DomainError('ADMIN_REQUIRED', 403);
   const why = text(reason, 'reason', {max: 500});
   return tx(async (client) => {
-    const found = await client.query<{state: string; created_by: string}>(
-      'SELECT state, created_by FROM cash_instructions WHERE id = $1 FOR UPDATE', [id],
+    const found = await client.query<{state: string; created_by: string; account_id: string | null}>(
+      'SELECT state, created_by, account_id FROM cash_instructions WHERE id = $1 FOR UPDATE', [id],
     );
     if (!found.rowCount) throw new DomainError('INSTRUCTION_NOT_FOUND', 404);
     if (!['REVIEW', 'APPROVED'].includes(found.rows[0].state)) throw new DomainError('INSTRUCTION_NOT_PENDING', 409);
@@ -207,6 +208,36 @@ export async function postInstruction(actor: Actor, id: string) {
     await recordAudit({actor, action: 'INSTRUCTION_POSTED', entity: 'instruction', entityId: id,
       detail: {postingId, amountMinor: instruction.amount_minor}}, client);
     return {id, state: 'POSTED', postingId};
+  });
+}
+
+/**
+ * Assign the paying account to a REVIEW instruction. Router-created Cash
+ * instructions carry source provenance but not an account; this is the explicit
+ * reviewer step that completes the instruction before approval. It never posts
+ * or moves money.
+ */
+export async function setInstructionAccount(actor: Actor, id: string, accountId: string) {
+  assertCapability(actor, 'cash.review');
+  if (actor.role !== 'ADMIN') throw new DomainError('ADMIN_REQUIRED', 403);
+  const account = text(accountId, 'accountId', {max: 60});
+  return tx(async (client) => {
+    const found = await client.query<{id: string; state: string; account_id: string | null}>(
+      'SELECT id, state, account_id FROM cash_instructions WHERE id = $1 FOR UPDATE', [id],
+    );
+    if (!found.rowCount) throw new DomainError('INSTRUCTION_NOT_FOUND', 404);
+    if (found.rows[0].state !== 'REVIEW') throw new DomainError('INSTRUCTION_NOT_PENDING', 409);
+    const selected = await client.query<{id: string; active: boolean}>(
+      'SELECT id, active FROM cash_accounts WHERE id = $1', [account],
+    );
+    if (!selected.rowCount) throw new DomainError('ACCOUNT_NOT_FOUND', 404);
+    if (!selected.rows[0].active) throw new DomainError('ACCOUNT_INACTIVE', 409);
+    await client.query(
+      'UPDATE cash_instructions SET account_id = $2, updated_at = now() WHERE id = $1', [id, account],
+    );
+    await recordAudit({actor, action: 'INSTRUCTION_ACCOUNT_ASSIGNED', entity: 'instruction', entityId: id,
+      detail: {accountId: account}}, client);
+    return {id, state: 'REVIEW', accountId: account};
   });
 }
 
@@ -341,15 +372,26 @@ export async function listLedger(filters: {accountId?: string; from?: string; to
 }
 
 export async function incomeExpense(from: string, to: string) {
-  const rowsOut = await rows<{direction: string; category: string; total_minor: string}>(
-    `SELECT direction, category, sum(amount_minor)::text AS total_minor
+  const rowsOut = await rows<{direction: string; category: string; source: string; total_minor: string}>(
+    `SELECT direction, category, source, sum(amount_minor)::text AS total_minor
        FROM ledger_entries WHERE entry_date BETWEEN $1 AND $2
-      GROUP BY direction, category ORDER BY direction, category`,
+      GROUP BY direction, category, source ORDER BY direction, category, source`,
     [from, to],
   );
-  const income = rowsOut.filter((r) => r.direction === 'CREDIT').reduce((n, r) => n + Number(r.total_minor), 0);
-  const expense = rowsOut.filter((r) => r.direction === 'DEBIT').reduce((n, r) => n + Number(r.total_minor), 0);
-  return {from, to, income, expense, net: income - expense, breakdown: rowsOut, accounts: await listAccounts()};
+  const sum = (predicate: (row: {direction: string; source: string}) => boolean) =>
+    rowsOut.filter(predicate).reduce((n, r) => n + Number(r.total_minor), 0);
+  // A reversal is a contra-credit against an expense, not new income. Keeping
+  // it separate prevents the income and expense cards from overstating both.
+  const income = sum((r) => r.direction === 'CREDIT' && r.source !== 'REVERSAL' && r.source !== 'RECONCILIATION');
+  const expense = sum((r) => r.direction === 'DEBIT');
+  const reversals = sum((r) => r.direction === 'CREDIT' && r.source === 'REVERSAL');
+  const reconciliation = sum((r) => r.direction === 'CREDIT' && r.source === 'RECONCILIATION');
+  return {
+    from, to, income, expense, reversals, reconciliation,
+    net: income + reversals + reconciliation - expense,
+    breakdown: rowsOut,
+    accounts: await listAccounts(),
+  };
 }
 
 // ── submissions (staff-raised payment requests) ────────────────────────────
@@ -412,7 +454,11 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
         ? payload.fields as Record<string, unknown>
         : {};
       const field = (key: string) => payload[key] ?? payloadFields[key];
-      const instruction = await insertInstruction(client, actor, {
+      // Attribute the instruction to the candidate's originator, not to the
+      // reviewer. Otherwise a sole human Admin would be blocked by the
+      // self-review rule immediately after approving the candidate.
+      const originator = {...actor, id: submission.submitted_by, displayName: undefined};
+      const instruction = await insertInstruction(client, originator, {
         employeeName: String(field('employeeName') ?? 'Unknown'),
         employeeMobile: (field('employeeMobile') as string | null | undefined) ?? null,
         payoutMobile: (field('payoutMobile') as string | null | undefined) ?? null,
@@ -433,6 +479,8 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
       });
       if (!instruction) throw new DomainError('INSTRUCTION_ALREADY_EXISTS', 409);
       instructionId = instruction.id;
+      await recordAudit({actor, action: 'INSTRUCTION_CREATED_FROM_CANDIDATE', entity: 'instruction',
+        entityId: instruction.id, detail: {submissionId: id}}, client);
       await client.query(
         `UPDATE cash_submissions
             SET state='APPROVED', instruction_id=$2, decided_at=now(), decided_by=$3, decision_reason=$4,

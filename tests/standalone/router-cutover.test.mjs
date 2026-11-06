@@ -11,6 +11,10 @@ import {createPool} from '../../db/postgres.mjs';
 import {row} from '../../lib/standalone/db.ts';
 import {routePendingMessages} from '../../lib/message-router.ts';
 
+// Integration tests exercise vessel routing; production keeps the deployment
+// flag off until the Owner enables Vessel intake.
+process.env.ALRIFAI_VESSEL_PROCESSING_ENABLED = '1';
+
 const admin = {id: 'a'.repeat(64), role: 'ADMIN'};
 const CASH_CHAT = '8801844836824@s.whatsapp.net';
 const ORDER_CHAT = '120363000000000001@g.us';

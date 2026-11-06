@@ -6,8 +6,12 @@ import test, {beforeEach} from 'node:test';
 import {createPool} from '../../db/postgres.mjs';
 import {row} from '../../lib/standalone/db.ts';
 import {routePendingMessages} from '../../lib/message-router.ts';
-import {approveInstruction, decideCashSubmission} from '../../lib/standalone/finance.ts';
+import {approveInstruction, decideCashSubmission, setInstructionAccount} from '../../lib/standalone/finance.ts';
 import {correctCashSubmission} from '../../lib/standalone/review.ts';
+
+// Integration tests exercise vessel routing; production keeps the deployment
+// flag off until the Owner enables Vessel intake.
+process.env.ALRIFAI_VESSEL_PROCESSING_ENABLED = '1';
 
 const admin = {id: 'a'.repeat(64), role: 'ADMIN'};
 const TEST_BUSINESS_CHATS = ['8801844836824@s.whatsapp.net', '120363000000000001@g.us'];
@@ -163,6 +167,8 @@ test('cash: valid Admin outgoing message creates REVIEW instruction', async () =
   // Automated writes are attributed to the stable system actor, so the sole
   // human Administrator can approve them without a self-review deadlock.
   assert.equal(instr.created_by, 'system:whatsapp-router');
+  const account = await row('SELECT id FROM cash_accounts ORDER BY code LIMIT 1');
+  await setInstructionAccount(admin, instr.id, account.id);
   const approved = await approveInstruction(admin, instr.id);
   assert.equal(approved.state, 'APPROVED');
 });
@@ -419,6 +425,26 @@ test('router: vessel message creates program in DRAFT', async () => {
 // ──────────────────────────────────────────────────────────────────────
 // Router: vessel (Increment 3)
 // ──────────────────────────────────────────────────────────────────────
+
+test('vessel: deployment flag disables vessel processing without touching Cash', async () => {
+  await ensureAccount('wa-01');
+  const previous = process.env.ALRIFAI_VESSEL_PROCESSING_ENABLED;
+  process.env.ALRIFAI_VESSEL_PROCESSING_ENABLED = '0';
+  try {
+    await stageMessage('wa-01', '120363000000000001@g.us', 'msg-vessel-disabled-1', 'INCOMING', '8801711111111@s.whatsapp.net',
+      'Mother Vessel: MV Disabled\nLighter Vessel: L-0\nMaster mobile: 01911111111\n17/11/26(D)');
+    const result = await routePendingMessages(admin, 10);
+    assert.equal(result.programs, 0);
+    assert.equal(result.errors, 0);
+    const stored = await row("SELECT processing_status, classification FROM whatsapp_messages WHERE message_id = 'msg-vessel-disabled-1'");
+    assert.equal(stored.processing_status, 'PENDING');
+    assert.equal(stored.classification, 'VESSEL:PROCESSING_DISABLED');
+    assert.equal(result.processed, 0);
+  } finally {
+    if (previous === undefined) delete process.env.ALRIFAI_VESSEL_PROCESSING_ENABLED;
+    else process.env.ALRIFAI_VESSEL_PROCESSING_ENABLED = previous;
+  }
+});
 
 test('vessel: single-lighter order creates program in DRAFT (WA-01)', async () => {
   await ensureAccount('wa-01');

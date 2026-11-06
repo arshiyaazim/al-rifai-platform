@@ -18,6 +18,8 @@
 | `tests/standalone/cash-lifecycle.test.mjs` | Full Cash lifecycle integration tests |
 | `tests/standalone/users.test.mjs` | User administration integration tests |
 | `tests/standalone/reset.mjs` | Shared test-fixture reset |
+| `lib/phase3-router-worker.ts` | Optional continuous router loop (default-disabled) |
+| `tests/standalone/router-worker.test.mjs` | Router worker gate tests |
 | `docs/PHASE3_AUTONOMOUS_COMPLETION_MASTER_PLAN.md` | Evidence-based completion plan and release decision record |
 
 ## Modified files (highlights)

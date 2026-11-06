@@ -871,6 +871,7 @@ export async function routePendingMessages(
     let classification = 'IGNORED';
     let domain: Domain = 'UNKNOWN';
     let action = 'ignored';
+    let deferred = false;
 
     try {
       const account = await row<WhatsAppAccount>(
@@ -923,24 +924,37 @@ export async function routePendingMessages(
           action = 'ignored';
           result.ignored += 1;
         } else if (domain === 'VESSEL' && message.direction === 'INCOMING') {
-          const vesselResult = await handleVessel(SYSTEM_ACTOR, message, text);
-          result.programs += vesselResult.programsCreated ?? (vesselResult.created ? 1 : 0);
-          result.reviewItems += vesselResult.reviewSubmitted ? 1 : 0;
-          // Preserve the specific rejection reasons (WA-02 account and
-          // unauthorized group participant); every other no-op vessel outcome
-          // keeps the existing NO_VALID_BLOCK fallback.
-          const vesselRejection = vesselResult.reasons.find(
-            (reason) =>
-              reason === 'VESSEL_WA02_NOT_AUTHORIZED' ||
-              reason === 'GROUP_PARTICIPANT_NOT_AUTHORIZED',
-          );
-          classification = vesselResult.created
-            ? `VESSEL:PROGRAM_DRAFT`
-            : vesselResult.reviewSubmitted
-              ? `VESSEL:REVIEW_SUBMITTED:${vesselResult.reasons.join(',')}`
-              : (vesselRejection ?? 'VESSEL:NO_VALID_BLOCK');
-          action = vesselResult.created ? 'program_draft_created'
-            : vesselResult.reviewSubmitted ? 'vessel_review_submitted' : 'vessel_no_valid_block';
+          // Deployment-level safety switch. The Live Router activation gate is
+          // still required; this flag lets an installation enable Cash routing
+          // while Vessel intake is not yet approved. An unset value is treated
+          // as enabled for compatibility; production .env explicitly sets 0.
+          if (process.env.ALRIFAI_VESSEL_PROCESSING_ENABLED === '0') {
+            // Do not consume the message: it must remain eligible when the
+            // Owner enables Vessel intake later. Marking it COMPLETED here
+            // would silently lose the order.
+            classification = 'VESSEL:PROCESSING_DISABLED';
+            action = 'deferred';
+            deferred = true;
+          } else {
+            const vesselResult = await handleVessel(SYSTEM_ACTOR, message, text);
+            result.programs += vesselResult.programsCreated ?? (vesselResult.created ? 1 : 0);
+            result.reviewItems += vesselResult.reviewSubmitted ? 1 : 0;
+            // Preserve the specific rejection reasons (WA-02 account and
+            // unauthorized group participant); every other no-op vessel outcome
+            // keeps the existing NO_VALID_BLOCK fallback.
+            const vesselRejection = vesselResult.reasons.find(
+              (reason) =>
+                reason === 'VESSEL_WA02_NOT_AUTHORIZED' ||
+                reason === 'GROUP_PARTICIPANT_NOT_AUTHORIZED',
+            );
+            classification = vesselResult.created
+              ? `VESSEL:PROGRAM_DRAFT`
+              : vesselResult.reviewSubmitted
+                ? `VESSEL:REVIEW_SUBMITTED:${vesselResult.reasons.join(',')}`
+                : (vesselRejection ?? 'VESSEL:NO_VALID_BLOCK');
+            action = vesselResult.created ? 'program_draft_created'
+              : vesselResult.reviewSubmitted ? 'vessel_review_submitted' : 'vessel_no_valid_block';
+          }
         } else if (
           message.direction === 'OUTGOING' &&
           (chatAuth.purpose === 'ORDERS' || chatAuth.purpose === 'BOTH')
@@ -955,6 +969,26 @@ export async function routePendingMessages(
           action = 'ignored';
           result.ignored += 1;
         }
+      }
+
+      // A deferred message stays PENDING so a later activation can process it.
+      // It is not counted as processed and it is never marked COMPLETED.
+      if (deferred) {
+        await tx(async (client) => {
+          await client.query(
+            `UPDATE whatsapp_messages
+                SET processing_status = 'PENDING',
+                    classification = $2,
+                    last_error = NULL,
+                    last_processed_at = now(),
+                    processed_at = NULL
+              WHERE id = $1`,
+            [message.id, classification.slice(0, 120)],
+          );
+        });
+        result.ignored += 1;
+        result.byMessage.push({messageId: message.message_id, domain, action, classification});
+        continue;
       }
 
       // Business actions are durably committed by the domain services before

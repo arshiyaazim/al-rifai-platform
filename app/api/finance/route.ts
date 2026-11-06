@@ -2,7 +2,7 @@ import {actorFor, bodyOf, errorResponse, ok} from '../_shared';
 import {
   approveInstruction, createAccount, createInstruction, createLedgerEntry, decideCashSubmission,
   incomeExpense, listAccounts, listInstructions, listLedger, postInstruction, rejectInstruction, submitCash,
-  closeReconciliation, createReconciliation, getInstructionDetail, listReconciliations, reversePosting,
+  closeReconciliation, createReconciliation, getInstructionDetail, listReconciliations, reversePosting, setInstructionAccount,
 } from '@/lib/standalone/finance';
 import {assertCapability} from '@/lib/standalone/authz';
 import {rows, takaToMinor} from '@/lib/standalone/db';
@@ -65,6 +65,7 @@ export async function POST(request: Request) {
     if (action === 'instruction.create') return ok(await createInstruction(actor, body as never), 201);
     if (action === 'instruction.approve') return ok(await approveInstruction(actor, String(body.id)));
     if (action === 'instruction.reject') return ok(await rejectInstruction(actor, String(body.id), String(body.reason ?? '')));
+    if (action === 'instruction.account') return ok(await setInstructionAccount(actor, String(body.id), String(body.accountId ?? '')));
     if (action === 'instruction.post') return ok(await postInstruction(actor, String(body.id)));
     if (action === 'instruction.reverse') return ok(await reversePosting(actor, String(body.id), String(body.reason ?? '')));
     if (action === 'ledger.create') return ok(await createLedgerEntry(actor, body as never), 201);

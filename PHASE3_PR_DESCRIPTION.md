@@ -15,6 +15,8 @@
 
 ### Complete Cash lifecycle
 - `REVIEW → APPROVED → POSTED / REJECTED / VOID`.
+- Router-created instructions can be assigned a paying account before approval;
+  approval fails closed until an account is present.
 - Approved review candidate atomically creates a linked `REVIEW` instruction.
 - Immutable posting + ledger entry.
 - Reversal: one immutable `cash_reversals` row plus a contra `CREDIT` ledger
@@ -36,6 +38,12 @@
   through review where the model promises submission.
 - Super Admin user administration with last-admin lockout protection.
 
+### Continuous route
+- Optional in-process router worker (`PHASE3_ROUTER_WORKER_ENABLED`, default off)
+  routes new rows through the same shared router used by the manual API.
+- Vessel has a separate deployment gate; disabled Vessel messages stay PENDING
+  and are processed after activation.
+
 ### Database and release engineering
 - Migration `008_phase3_cash_lifecycle.sql`, schema `1.4.0`.
 - Checksum-tracked `scripts/standalone/migrate.mjs`; idempotent
@@ -52,13 +60,14 @@
 |---|---|
 | Typecheck | 0 errors |
 | Lint | 0 errors |
-| Unit tests | 67/67 |
-| Integration tests | 91/91 |
+| Unit tests | 69/69 |
+| Integration tests | 95/95 |
 | Next.js build | pass |
 | Docker build | pass |
 | `pnpm audit --prod` | no known vulnerabilities |
 | Test DB | `1.4.0`, 35 tables, repeat migration no-op |
 | Fresh disposable DB | install 34 tables/1.4.0; migrate 35 tables/7 rows; `--force` passes |
+| Production-copy rehearsal | 34,420 messages preserved, 1.2.0 → 1.4.0, automatic Cash and Vessel pipeline verified |
 
 ## Not included / not authorized
 

@@ -19,10 +19,14 @@ unexpected behaviour or data-integrity concern).
 ## Steps
 
 1. **Disable routing**
+   Set `PHASE3_ROUTER_WORKER_ENABLED=0` and restart the app, then disable the
+   database gate:
    ```sql
    UPDATE app_settings SET value='false'::jsonb WHERE key='phase3_router_enabled';
    ```
-   The Live Router fails closed when disabled; pending messages remain stored.
+   The Live Router and the optional worker fail closed; pending messages remain
+   stored. If Vessel was enabled, set `ALRIFAI_VESSEL_PROCESSING_ENABLED=0` as
+   well; new Vessel messages are deferred, not consumed.
 
 2. **Stop only the application services**
    ```bash

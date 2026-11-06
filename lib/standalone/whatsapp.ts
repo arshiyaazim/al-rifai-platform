@@ -136,8 +136,9 @@ export async function listAccounts(): Promise<WhatsAppAccount[]> {
   return rows<WhatsAppAccount>('SELECT * FROM whatsapp_accounts ORDER BY label');
 }
 
-export async function listChats(accountId: string) {
-  return rows('SELECT * FROM whatsapp_chats WHERE account_id = $1 ORDER BY chat_jid', [accountId]);
+export async function listChats(accountId: string, limit = 100) {
+  const bounded = Math.min(Math.max(Number(limit) || 100, 1), 500);
+  return rows('SELECT * FROM whatsapp_chats WHERE account_id = $1 ORDER BY chat_jid LIMIT $2', [accountId, bounded]);
 }
 
 export async function configureAccount(actor: Actor, input: {

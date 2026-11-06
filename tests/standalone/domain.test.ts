@@ -2,9 +2,8 @@
 // scripts/standalone/install.mjs (see tests/standalone/README.md).
 import assert from 'node:assert/strict';
 import test, {before} from 'node:test';
-import {createHash} from 'node:crypto';
 import {rows, row} from '../../lib/standalone/db.ts';
-import {createEmployee, updateEmployee, listEmployees} from '../../lib/standalone/employees.ts';
+import {createEmployee, listEmployees} from '../../lib/standalone/employees.ts';
 import {createProgram, assignEscort, releaseProgram, listPrograms} from '../../lib/standalone/programs.ts';
 import {recordAttendance, attendanceSummary} from '../../lib/standalone/attendance.ts';
 import {createInstruction, approveInstruction, postInstruction, listAccounts, createLedgerEntry, incomeExpense} from '../../lib/standalone/finance.ts';
@@ -160,6 +159,30 @@ test('payroll: monthly allocation splits a cross-month program', async () => {
   assert.equal(october.shifts, 4, `october shifts ${october.shifts}`);
   // November also contains the earlier 1-10 Nov program (19 shifts).
   assert.ok(november.shifts >= 3, `november shifts ${november.shifts}`);
+});
+
+test('payroll: configuring a destination rate recomputes a draft program', async () => {
+  const program = await createProgram(adminA, {
+    motherVessel: 'MV Late Rate',
+    lighterVessel: 'L-LATE',
+    startDate: '2026-12-01',
+    startShift: 'D',
+    endDate: '2026-12-02',
+    endShift: 'D',
+    destination: 'laterate',
+  });
+  const before = await row('SELECT state, total_minor FROM program_pay WHERE program_id = $1', [program.program.id]);
+  assert.equal(before.state, 'CALCULATED');
+  assert.equal(Number(before.total_minor), 3 * 20000);
+  await upsertRate(adminA, {
+    destinationKey: 'laterate',
+    destinationLabel: 'Late rate',
+    shiftRateMinor: 12345,
+    effectiveFrom: '2026-01-01',
+  });
+  const after = await row('SELECT state, total_minor FROM program_pay WHERE program_id = $1', [program.program.id]);
+  assert.equal(after.state, 'CALCULATED');
+  assert.equal(Number(after.total_minor), 3 * 12345);
 });
 
 test('audit: append-only', async () => {

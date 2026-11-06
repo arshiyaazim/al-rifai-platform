@@ -18,6 +18,7 @@ import {
   listAccounts,
   postInstruction,
   reversePosting,
+  setInstructionAccount,
   submitCash,
 } from '../../lib/standalone/finance.ts';
 import {hashBootstrapPassword} from '../../lib/cash-portal.ts';
@@ -95,6 +96,27 @@ test('cash: complete instruction lifecycle with reversible immutable posting', a
   assert.ok(detail.audit.some((entry) => entry.action === 'INSTRUCTION_REVERSED'));
 });
 
+test('cash: an unassigned instruction is blocked at approval and can be assigned', async () => {
+  const acc = await account();
+  const suffix = Date.now().toString(36);
+  const instruction = await createInstruction(adminA, {
+    employeeName: `Unassigned ${suffix}`,
+    method: 'cash',
+    amountMinor: 7777,
+  });
+  assert.equal(instruction.state, 'REVIEW');
+  assert.equal(instruction.account_id, null);
+  await assert.rejects(() => approveInstruction(adminB, instruction.id), /ACCOUNT_REQUIRED/);
+  const assigned = await setInstructionAccount(adminB, instruction.id, acc.id);
+  assert.equal(assigned.accountId, acc.id);
+  const approved = await approveInstruction(adminB, instruction.id);
+  assert.equal(approved.state, 'APPROVED');
+  const posted = await postInstruction(adminA, instruction.id);
+  assert.equal(posted.state, 'POSTED');
+  const reversed = await reversePosting(adminA, instruction.id, 'unassigned-test cleanup');
+  assert.equal(reversed.state, 'VOID');
+});
+
 test('cash: approved review candidate creates a linked REVIEW instruction', async () => {
   await ensureUser(adminA.id, 'cash-admin-a', 'ADMIN');
   await ensureUser(adminB.id, 'cash-admin-b', 'ADMIN');
@@ -128,9 +150,11 @@ test('cash: approved review candidate creates a linked REVIEW instruction', asyn
   assert.equal(Number(instruction.amount_minor), 45000);
   assert.equal(instruction.source_channel, 'WHATSAPP');
 
-  // The candidate reviewer cannot also approve their own generated instruction.
-  await assert.rejects(() => approveInstruction(adminB, decided.instructionId), /REVIEWER_IS_SUBMITTER/);
-  await approveInstruction(adminA, decided.instructionId);
+  // The instruction is attributed to the candidate originator (adminA), not
+  // the reviewer (adminB). The reviewer may therefore approve it; the
+  // originator cannot approve their own instruction.
+  await assert.rejects(() => approveInstruction(adminA, decided.instructionId), /REVIEWER_IS_SUBMITTER/);
+  await approveInstruction(adminB, decided.instructionId);
   await postInstruction(adminB, decided.instructionId);
   const after = Number((await listAccounts()).find((entry) => entry.id === acc.id).balance_minor);
   assert.equal(after, before - 45000);
@@ -140,6 +164,29 @@ test('cash: approved review candidate creates a linked REVIEW instruction', asyn
     () => decideCashSubmission(adminB, submission.id, 'APPROVED'),
     /SUBMISSION_NOT_PENDING/,
   );
+});
+
+test('cash: a sole admin can complete a system-originated candidate', async () => {
+  const acc = await account();
+  const suffix = Date.now().toString(36);
+  const system = {id: 'system:test-router', role: 'ADMIN'};
+  const submission = await submitCash(system, {
+    employeeName: `System Candidate ${suffix}`,
+    employeeMobile: '01912345678',
+    method: 'cash',
+    amountMinor: 6100,
+    accountId: acc.id,
+    sourceMessageId: `system-candidate-${suffix}`,
+    sourceChatJid: '8801844836824@s.whatsapp.net',
+    sourceAccountId: 'wa-01',
+  });
+  const decided = await decideCashSubmission(adminA, submission.id, 'APPROVED');
+  const instruction = await row('SELECT * FROM cash_instructions WHERE id = $1', [decided.instructionId]);
+  assert.equal(instruction.created_by, 'system:test-router');
+  await approveInstruction(adminA, decided.instructionId);
+  const posted = await postInstruction(adminA, decided.instructionId);
+  assert.equal(posted.state, 'POSTED');
+  await reversePosting(adminA, decided.instructionId, 'sole-admin candidate cleanup');
 });
 
 test('cash: reconciliation records expected, counted and variance without auto-adjusting', async () => {

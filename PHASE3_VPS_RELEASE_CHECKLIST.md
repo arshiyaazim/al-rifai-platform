@@ -10,10 +10,11 @@
 ## 1. Pre-deployment evidence
 
 - [ ] Owner approval recorded with the exact commit SHA and change list.
-- [ ] CI/test evidence attached: typecheck, lint, 67/67 unit, 91/91 integration,
+- [ ] CI/test evidence attached: typecheck, lint, 69/69 unit, 95/95 integration,
       Next.js build, Docker build, `pnpm audit --prod` clean.
-- [ ] Migration `008_phase3_cash_lifecycle.sql` verified on a disposable copy of
-      production data, not just the empty test DB.
+- [ ] Migration `008_phase3_cash_lifecycle.sql` verified on a restored copy of
+      real production data (already rehearsed on `alrifai_v2_phase3_rehearsal`:
+      34,420 messages preserved, 1.2.0 → 1.4.0).
 - [ ] Fresh verified backup of `alrifai_v2`:
       `pg_dump -Fc`, SHA-256, `pg_restore -l` check, stored outside `/tmp`.
 - [ ] Previous image digest and tag retained for rollback.
@@ -21,6 +22,10 @@
       media, sync checkpoints, import runs.
 - [ ] Owner-approved Phase 3 business chats, group participants and WA-01 Admin
       JIDs are recorded (not guessed).
+- [ ] The exact cutover watermark per account is captured at the migration
+      moment, not copied from an older audit.
+- [ ] `PHASE3_ROUTER_WORKER_ENABLED` and `ALRIFAI_VESSEL_PROCESSING_ENABLED` are
+      explicitly decided (both default `0`).
 - [ ] Cash capability matrix approved: who may review, post, reverse and
       reconcile; whether approver and poster must differ.
 
@@ -61,9 +66,14 @@
 - [ ] A test instruction can be created in REVIEW and is visible in `/cash`.
 - [ ] Review Queue loads; decisions are role-checked server-side.
 - [ ] `/cash/[id]` shows instruction, ledger and audit history.
+- [ ] A router-created Cash instruction can be assigned a paying account, then
+      approved and posted by the authorized role.
+- [ ] With Vessel disabled, a Vessel message stays `PENDING` (not COMPLETED).
 - [ ] Sync checkpoints advance; `last_error` null for both accounts.
 - [ ] WhatsApp bridge session stores untouched.
 - [ ] No `phase3_%` settings are enabled until the Owner supplies the allowlist.
+- [ ] `PHASE3_ROUTER_WORKER_ENABLED` remains `0` until the same approval; when
+      enabled, the worker processes new rows automatically through the same router.
 - [ ] Cash postings count is unchanged unless the Owner separately authorizes a
       real posting.
 

@@ -21,23 +21,31 @@ export async function upsertRate(actor: Actor, input: {
 }) {
   assertCapability(actor, 'payroll.manage');
   const key = text(input.destinationKey, 'destinationKey', {max: 80}).toLowerCase();
-  const created = await row(
-    `INSERT INTO rate_config (destination_key, destination_label, shift_rate_minor, conveyance_minor, effective_from, active)
-     VALUES ($1,$2,$3,$4,$5,$6)
-     ON CONFLICT (destination_key) DO UPDATE
-       SET destination_label = EXCLUDED.destination_label,
-           shift_rate_minor = EXCLUDED.shift_rate_minor,
-           conveyance_minor = EXCLUDED.conveyance_minor,
-           effective_from = EXCLUDED.effective_from,
-           active = EXCLUDED.active,
-           updated_at = now()
-     RETURNING *`,
-    [key, text(input.destinationLabel, 'destinationLabel', {max: 120}), moneyMinor(input.shiftRateMinor, 'shiftRateMinor'),
-      Math.max(0, Number(input.conveyanceMinor ?? 0)), input.effectiveFrom ? isoDate(input.effectiveFrom, 'effectiveFrom') : '2025-01-01',
-      input.active ?? true],
-  );
-  await recordAudit({actor, action: 'RATE_CONFIGURED', entity: 'rate', entityId: key});
-  return created;
+  return tx(async (client) => {
+    const created = await client.query(
+      `INSERT INTO rate_config (destination_key, destination_label, shift_rate_minor, conveyance_minor, effective_from, active)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       ON CONFLICT (destination_key) DO UPDATE
+         SET destination_label = EXCLUDED.destination_label,
+             shift_rate_minor = EXCLUDED.shift_rate_minor,
+             conveyance_minor = EXCLUDED.conveyance_minor,
+             effective_from = EXCLUDED.effective_from,
+             active = EXCLUDED.active,
+             updated_at = now()
+       RETURNING *`,
+      [key, text(input.destinationLabel, 'destinationLabel', {max: 120}), moneyMinor(input.shiftRateMinor, 'shiftRateMinor'),
+        Math.max(0, Number(input.conveyanceMinor ?? 0)), input.effectiveFrom ? isoDate(input.effectiveFrom, 'effectiveFrom') : '2025-01-01',
+        input.active ?? true],
+    );
+    // Recompute only work that is not released yet. Released/completed programs
+    // keep the historical calculation already stored in program_pay.
+    await client.query(
+      `SELECT compute_program_pay(id) FROM programs
+        WHERE state IN ('DRAFT','CONFIRMED','ASSIGNED','IN_DUTY')`,
+    );
+    await recordAudit({actor, action: 'RATE_CONFIGURED', entity: 'rate', entityId: key}, client);
+    return created.rows[0];
+  });
 }
 
 export async function programPayList(filters: {state?: string; limit?: number} = {}) {
@@ -56,54 +64,63 @@ export async function programPayList(filters: {state?: string; limit?: number} =
 type ProgramForPay = {
   id: string; escort_mobile: string | null; escort_name: string | null;
   start_date: string; start_shift: 'D' | 'N'; end_date: string; end_shift: 'D' | 'N';
-  destination: string | null;
+  pay_state: string | null; pay_shifts: string | null; pay_salary_minor: string | null;
 };
 
 /**
  * Monthly salary allocation: every worked shift is attributed to the month of
  * its actual duty date (cross-month programs are split, never allocated wholly).
+ *
+ * The per-shift amount comes from the stored `program_pay` calculation, not from
+ * the current rate table. That keeps a released program's pay stable if an
+ * administrator later changes a rate; `program_pay` is the historical
+ * calculation written when the program was released.
+ *
  * Conveyance is NOT allocated here: the application does not capture a verified
  * travel date, so allocating it would invent a rule.
  */
 export async function monthlySalary(month: string) {
   if (!/^\d{4}-\d{2}$/.test(month)) throw new DomainError('INVALID_MONTH');
   const programs = await rows<ProgramForPay>(
-    `SELECT id, escort_mobile, escort_name, start_date::text AS start_date, start_shift, end_date::text AS end_date, end_shift, destination
-       FROM programs
-      WHERE end_date IS NOT NULL AND state <> 'VOIDED'`,
+    `SELECT p.id, p.escort_mobile, p.escort_name, p.start_date::text AS start_date,
+            p.start_shift, p.end_date::text AS end_date, p.end_shift,
+            pp.state AS pay_state, pp.shifts::text AS pay_shifts,
+            pp.salary_minor::text AS pay_salary_minor
+       FROM programs p LEFT JOIN program_pay pp ON pp.program_id = p.id
+      WHERE p.end_date IS NOT NULL AND p.state <> 'VOIDED'`,
   );
-  const rates = await listRates();
-  const rateFor = (destination: string | null) => {
-    const key = (destination ?? 'default').trim().toLowerCase();
-    return rates.find((rate) => rate.active && rate.destination_key === key)
-      ?? rates.find((rate) => rate.active && rate.destination_key === 'default')
-      ?? null;
-  };
   const byEmployee = new Map<string, {employee: string; name: string; shifts: number; salary: number}>();
   let totalShifts = 0;
   let totalSalary = 0;
+  let unresolved = 0;
   for (const program of programs) {
     const shifts = enumerateDutyShifts(program.start_date, program.start_shift, program.end_date, program.end_shift);
     if (!shifts.length) continue;
-    const rate = rateFor(program.destination);
-    if (!rate) continue;
-    const perShift = Number(rate.shift_rate_minor);
+    const storedShifts = Number(program.pay_shifts ?? 0);
+    const storedSalary = Number(program.pay_salary_minor ?? 0);
+    if (program.pay_state !== 'CALCULATED' || !Number.isFinite(storedShifts) || storedShifts <= 0
+      || !Number.isFinite(storedSalary) || storedSalary <= 0) {
+      unresolved += 1;
+      continue;
+    }
+    const perShift = storedSalary / storedShifts;
     const inMonth = shifts.filter((s) => s.date.slice(0, 7) === month).length;
     if (!inMonth) continue;
     totalShifts += inMonth;
-    totalSalary += inMonth * perShift;
+    totalSalary += Math.round(inMonth * perShift);
     const key = program.escort_mobile ?? `unknown:${program.escort_name ?? program.id}`;
     const bucket = byEmployee.get(key) ?? {
       employee: program.escort_mobile ?? '', name: program.escort_name ?? '', shifts: 0, salary: 0,
     };
     bucket.shifts += inMonth;
-    bucket.salary += inMonth * perShift;
+    bucket.salary += Math.round(inMonth * perShift);
     byEmployee.set(key, bucket);
   }
   return {
     month,
     shifts: totalShifts,
     salaryMinor: totalSalary,
+    unresolved,
     conveyanceAllocatedMinor: null,
     conveyanceNote: 'Conveyance needs a verified travel date; it is reported per program, not allocated to a month.',
     employees: [...byEmployee.values()].sort((a, b) => b.salary - a.salary),
