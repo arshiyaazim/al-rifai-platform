@@ -55,7 +55,7 @@ const TARGET_TABLES = [
   // Phase 3 AI communication foundation
   'ai_contacts', 'ai_admin_jids', 'ai_conversations', 'ai_messages',
   'ai_applicant_drafts', 'ai_job_catalog', 'ai_outbound_messages',
-  'ai_tool_runs', 'ai_escalations', 'ai_order_drafts',
+  'ai_tool_runs', 'ai_escalations', 'ai_order_drafts', 'ai_outbound_attempts', 'schema_migrations',
 ];
 
 class InstallError extends Error {
@@ -158,7 +158,8 @@ async function verify(client, config) {
        (SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
           JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND NOT t.tgisinternal) AS triggers,
        (SELECT count(*) FROM rate_config) AS rates,
-       (SELECT value FROM schema_meta WHERE key = 'schema_version') AS version`,
+       (SELECT value FROM schema_meta WHERE key = 'schema_version') AS version,
+       (SELECT count(*) FROM schema_migrations) AS migrations`,
     [config.schema],
   );
   return {tables: present.size, ...meter.rows[0]};
@@ -210,9 +211,26 @@ async function main() {
       await client.query(schemaSql);
       console.log(JSON.stringify({step: 'schema', applied: SCHEMA_FILE, schema: owner.schema}));
     }
+    // Record every additive layer in the same ledger the migration runner uses,
+    // so a fresh install and an upgraded installation converge on the identical
+    // table set and migration history.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version    text PRIMARY KEY,
+        name       text NOT NULL,
+        checksum   text NOT NULL,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      )`);
     for (const file of EXTRA_SCHEMA_FILES) {
       if (!existsSync(file)) continue;
-      await client.query(readFileSync(file, 'utf8'));
+      const sql = readFileSync(file, 'utf8');
+      await client.query(sql);
+      const name = file.split('/').pop();
+      await client.query(
+        `INSERT INTO schema_migrations (version, name, checksum)
+         VALUES ($1,$2,$3) ON CONFLICT (version) DO NOTHING`,
+        [name.slice(0, 3), name, createHash('sha256').update(sql).digest('hex')],
+      );
       console.log(JSON.stringify({step: 'schema', applied: file, schema: owner.schema}));
     }
     await grantRuntime(client, {schema: owner.schema, runtimeUser});

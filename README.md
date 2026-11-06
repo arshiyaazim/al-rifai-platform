@@ -354,10 +354,10 @@ The current schema is `1.4.0` (migrations 002–008).
 ## 7. Tests
 
 ```bash
-pnpm test:unit        # pure functions (77 assertions)
+pnpm test:unit        # pure functions (83 assertions)
 pnpm test:standalone  # all DB suites: domain, WhatsApp adapter, router,
                       # cutover, Review Queue, Cash lifecycle, users and AI
-                      # (104 integration tests)
+                      # (110 integration tests)
 ```
 
 The integration tests are destructive to their schema: run them against a

@@ -4,7 +4,8 @@
 **Branch:** `feature/phase3-router-cash-vessel` at `e7ab9d1` (pushed)
 **Candidate image:** `local/al-rifai-platform:phase3-ai-dev-e7ab9d1`
 **Candidate digest:** `sha256:a309fc26b0c229f9e5dedcf9fbdca14c9a9b7cbb1481f914c133e03f0b3a7133`
-**Tests:** 77/77 unit, 104/104 integration; typecheck, lint, Next build, Docker build, audit clean
+**Tests:** 83/83 unit, 110/110 integration; typecheck, lint, Next build, Docker build, audit clean
+**Gate package:** [`docs/PHASE3_PRODUCTION_GATES.md`](./PHASE3_PRODUCTION_GATES.md)
 **Production:** remains schema 1.4.0 on `alrifai_v2_phase3`
 **Development schema:** 1.5.0 with `009_phase3_ai_assistant.sql`
 **Feature flags:** `AI_WA02_ENABLED=0`, `AI_OUTBOUND_ENABLED=0`
@@ -35,7 +36,8 @@ writes where a tool explicitly permits them.
 | `ai_applicant_drafts` | deduplicated applicant drafts |
 | `ai_order_drafts` | WA-02 Vessel order drafts — never confirmed programs |
 | `ai_job_catalog` | public role categories and cautious descriptions |
-| `ai_outbound_messages` | DRAFT/PREVIEW/APPROVED/QUEUED/SENT/FAILED queue |
+| `ai_outbound_messages` | full outbound lifecycle, idempotency and delivery state |
+| `ai_outbound_attempts` | append-only evidence for every bridge send attempt |
 | `ai_tool_runs` | append-only tool authorization/execution evidence |
 | `ai_escalations` | Admin review and privacy escalations |
 
@@ -122,16 +124,28 @@ explicit, tested adapter.
 
 ---
 
-## 7. Remaining blockers / Owner decisions
+## 7. Optional LLM layer
 
-1. Apply migration `009` to a production clone and approve production migration.
-2. Configure explicit WA-02 contacts and Admin JIDs.
-3. Set `ai_wa02_enabled` and `ai_wa02_start_rowid:wa-02`.
-4. Decide whether to add an approved LLM provider; current responses are
-   deterministic policy/templates grounded in database tools.
-5. Approve or reject a bridge send adapter; currently no live sender.
-6. Approve recruitment policy text, job categories, salary/vacancy publication
-   rules and escalation recipients.
-7. Approve WA-02 order-draft → Admin notification workflow.
+`lib/ai/llm.ts` is an OpenAI-compatible adapter. It is disabled unless
+`AI_LLM_ENABLED=1` and a base URL, model and key are present. It receives the
+already-authorized deterministic answer and may only rephrase it in Bangla or
+English. Every numeric fact in the deterministic answer must survive unchanged;
+otherwise, and on any timeout, HTTP error or empty response, the deterministic
+answer is used. It has no SQL, tools, credentials beyond its own API key, or
+send authority. Token/cost controls: request timeout, max output tokens,
+per-minute and per-day call caps.
+
+## 8. Remaining blockers / Owner decisions
+
+1. Gate 1: production backup, migration `009` and image deployment.
+2. Gate 2: apply the protected WA-01 allowlists and enable the router.
+3. Gate 3: WA-02 consumer `messages.send`, app socket mount, explicit contacts,
+   Admin JIDs, `ai_wa02_enabled`, `ai_wa02_start_rowid:wa-02`, test recipient.
+4. LLM provider credentials, or confirm deterministic-only.
+5. Recruitment policy text, job categories, salary/vacancy wording and
+   escalation recipients.
+6. Gate 4: approve narrow automatic replies.
 
 No production flags, allowlists, credentials or bridge permissions were changed.
+
+See [`PHASE3_PRODUCTION_GATES.md`](./PHASE3_PRODUCTION_GATES.md).

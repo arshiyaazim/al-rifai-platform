@@ -4,7 +4,8 @@ import {row, rows, mobile, text} from '@/lib/standalone/db';
 import {jidFromPhone} from '@/lib/ai/policy';
 import {recordAudit} from '@/lib/standalone/audit';
 import {runAdminQuery} from '@/lib/ai/engine';
-import {approveOutbound, createOutboundDraft, getOutbound, listOutbound, sendOutbound} from '@/lib/ai/store';
+import {approveOutbound, createOutboundDraft, listOutbound} from '@/lib/ai/store';
+import {outboundStatus, queueOutbound, recoverStaleOutbound, retryOutbound, sendOutbound} from '@/lib/ai/sender';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -70,7 +71,7 @@ export async function POST(request: Request) {
     if (action === 'draft.preview') {
       assertCapability(actor as never, 'ai.use');
       if (actor.role !== 'ADMIN') return ok({error: 'ADMIN_REQUIRED'}, 403);
-      const draft = await getOutbound(String(body.id ?? ''));
+      const draft = await outboundStatus(String(body.id ?? ''));
       if (!draft) return ok({error: 'AI_DRAFT_NOT_FOUND'}, 404);
       await row("UPDATE ai_outbound_messages SET state='PREVIEW', updated_at=now() WHERE id=$1 AND state='DRAFT'", [String(body.id)]);
       return ok({...draft, state: 'PREVIEW', sent: false});
@@ -102,6 +103,21 @@ export async function POST(request: Request) {
       return ok(await approveOutbound(actor as never, String(body.id ?? '')));
     }
 
+    if (action === 'draft.queue') {
+      assertCapability(actor as never, 'ai.send');
+      return ok(await queueOutbound(actor as never, String(body.id ?? '')));
+    }
+
+    if (action === 'draft.retry') {
+      assertCapability(actor as never, 'ai.send');
+      return ok(await retryOutbound(actor as never, String(body.id ?? '')));
+    }
+
+    if (action === 'draft.recover') {
+      assertCapability(actor as never, 'ai.admin');
+      return ok(await recoverStaleOutbound(Number(body.minutes) || 10));
+    }
+
     if (action === 'draft.send') {
       assertCapability(actor as never, 'ai.send');
       return ok(await sendOutbound(actor as never, String(body.id ?? '')));
@@ -109,7 +125,7 @@ export async function POST(request: Request) {
 
     if (action === 'draft.status') {
       assertCapability(actor as never, 'ai.read');
-      return ok(await getOutbound(String(body.id ?? '')));
+      return ok(await outboundStatus(String(body.id ?? '')));
     }
 
     if (action === 'draft.list') {

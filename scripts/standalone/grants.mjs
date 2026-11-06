@@ -23,6 +23,8 @@ const READ_WRITE = [
   // Phase 3 AI communication foundation
   'ai_contacts', 'ai_admin_jids', 'ai_conversations', 'ai_applicant_drafts',
   'ai_job_catalog', 'ai_outbound_messages', 'ai_escalations', 'ai_order_drafts',
+  // Send attempts are written SENDING and closed to a terminal state.
+  'ai_outbound_attempts',
 ];
 
 const APPEND_ONLY = [

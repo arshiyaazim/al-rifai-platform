@@ -10,17 +10,19 @@ import {assertCapability} from '../standalone/authz.ts';
 import type {Actor} from '../standalone/db.ts';
 import {row} from '../standalone/db.ts';
 import {
-  adminHelpReply, classifyIntent, employeeHelpReply, extractApplicant, extractOrderFields,
+  adminHelpReply, autoReplyEligible, classifyIntent, employeeHelpReply, extractApplicant, extractOrderFields,
   jidFromPhone, missingOrderFields, normalizePhone, publicJobMessage, safePublicReply,
   type AiCategory, type AiIntent,
 } from './policy.ts';
 import {
-  appendAiMessage, ensureConversation, escalate, getJobCatalog, logToolRun, resolveContact,
+  appendAiMessage, approveOutbound, ensureConversation, escalate, getJobCatalog, logToolRun, resolveContact,
 } from './store.ts';
+import {composeReply} from './llm.ts';
+import {outboundConfiguration, queueOutbound, sendOutbound} from './sender.ts';
 import {
   applicantDraftTool, cashSummaryTool, employeeFinancialsTool, employeeProfileTool,
   messageDraftTool, orderDraftTool, searchEmployeesTool, sourceConversationTool,
-  vesselLookupTool, type AiContext,
+  vesselLookupTool, conversationSummary, type AiContext,
 } from './tools.ts';
 
 const SYSTEM: Actor = {id: 'system:wa02-ai', role: 'ADMIN'};
@@ -146,6 +148,7 @@ export type Wa02ProcessResult = {
   escalationId: string | null;
   duplicate: boolean;
   tool: string | null;
+  autoReplyState: string | null;
 };
 
 export async function processWa02Message(input: {
@@ -169,6 +172,7 @@ export async function processWa02Message(input: {
     return {
       conversationId: existing.conversation_id, category: 'UNKNOWN_CONTACT', intent: 'UNKNOWN',
       response: 'Already processed.', outboundDraftId: null, escalationId: null, duplicate: true, tool: null,
+      autoReplyState: null,
     };
   }
   const text = String(input.text ?? '').slice(0, 8000);
@@ -254,6 +258,32 @@ export async function processWa02Message(input: {
   }
 
   const {createOutboundDraft} = await import('./store.ts');
+  // Optional natural-language layer. It may only rephrase the deterministic
+  // answer; every failure or numeric drift keeps the deterministic text.
+  const composed = await composeReply({
+    deterministicAnswer: response,
+    userText: text,
+    category: contact.category,
+    intent,
+    conversationId: conversation.id,
+    history: await conversationSummary(ctx),
+  });
+  if (composed.used) response = composed.text;
+  // Record provider attempts only when the LLM layer is enabled; a disabled
+  // provider adds no tool-run noise.
+  if (process.env.AI_LLM_ENABLED === '1') {
+    await logToolRun({
+      conversationId: conversation.id,
+      actorRef: SYSTEM.id,
+      accountId: 'wa-02',
+      tool: 'llm_compose',
+      allowed: composed.used,
+      input: {category: contact.category, intent},
+      output: {used: composed.used, reason: composed.reason, model: composed.model, tokens: composed.tokens},
+      error: composed.reason,
+    });
+  }
+
   await appendAiMessage({
     conversationId: conversation.id, accountId: 'wa-02', chatJid: input.chatJid,
     sourceMessageId: null, direction: 'OUTGOING', senderJid: null, content: response,
@@ -264,12 +294,32 @@ export async function processWa02Message(input: {
     recipientJid: input.senderJid ?? input.chatJid, content: response, sourceRef: input.messageId,
   });
   outboundDraftId = (outbound as {id?: string})?.id ?? null;
+
+  // Gate 4 (off by default): narrow automatic public replies only. The message
+  // still passes the full queue/send lifecycle and both kill switches.
+  let autoReplyState: string | null = null;
+  if (outboundDraftId && process.env.AI_AUTO_REPLY_ENABLED === '1'
+      && autoReplyEligible(contact.category, intent, text, response)) {
+    const config = await outboundConfiguration();
+    if (config.enabled) {
+      try {
+        await approveOutbound(SYSTEM, outboundDraftId);
+        await queueOutbound(SYSTEM, outboundDraftId);
+        autoReplyState = (await sendOutbound(SYSTEM, outboundDraftId)).state;
+      } catch (error) {
+        autoReplyState = error instanceof Error ? error.message : 'AI_AUTO_REPLY_FAILED';
+      }
+    } else {
+      autoReplyState = config.reason;
+    }
+  }
+
   await recordAudit({
     actor: SYSTEM, action: 'AI_WA02_MESSAGE_PROCESSED', entity: 'ai_conversation', entityId: conversation.id,
     detail: {category: contact.category, intent, tool, outboundDraftId, escalationId},
     source: 'WHATSAPP', sourceRef: input.messageId,
   });
-  return {conversationId: conversation.id, category: contact.category, intent, response, outboundDraftId, escalationId, duplicate: false, tool};
+  return {conversationId: conversation.id, category: contact.category, intent, response, outboundDraftId, escalationId, duplicate: false, tool, autoReplyState};
 }
 
 export async function runAdminQuery(actor: Actor, query: string) {

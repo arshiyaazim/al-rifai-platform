@@ -104,16 +104,35 @@ CREATE TABLE IF NOT EXISTS ai_outbound_messages (
   recipient_jid   text NOT NULL,
   content         text NOT NULL CHECK (length(content) BETWEEN 1 AND 4000),
   state           text NOT NULL DEFAULT 'DRAFT'
-                    CHECK (state IN ('DRAFT','PREVIEW','APPROVED','QUEUED','SENT','FAILED','CANCELLED')),
+                    CHECK (state IN ('DRAFT','PREVIEW','APPROVED','QUEUED','SENDING','SENT','FAILED','DELIVERY_UNKNOWN','CANCELLED')),
   source_ref      text,
   approval_by     text,
   approved_at     timestamptz,
   queued_at       timestamptz,
+  send_started_at timestamptz,
   sent_at         timestamptz,
   delivery_state  text,
+  delivery_ref    text,
+  attempts        integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  idempotency_key text NOT NULL UNIQUE,
   error           text,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- Append-only evidence for every send attempt. A row is written before the
+-- bridge call (state SENDING) and updated only to a terminal attempt state.
+CREATE TABLE IF NOT EXISTS ai_outbound_attempts (
+  id          text PRIMARY KEY CHECK (id ~ '^[A-Za-z0-9._:-]{1,100}$'),
+  outbound_id text NOT NULL REFERENCES ai_outbound_messages(id) ON DELETE CASCADE,
+  attempt_no  integer NOT NULL CHECK (attempt_no >= 1),
+  state       text NOT NULL CHECK (state IN ('SENDING','SENT','FAILED','DELIVERY_UNKNOWN')),
+  request_ref text,
+  response    jsonb NOT NULL DEFAULT '{}'::jsonb,
+  error       text,
+  started_at  timestamptz NOT NULL DEFAULT now(),
+  finished_at timestamptz,
+  UNIQUE (outbound_id, attempt_no)
 );
 
 CREATE TABLE IF NOT EXISTS ai_tool_runs (
@@ -162,6 +181,7 @@ CREATE TABLE IF NOT EXISTS ai_order_drafts (
 CREATE INDEX IF NOT EXISTS ai_conversations_account_time ON ai_conversations (account_id, last_message_at DESC);
 CREATE INDEX IF NOT EXISTS ai_applicant_status ON ai_applicant_drafts (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS ai_outbound_state ON ai_outbound_messages (state, created_at DESC);
+CREATE INDEX IF NOT EXISTS ai_outbound_attempts_outbound ON ai_outbound_attempts (outbound_id, attempt_no DESC);
 CREATE INDEX IF NOT EXISTS ai_tool_runs_conversation ON ai_tool_runs (conversation_id, created_at DESC);
 
 INSERT INTO ai_job_catalog (key, label_bn, label_en, public_description, active, display_order)

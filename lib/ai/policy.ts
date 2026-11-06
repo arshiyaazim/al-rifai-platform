@@ -190,6 +190,23 @@ export function employeePrivateQuestion(text: string): boolean {
   return /(salary|বেতন|advance|অগ্রিম|payment|পেমেন্ট|duty|ডিউটি|assignment|রিলিজ|release|vessel|জাহাজ|lighter|মোবাইল|mobile|address|ঠিকানা)/i.test(text);
 }
 
+/**
+ * Gate-4 eligibility for a narrow automatic customer-service reply. Only
+ * public recruitment/general information to an unknown or applicant contact.
+ * Private, financial, employee and vessel-operation topics always escalate.
+ */
+export function autoReplyEligible(
+  category: AiCategory,
+  intent: AiIntent,
+  contactText: string,
+  answer: string,
+): boolean {
+  if (category !== 'UNKNOWN_CONTACT' && category !== 'JOB_APPLICANT') return false;
+  if (intent === 'PROMPT_INJECTION' || intent === 'ADMIN_QUERY' || intent === 'EMPLOYEE_SUPPORT') return false;
+  const sensitive = /(salary|বেতন|advance|অগ্রিম|payment|পেমেন্ট|employee|কর্মী|cash|হিসাব|transaction|লেনদেন|vessel|জাহাজ|lighter|মাদার|account|অ্যাকাউন্ট|nid|পাসপোর্ট|passport|address|ঠিকানা)/i;
+  return !sensitive.test(contactText) && !sensitive.test(answer);
+}
+
 export function safePublicReply(): string {
   return 'আপনার অনুরোধটি সাধারণ তথ্যের বাইরে। ব্যক্তিগত বা আর্থিক তথ্যের জন্য অফিস যাচাই করে সহায়তা করবে। / This request needs office verification before any private information can be shared.';
 }

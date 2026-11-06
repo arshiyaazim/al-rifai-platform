@@ -5,7 +5,8 @@ import {row, rows} from '../../lib/standalone/db.ts';
 import {resetBusinessState} from './reset.mjs';
 import {processWa02Message, runAdminQuery} from '../../lib/ai/engine.ts';
 import {employeeProfileTool} from '../../lib/ai/tools.ts';
-import {approveOutbound, createOutboundDraft, sendOutbound} from '../../lib/ai/store.ts';
+import {approveOutbound, createOutboundDraft} from '../../lib/ai/store.ts';
+import {sendOutbound} from '../../lib/ai/sender.ts';
 
 const admin = {id: '9'.repeat(64), role: 'ADMIN'};
 const employeeMobile = '+8801712345678';
@@ -148,7 +149,7 @@ test('outbound drafts require approval and have no live sender', async () => {
   });
   const approved = await approveOutbound(admin, draft.id);
   assert.equal(approved.state, 'APPROVED');
-  await assert.rejects(() => sendOutbound(admin, draft.id), /AI_OUTBOUND_DISABLED/);
+  await assert.rejects(() => sendOutbound(admin, draft.id), /AI_OUTBOUND_(ENV|DB)_DISABLED/);
   const stored = await row('SELECT state, sent_at, delivery_state FROM ai_outbound_messages WHERE id=$1', [draft.id]);
   assert.equal(stored.state, 'APPROVED');
   assert.equal(stored.sent_at, null);

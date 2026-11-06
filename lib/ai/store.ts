@@ -221,13 +221,14 @@ export async function createOutboundDraft(input: {
   recipientJid: string;
   content: string;
   sourceRef?: string | null;
+  idempotencyKey?: string | null;
 }) {
   return row(
     `INSERT INTO ai_outbound_messages
-       (id, conversation_id, account_id, chat_jid, recipient_jid, content, state, source_ref)
-     VALUES ($1,$2,$3,$4,$5,$6,'DRAFT',$7) RETURNING *`,
+       (id, conversation_id, account_id, chat_jid, recipient_jid, content, state, source_ref, idempotency_key)
+     VALUES ($1,$2,$3,$4,$5,$6,'DRAFT',$7,$8) RETURNING *`,
     [newId('aio'), input.conversationId, input.accountId, input.chatJid, input.recipientJid,
-      input.content.slice(0, 4000), input.sourceRef ?? null],
+      input.content.slice(0, 4000), input.sourceRef ?? null, input.idempotencyKey ?? newId('aok')],
   );
 }
 
@@ -248,20 +249,6 @@ export async function approveOutbound(actor: Actor, id: string) {
       detail: {preview: found.rows[0].content.slice(0, 160)}}, client);
     return {id, state: 'APPROVED', sent: false};
   });
-}
-
-/**
- * Sending is deliberately not implemented in this release. The queue can be
- * approved, but no bridge send adapter exists and AI_OUTBOUND_ENABLED is off by
- * default. This prevents a draft from being reported as delivered.
- */
-export async function sendOutbound(actor: Actor, id: string) {
-  assertCapability(actor, 'ai.send');
-  if (process.env.AI_OUTBOUND_ENABLED !== '1') throw new Error('AI_OUTBOUND_DISABLED');
-  const found = await row<{state: string}>('SELECT state FROM ai_outbound_messages WHERE id = $1', [id]);
-  if (!found) throw new Error('AI_DRAFT_NOT_FOUND');
-  if (found.state !== 'APPROVED') throw new Error('AI_DRAFT_NOT_APPROVED');
-  throw new Error('AI_SENDER_NOT_CONFIGURED');
 }
 
 export async function getOutbound(id: string) {

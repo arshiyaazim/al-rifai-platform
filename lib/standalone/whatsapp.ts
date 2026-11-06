@@ -180,6 +180,29 @@ function clientFor(account: WhatsAppAccount) {
   return new McpClient(account.socket_path, account.token_file);
 }
 
+/**
+ * Call one explicit MCP tool over an explicitly supplied bridge socket.
+ *
+ * Used by the WA-02 outbound sender with dedicated environment paths, not with
+ * `whatsapp_accounts.socket_path` (which stores the bridge SQLite store path
+ * for the importer). The bridge consumer policy is still the final authority:
+ * a token without `messages.send` is rejected by the bridge itself.
+ */
+export async function callSocketTool(
+  socketPath: string,
+  tokenFile: string,
+  tool: string,
+  args: JsonObject,
+): Promise<JsonObject> {
+  if (!socketPath || !tokenFile) throw new DomainError('WHATSAPP_NOT_CONFIGURED', 409);
+  const client = new McpClient(socketPath, tokenFile);
+  try {
+    return await client.callTool(tool, args);
+  } finally {
+    client.close();
+  }
+}
+
 export async function health(accountId: string) {
   const account = await row<WhatsAppAccount>('SELECT * FROM whatsapp_accounts WHERE id = $1', [accountId]);
   if (!account) throw new DomainError('ACCOUNT_NOT_FOUND', 404);
