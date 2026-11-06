@@ -437,3 +437,49 @@ Rollback: set `AI_AUTO_REPLY_ENABLED=0`; drafts become manual again.
 - LLM narrative is unavailable until credentials are provided; deterministic
   answers are used otherwise.
 - GitHub Actions remains billing-locked; CI evidence is local only.
+
+---
+
+## 9. Execution record — 2026-11-06 (Gate 1 and Gate 2 approved)
+
+**Gate 1 — COMPLETE**
+
+- Backup: `/var/lib/vps/al-rifai/backups/phase3-pre-1.5.0-20261106T205602Z.dump`
+  (7.6 MB, SHA-256 `0a5f1eed98be633186d0f0db7ce45597ba222f8fdd89332bcacb3e3eaab78870`),
+  full restore check reproduced 35 tables and 34,442 messages.
+- Migration `009` applied once; schema `1.5.0`, 46 tables, 8 ledger rows.
+- Business counts before/after identical: messages 34,442, chats 2,013,
+  accounts 2, employees 0, instructions 0, postings 0, programs 0, audit 0.
+- Image `local/al-rifai-platform:phase3-ai-rc-e3b56c4`
+  (`sha256:0625fd9034952ecbb861dfb3f518393742b678e01f0c1ad4830183404a6a7720`)
+  deployed to project `al-rifai-phase3`; health 200.
+- Four-domain routes are deployed and authentication-gated (`/login` 200;
+  `/cash` 307; `/vessel`, `/employees`, `/attendance`, `/reports` and their
+  APIs 401). Authenticated UI walk-through requires an Owner Admin session.
+
+**Gate 2 — COMPLETE**
+
+- Artifact SHA-256 `3d3988382c9981c6938a59a6a062143bd02f6187b0c3e5f8821447bf5e114e1a`,
+  status unchanged (`PROPOSED_NOT_APPLIED_DO_NOT_ACTIVATE`).
+- Applied 9 chat aliases, 26 participant rows and 6 Admin JIDs; watermark
+  `19634`; WA-02 allowlist empty.
+- **Correction:** `phase3_match_form` is guidance text, not an identity. The
+  applier was fixed to use `participant_jid`; the malformed rows it created were
+  removed and re-applied. Read-back: 26 active rows, 26 distinct identities,
+  8/10/8 per group, 0 malformed.
+- Router and Vessel flags enabled: `PHASE3_ROUTER_WORKER_ENABLED=1`,
+  `ALRIFAI_VESSEL_PROCESSING_ENABLED=1`, `phase3_router_enabled=true`.
+  AI flags remain 0. Worker log: `Phase 3 router worker started (interval=5000ms)`.
+- Eligibility boundary: 0 eligible pending, 2 above-watermark messages outside
+  the allowlist, 19,256 historical messages excluded, 0 WA-02 eligible.
+- No Cash instruction, Vessel Program or posting was created.
+
+**Operational note:** Compose interpolation does not read the service
+`env_file`. Use the explicit production command:
+
+```bash
+docker compose --env-file /opt/vps/al-rifai-standalone/apps/al-rifai/.env \
+  -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d app sync
+```
+
+Without `--env-file`, the parameterised flags default to `0` (safe).
