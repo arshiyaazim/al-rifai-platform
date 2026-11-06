@@ -2,6 +2,7 @@ import {createConnection, type Socket} from 'node:net';
 import {readFileSync} from 'node:fs';
 import {rows, row, DomainError, type Actor} from './db.ts';
 import {recordAudit, stableId} from './audit.ts';
+import {assertCapability} from './authz.ts';
 import {assignEscort} from './programs.ts';
 import {routePendingMessages} from '../message-router.ts';
 
@@ -144,6 +145,7 @@ export async function configureAccount(actor: Actor, input: {
   accountJid?: string | null; adminJids?: string[]; enabled?: boolean;
   chats?: Array<{chatJid: string; label?: string | null; purpose?: string}>;
 }) {
+  assertCapability(actor, 'whatsapp.manage');
   if (!/^[A-Za-z0-9._:-]{1,60}$/.test(input.id)) throw new DomainError('INVALID_ACCOUNT_ID');
   if (input.enabled && (!input.socketPath || !input.tokenFile)) throw new DomainError('SOCKET_AND_TOKEN_REQUIRED');
   return rows(
@@ -208,6 +210,7 @@ function envelopeOf(record: NativeRecord): JsonObject | null {
 }
 
 export async function syncAccount(actor: Actor, accountId: string, maxPages = 20) {
+  assertCapability(actor, 'whatsapp.manage');
   const account = await row<WhatsAppAccount>('SELECT * FROM whatsapp_accounts WHERE id = $1', [accountId]);
   if (!account) throw new DomainError('ACCOUNT_NOT_FOUND', 404);
   const chats = await rows<{chat_jid: string; purpose: string}>(
@@ -235,7 +238,7 @@ export async function syncAccount(actor: Actor, accountId: string, maxPages = 20
             `INSERT INTO whatsapp_messages
                (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-             ON CONFLICT (account_id, message_id) DO NOTHING RETURNING id`,
+             ON CONFLICT (account_id, chat_jid, message_id) DO NOTHING RETURNING id`,
             [
               accountId,
               String(envelope.chatJid),
@@ -286,6 +289,7 @@ export async function syncAccount(actor: Actor, accountId: string, maxPages = 20
  * Nothing here writes business rows directly.
  */
 export async function processPending(actor: Actor, limit = 100) {
+  assertCapability(actor, 'whatsapp.route');
   // Delegates to the single canonical router entry point. Both the background
   // worker (?action=process) and the ADMIN API (?action=route) route through
   // routePendingMessages(), so there is exactly one code path that can create
@@ -317,12 +321,13 @@ export async function applyConfirmation(actor: Actor, message: {message_id: stri
     motherVessel?: string; lighterVessel?: string; fields?: Record<string, string>;
     assignmentDate?: string | null; shift?: string | null;
   } & Record<string, unknown>>;
-  const block = (blocks ?? []).find((candidate) => candidate.fields?.escortName || candidate.fields?.escortMobile);
+  const found = (blocks ?? []).find((candidate) => candidate.fields?.escortName || candidate.fields?.escortMobile);
   // parseEscortOrder() keeps the vessel names inside `fields`; accept either
   // shape so the confirmation reads the same values the order intake wrote.
-  const motherVessel = block?.fields?.motherVessel ?? block?.motherVessel;
-  const lighterVessel = block?.fields?.lighterVessel ?? block?.lighterVessel;
-  if (!motherVessel || !lighterVessel) return 'CONFIRMATION_NO_ASSIGNMENT';
+  const motherVessel = found?.fields?.motherVessel ?? found?.motherVessel;
+  const lighterVessel = found?.fields?.lighterVessel ?? found?.lighterVessel;
+  if (!found || !motherVessel || !lighterVessel) return 'CONFIRMATION_NO_ASSIGNMENT';
+  const block = found;
   const candidates = await rows<{id: string; state: string; confirmation_message_id: string | null}>(
     `SELECT id, state, confirmation_message_id FROM programs
       WHERE source_chat_jid = $1 AND lower(btrim(mother_vessel)) = lower(btrim($2))
@@ -377,5 +382,6 @@ export async function integrationStatus() {
  * posting, no outbound WhatsApp sender.
  */
 export async function routePending(actor: Actor, limit = 100) {
+  assertCapability(actor, 'whatsapp.route');
   return routePendingMessages(actor, limit);
 }

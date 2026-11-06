@@ -87,7 +87,7 @@ export function createCandidateApi(service:IdentityReviewService,{origin,readAda
     const query=z.object({content:z.enum(['0','1']).default('0')}).strict().parse(Object.fromEntries(url.searchParams));return json(await service.reviewSource(credentials,path.split('/')[2],query.content==='1'));
    }
    if(/^\/reviews\/[a-f0-9]{64}\/actions$/.test(path)&&request.method==='POST'){
-    const v=z.object({expectedVersion:version,expectedEpoch:version,operationId:z.string().max(128),action:z.enum(['CORRECT_FIELDS','MARK_REVIEW','NEEDS_CLARIFICATION']),fields:z.record(z.union([z.string().max(500),z.number().finite(),z.null()])).optional(),reason:z.string().min(1).max(2000),rosterContextHash:z.string().regex(/^[a-f0-9]{64}$/).optional(),rosterProgramId:z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional()}).strict().parse(await body(request));return json(await service.actOnReview(credentials,path.split('/')[2],v));
+    const v=z.object({expectedVersion:version,expectedEpoch:version,operationId:z.string().max(128),action:z.enum(['CORRECT_FIELDS','MARK_REVIEW','NEEDS_CLARIFICATION']),fields:z.record(z.string(), z.union([z.string().max(500),z.number().finite(),z.null()])).optional(),reason:z.string().min(1).max(2000),rosterContextHash:z.string().regex(/^[a-f0-9]{64}$/).optional(),rosterProgramId:z.string().regex(/^[A-Za-z0-9_-]{1,100}$/).optional()}).strict().parse(await body(request));return json(await service.actOnReview(credentials,path.split('/')[2],v));
    }
    if(/^\/reviews\/[a-f0-9]{64}\/history$/.test(path)&&request.method==='GET')return json(await service.reviewHistory(credentials,path.split('/')[2]));
    if(/^\/evidence\/[a-f0-9]{64}$/.test(path)&&request.method==='GET')return json(await service.evidence(credentials,path.split('/').at(-1)!));
