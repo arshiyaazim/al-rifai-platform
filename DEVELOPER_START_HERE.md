@@ -2,7 +2,7 @@
 
 > **Canonical current-state developer map — not a changelog.** Read this first before modifying code, database, Docker, WhatsApp ingestion, or deployment.
 >
-> **Last reconciled:** 2026-11-05. **Source:** `feature/phase3-router-cash-vessel` at commit `cff8a67` (Phase 3 Increments 5 & 6 — Review Queue UI, CI & Tests); local session branch `arena/e574efa6-al-rifai-platform` at `cff8a67`; GitHub `main` remains at `e6becfc` (Phase 2). Repository source files and locally executed test results. **Runtime facts below are agent-measured unless marked dated.**
+> **Last reconciled:** 2026-11-06. **Source:** `feature/phase3-router-cash-vessel` at commit `7b0330c` (Phase 3 router, 49/49 integration tests twice); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
 >
 > **Priority:** **BUILD → RUN → LIVE → IMPROVE**. Do not block releases on unrelated legacy data migration, historical Git branches, exhaustive tests, or non-blocking cleanup. Never claim a workflow is live solely because code exists.
 
@@ -11,10 +11,10 @@
 | Item | Current value / source |
 |---|---|
 | Git repository | https://github.com/arshiyaazim/al-rifai-platform |
-| Git branch | `feature/phase3-router-cash-vessel` (test-DB creation verified at `6ab35c7`; this docs-only commit records schema initialization); `main` untouched at `e6becfc` |
-| Verified baseline | `e6becfc` (Phase 2, `main`, untouched); Phase 3 test environment verified at `6ab35c7` (`cff8a67` is the implementation commit). |
+| Git branch | `feature/phase3-router-cash-vessel` at `7b0330c` (pushed; full router suite 49/49 twice); `main` untouched at `e6becfc` |
+| Verified baseline | `e6becfc` (Phase 2, `main`, untouched); Phase 3 verified at `7b0330c`. |
 | Local Git checkout (VPS) | `/opt/al-rifai-platform` (`main` at `e6becfc`) |
-| Phase 3 test worktree (VPS) | `/opt/al-rifai-phase3-test` at `0a319e3` (separate worktree; production source unchanged) |
+| Phase 3 test worktree (VPS) | `/opt/al-rifai-phase3-test` at `7b0330c` (separate worktree; production source unchanged) |
 | Standalone app source / root `.env` (VPS) | `/opt/vps/al-rifai-standalone/apps/al-rifai` |
 | Public application | https://app.al-rifai.iamazim.com |
 | Login | https://app.al-rifai.iamazim.com/login |
@@ -279,12 +279,24 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 - Docs: IMPLEMENTED — `DEVELOPER_START_HERE.md` updated in place; migration 007 added.
 - Test execution: test DB `alrifai_v2_test` at schema `1.3.3`; **full message-router suite 49/49 on two consecutive runs** after Tasks 5E.6–5E.7 — Cash **12/12**, Vessel **17/17**, Router **4/4**, Review **16/16**; Review API **7/7**; finance regression **3/3**. Implementation is present and the integration tests pass; production deployment is pending; live WhatsApp processing remains unverified. No workflow marked LIVE; production still `1.2.0` and not deployed.
 
-**Delivery boundary:** Local implementation package complete (`cff8a67` plus this documentation refresh). No VPS deployment. GitHub push status: `cff8a67` is present on origin `feature/phase3-router-cash-vessel`; this session's documentation refresh is pushed on `arena/e574efa6-al-rifai-platform` (session branch policy — no push to `main`, no merge into `main`). No production deployment.
+**Delivery boundary:** Implementation and integration tests complete on `feature/phase3-router-cash-vessel` at `7b0330c`; pushed to origin. No production deployment. Production readiness is **BLOCKED** pending the items in the audit block below.
 | 6 | Domain conversation routing | Cash/Vessel/HR/Recruitment/CRM routed to proper handlers; no unauthorized automatic posting |
 | 7 | Vessel rates and missing release/parser logic | Owner-configured rates; end-to-end order/release flow |
 | 8 | Recruitment, employee conversations and AI assistant | Incremental modules, measured and deployed separately |
 | 9 | Reduce disk below target if practical | Identify unused cache/images without removing live services |
 | 10 | Optional legacy DB/container removal | Separate explicit owner decision; not a release prerequisite |
+
+**Phase 3 production readiness audit — 2026-11-06 (READ-ONLY; no deployment):** **BLOCKED — not ready.**
+
+- **Environment:** production app/sync on `local/al-rifai-platform:20261105-phase2` (`sha256:2950c068…`); PostgreSQL 16.15; `alrifai_v2` at **1.2.0 / 30 tables**; feature worktree `7b0330c`. WA-01/WA-02 bridges up and untouched.
+- **Schema compatibility:** 004–007 are additive/idempotent and drop no data. 004 adds `whatsapp_messages.processing_status/retry_count/last_error/last_processed_at`; 005 creates `program_source_messages`; 006 creates `escort_client_group_authorizations` and `review_items.category`; 007 replaces `review_items_one_pending` with the category-aware unique index (safe: production `review_items` is 0) and adds review/cash correction columns. Business tables are empty; **34,355 messages, 2,010 chats, 2,595 identity aliases, 224 media rows, 2 sync states, 2,960 import runs** must survive. No triggers/functions are added.
+- **BLOCKED 1 — no safe incremental migration/grant path:** the installer refuses an existing schema; `--force` re-runs the non-idempotent baseline `schema.sql`; `scripts/database.mjs` is missing from the canonical repo/worktree, so `db:migrate/import/verify` are unavailable. A manual owner psql run of 004–007 **plus** runtime grants for the two new tables is the only path, and it is not a tested/documented procedure.
+- **BLOCKED 2 — historical reprocessing risk:** 004 sets every existing message to `processing_status='PENDING'` (34,355 rows), and the router claims all PENDING messages with no watermark. Any admin `route`/`process` call after migration would process the entire historical corpus into REVIEW/program rows. A pre-router cutover (mark old rows `COMPLETED` or add a watermark) is required.
+- **BLOCKED 3 — vessel authorization data:** `escort_client_group_authorizations` is created empty; group vessel orders are rejected until the Owner populates the approved clients/participants. Fail-closed, but live vessel intake is not ready.
+- **NEEDS OWNER DECISION:** router scope (history vs post-cutover); authorized vessel group participants; whether the router should honor `ALRIFAI_VESSEL_PROCESSING_ENABLED` (it currently does not); maintenance window for the non-concurrent indexes/checks; acceptance of no CI run (billing lock).
+- **Backup/rollback:** latest `alrifai_v2` dump is `pre-phase2-20261105-1111.dump` (7.5 MB, 216 TOC, sha256 verified) but it **predates Phase 2** (no `whatsapp_media`) and the current 34,355 messages/224 media rows; the 61–62 MB dumps are legacy `alrifai`. **No fresh pre-Phase-3 backup exists.** App rollback to `20261105-phase2` is available and the additive schema is Phase-2-app compatible; a full DB rollback to 1.2.0 requires a fresh restore. Restore procedure is documented in README §6 but was not restore-tested in this audit.
+- **Runtime/deps:** no new npm packages; Dockerfile/compose unchanged; the router is app-side (`/api/whatsapp` `route`/`process`), not the sync worker; no new bridge permissions. Cash remains REVIEW/PENDING_REVIEW only (no posting/approval/ledger); WA-02 remains rejected.
+- **Verdict:** code and integration tests are ready (49/49 twice), but production deployment is **BLOCKED** on the migration path, the historical reprocessing guard, and the vessel authorization data; it also needs a fresh pre-Phase-3 backup and an Owner decision on CI evidence.
 
 ## 11. Mandatory maintenance rule — overwrite current state, do not append history
 
