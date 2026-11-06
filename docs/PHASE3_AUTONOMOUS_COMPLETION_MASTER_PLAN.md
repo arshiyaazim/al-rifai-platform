@@ -327,8 +327,8 @@ All DB commands run with `--test-concurrency=1` and an explicit
 | 2026-11-06 | Phase D migration/CI | **Complete** — checksum-tracked `db:migrate`, idempotent `--force`, fresh-install + upgrade checks, CI updated to 1.4.0 |
 | 2026-11-06 | Dependency remediation | **Complete** — Next.js 16.4.1, Zod 4.6.6, fast-uri 3.1.9; `pnpm audit --prod` clean |
 | 2026-11-06 | Verification | **91/91 integration tests**, 67/67 unit tests, typecheck, lint, Next build and Docker build pass |
-| 2026-11-06 | Phase E polish/docs | **In progress** — README, developer map, release checklist and rollback runbook updating |
-| 2026-11-06 | Phase F release candidate | **Pending commit/push and evidence bundle** |
+| 2026-11-06 | Phase E polish/docs | **Complete** — README, developer map, PR description, release checklist and rollback runbook updated |
+| 2026-11-06 | Phase F release candidate | **Code/test complete** — commits `39a9023`, `79b43a2`, `04692bf`, `4e9ae01`; image `sha256:010e42bf…`; evidence in `docs/PHASE3_RELEASE_EVIDENCE.md`; feature branch push pending |
 
 ### Newly verified during implementation
 
