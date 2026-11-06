@@ -8,13 +8,15 @@ import {row} from '../../lib/standalone/db.ts';
 import {routePendingMessages} from '../../lib/message-router.ts';
 import {approveInstruction, decideCashSubmission, setInstructionAccount} from '../../lib/standalone/finance.ts';
 import {correctCashSubmission} from '../../lib/standalone/review.ts';
+import {createProgram} from '../../lib/standalone/programs.ts';
 
 // Integration tests exercise vessel routing; production keeps the deployment
 // flag off until the Owner enables Vessel intake.
 process.env.ALRIFAI_VESSEL_PROCESSING_ENABLED = '1';
 
 const admin = {id: 'a'.repeat(64), role: 'ADMIN'};
-const TEST_BUSINESS_CHATS = ['8801844836824@s.whatsapp.net', '120363000000000001@g.us'];
+const RELEASE_GROUP = '120363000000000002@g.us';
+const TEST_BUSINESS_CHATS = ['8801844836824@s.whatsapp.net', '120363000000000001@g.us', RELEASE_GROUP];
 let nextRowid = 1;
 
 // Integration fixtures are shared state. Start every test from the same clean
@@ -90,6 +92,22 @@ async function ensureAccount(id, label = 'Test Account', adminJid = '88018804461
      VALUES ($1,$2,$3,$4,$5,true)
      ON CONFLICT (id) DO UPDATE SET active = true`,
     [`ga-${id}-8801722222222`, id, '120363000000000001@g.us', '8801722222222@s.whatsapp.net', `client-${id}`],
+  );
+}
+
+async function ensureReleaseGroup() {
+  await row(
+    `INSERT INTO whatsapp_chats (account_id, chat_jid, label, purpose, authorized)
+     VALUES ('wa-01',$1,'Escort Release Slip','ORDERS',true)
+     ON CONFLICT (account_id, chat_jid) DO UPDATE SET label='Escort Release Slip', purpose='ORDERS', authorized=true`,
+    [RELEASE_GROUP],
+  );
+  await row(
+    `INSERT INTO escort_client_group_authorizations
+       (id, account_id, group_jid, participant_jid, client_contact_id, active)
+     VALUES ('ga-release-8801722222222','wa-01',$1,'8801722222222@s.whatsapp.net','client-release',true)
+     ON CONFLICT (id) DO UPDATE SET active = true`,
+    [RELEASE_GROUP],
   );
 }
 
@@ -1014,4 +1032,72 @@ test('review: similar but legitimate transactions create separate review items',
   assert.equal(result.reviewItems, 2, 'Different incomplete orders create separate review items');
   const after = await row('SELECT count(*)::int AS n FROM review_items');
   assert.equal(after.n, before.n + 2);
+});
+
+test('release: structured slip releases exactly one matching program', async () => {
+  await ensureAccount('wa-01');
+  await ensureReleaseGroup();
+  const created = await createProgram(admin, {
+    motherVessel: 'MV Release', lighterVessel: 'L-Release', masterMobile: '01911111111',
+    escortMobile: '01812345678', escortName: 'Release Test',
+    startDate: '2026-11-01', startShift: 'D',
+  });
+  await stageMessage('wa-01', RELEASE_GROUP, 'msg-release-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Escort Release\nMother Vessel: M.V. Release\nLighter Vessel: M.V. L-Release\nMaster mobile: 01911111111\nDestination: Chattogram\nEscort Name: Release Test\nEscort mobile: 01812345678\nStart: 01/11/26-((D)\nEnd: 05/11/26-(D)\nTotal day: 5-day\nFood bill: 750/-');
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.releases, 1);
+  const program = await row('SELECT state, end_date::text AS end_date, end_shift FROM programs WHERE id = $1', [created.program.id]);
+  assert.equal(program.state, 'RELEASED');
+  assert.equal(program.end_date, '2026-11-05');
+  assert.equal(program.end_shift, 'D');
+  const event = await row("SELECT action FROM program_events WHERE program_id = $1 AND action = 'RELEASE_PROGRAM'", [created.program.id]);
+  assert.ok(event);
+  const source = await row("SELECT source_role FROM program_source_messages WHERE program_id = $1 AND message_id = 'msg-release-1'", [created.program.id]);
+  assert.equal(source.source_role, 'contributor');
+});
+
+test('release: ambiguous slip goes to review and does not release', async () => {
+  await ensureAccount('wa-01');
+  await ensureReleaseGroup();
+  const a = await createProgram(admin, {motherVessel: 'MV A', lighterVessel: 'L-A1', escortMobile: '01812345678', startDate: '2026-11-01', startShift: 'D'});
+  const b = await createProgram(admin, {motherVessel: 'MV B', lighterVessel: 'L-B1', escortMobile: '01812345678', startDate: '2026-11-01', startShift: 'D'});
+  await stageMessage('wa-01', RELEASE_GROUP, 'msg-release-ambig-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Escort Release\nEscort Name: Release Test\nEscort mobile: 01812345678\nStart: 01/11/26-((D)\nEnd: 05/11/26-(D)');
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.releases, 0);
+  assert.equal(result.reviewItems, 1);
+  const states = await row("SELECT count(*)::int AS n FROM programs WHERE id IN ($1,$2) AND state = 'RELEASED'", [a.program.id, b.program.id]);
+  assert.equal(states.n, 0);
+  const item = await row("SELECT category, payload FROM review_items WHERE domain='PROGRAM' ORDER BY created_at DESC LIMIT 1");
+  assert.equal(item.category, 'UNMATCHED_VESSEL_ASSIGNMENT');
+  assert.equal(item.payload.releaseCategory, 'RELEASE_AMBIGUOUS');
+});
+
+test('release: unstructured release-group message never becomes a vessel order', async () => {
+  await ensureAccount('wa-01');
+  await ensureReleaseGroup();
+  await stageMessage('wa-01', RELEASE_GROUP, 'msg-release-chatter-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Mother Vessel: MV NotAnOrder\nLighter Vessel: L-Chatter\nMaster mobile: 01911111111\nPlease check the release.');
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.programs, 0);
+  assert.equal(result.reviewItems, 1);
+  const item = await row("SELECT category, payload FROM review_items WHERE domain='PROGRAM' ORDER BY created_at DESC LIMIT 1");
+  assert.equal(item.category, 'EXTRACTION_FAILED');
+  assert.equal(item.payload.releaseCategory, 'RELEASE_UNSTRUCTURED');
+});
+
+test('release: incomplete slip is reviewed and never releases', async () => {
+  await ensureAccount('wa-01');
+  await ensureReleaseGroup();
+  const created = await createProgram(admin, {motherVessel: 'MV Incomplete', lighterVessel: 'L-Inc', escortMobile: '01812345678', startDate: '2026-11-01', startShift: 'D'});
+  await stageMessage('wa-01', RELEASE_GROUP, 'msg-release-inc-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'Escort Release\nEscort mobile: 01812345678\nStart: 01/11/26-((D)\nEnd: 05/11/26');
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.releases, 0);
+  assert.equal(result.reviewItems, 1);
+  const program = await row('SELECT state FROM programs WHERE id = $1', [created.program.id]);
+  assert.equal(program.state, 'ASSIGNED');
+  const item = await row("SELECT category, payload FROM review_items WHERE domain='PROGRAM' ORDER BY created_at DESC LIMIT 1");
+  assert.equal(item.category, 'INCOMPLETE_VESSEL_ORDER');
+  assert.equal(item.payload.releaseCategory, 'RELEASE_INCOMPLETE');
 });

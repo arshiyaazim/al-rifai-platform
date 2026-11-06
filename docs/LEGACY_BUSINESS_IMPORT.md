@@ -176,3 +176,63 @@ Cash domains are separate and require a second approval.
 - The candidate also fixes cash pagination/filters and full CSV export, which
   the current production image lacks. Activating the import therefore needs a
   new approved image deployment in addition to the data import.
+
+---
+
+## 8. Cash coverage investigation (2026-11-06)
+
+| Stage | Count | Date range |
+|---|---|---|
+| Authorized Admin→Accountant mirror (Phase 3) | 2,582 messages (2,388 OUTGOING) | 2026-07-12 → 2026-11-06 |
+| Legacy original messages in that chat | 2,538 | 2026-07-12 → 2026-11-05 |
+| Native archive in that chat | 2,247 | 2026-07-12 → 2026-10-25 |
+| Parsed payment messages (linked to instructions) | 2,137 | 2026-07-12 → 2026-11-05 |
+| Cash instructions | 3,747 (551×1, 1,562×2, 24×3 per message) | 2026-07-12 → 2026-11-05 |
+| Posted (`MANUAL_READY`) | 1,586 | 2026-07-12 → 2026-10-18 |
+| REVIEW | 2,161 | 2026-07-12 → 2026-11-05 |
+| Earliest employee-wise allocation | **2026-07-12 14:26:32 UTC** | same as earliest source message |
+
+**Unlinked payment-like messages:** 191.
+- 151 were ingested and classified `NO_PAYMENT_BLOCK_PARSED` / `financialAction: NONE` (parser gap).
+- 40 are below the 19634 cutover watermark (historical backlog, not live).
+- 28 are exact text duplicates of already-linked messages.
+- 42 outgoing messages after the last instruction are all below the watermark (rowids 19434–19624), so the live router correctly does not treat them as post-cutover events.
+
+**Parser correction:** `parsePaymentBlocks` now accepts common `MD:` names and duplicate
+`ID:` prefixes; recoverable clean blocks rose from 37 to 96. It still refuses a
+single-phone message rather than inventing the second identity.
+
+**Backfill rehearsal on a fresh production clone:**
+
+| Result | Count |
+|---|---|
+| Already linked | 2,137 |
+| Clean blocks | 97 |
+| New REVIEW instructions | **52** |
+| New REVIEW amount | **5,431,100 minor (54,311 BDT)** |
+| Duplicate candidates sent to review | 45 |
+| Incomplete/ambiguous candidates sent to review | 68 |
+| Cash postings created | **0** |
+| Repeat run | **0 new instructions**, 45 duplicate candidates, 68 ambiguous |
+
+The backfill creates REVIEW instructions only. It never approves or posts, and it
+uses the instruction unique index plus payload hashes for idempotency.
+
+---
+
+## 9. Escort Release integration
+
+The approved scope includes the **Escort Release Slip** group (1,073 mirrored
+messages). Phase 3 previously sent release-slip text into the order parser, which
+could create false programs. A dedicated parser (`lib/release-slip.ts`) and a
+release-first router path now:
+
+- parse `---(Escort Release)---` blocks with mother/lighter/escort/start/end/total/food;
+- match exactly one open program by escort mobile, optional lighter, start date and release date;
+- update only that program (`RELEASED`, end date/shift), the open assignment, events and source link;
+- send incomplete, ambiguous, unmatched, unstructured or failed releases to the Review Queue;
+- never create an order from the release group.
+
+Regression tests cover structured release, ambiguous match, unstructured
+release-group chatter and incomplete slips. Historical released programs (41)
+remain as imported; no historical attendance or pay is inferred from a release.
