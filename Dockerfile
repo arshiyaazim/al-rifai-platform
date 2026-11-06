@@ -29,6 +29,10 @@ COPY --from=build --chown=10001:10001 /app/scripts/sync-worker.mjs ./scripts/syn
 # Operational tooling: the reset CLI and the two modules it shares with the web
 # application (one hashing implementation, one length policy, one env loader).
 COPY --from=build --chown=10001:10001 /app/scripts/standalone/reset-password.mjs ./scripts/standalone/reset-password.mjs
+COPY --from=build --chown=10001:10001 /app/scripts/standalone/install.mjs ./scripts/standalone/install.mjs
+COPY --from=build --chown=10001:10001 /app/scripts/standalone/migrate.mjs ./scripts/standalone/migrate.mjs
+COPY --from=build --chown=10001:10001 /app/scripts/standalone/grants.mjs ./scripts/standalone/grants.mjs
+COPY --from=build --chown=10001:10001 /app/db ./db
 COPY --from=build --chown=10001:10001 /app/scripts/check-env.mjs ./scripts/check-env.mjs
 COPY --from=build --chown=10001:10001 /app/lib/env.mjs ./lib/env.mjs
 COPY --from=build --chown=10001:10001 /app/lib/whatsapp-media.mjs ./lib/whatsapp-media.mjs
