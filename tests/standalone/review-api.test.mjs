@@ -1,7 +1,7 @@
 // AL-RIFA'I — Phase 3 Increment 5: Review Queue service & DB integration tests.
 // Requires disposable PostgreSQL prepared by scripts/standalone/install.mjs.
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, {before} from 'node:test';
 import {row} from '../../lib/standalone/db.ts';
 import {submitCash} from '../../lib/standalone/finance.ts';
 import {
@@ -16,6 +16,9 @@ import {
   withdrawReview,
 } from '../../lib/standalone/review.ts';
 import {hashBootstrapPassword} from '../../lib/cash-portal.ts';
+import {resetBusinessState} from './reset.mjs';
+
+before(async () => { await resetBusinessState('alrifai-review-test-reset'); });
 
 const adminA = {id: '1'.repeat(64), role: 'ADMIN'};
 const adminB = {id: '2'.repeat(64), role: 'ADMIN'};
@@ -109,7 +112,7 @@ test('correctReviewItem enforces ADMIN + non-submitter, keeps PENDING state and 
 
   await assert.rejects(
     () => correctReviewItem(staff, created.id, {destination: 'Chattogram'}),
-    /ADMIN_REQUIRED/,
+    /ADMIN_REQUIRED|CAPABILITY_REQUIRED/,
   );
 
   const ownAdmin = await submitForReview(adminA, {
@@ -183,7 +186,7 @@ test('withdrawReview and decideReview enforce submitter and admin separation', a
     payload: {employeeMobile: '01611223344', preferredName: 'Jamal Hossain', dutyType: 'escort'},
   });
   await assert.rejects(() => withdrawReview(adminA, item.id), /NOT_SUBMITTER/);
-  await assert.rejects(() => decideReview(staff, item.id, 'REJECTED', 'nope'), /ADMIN_REQUIRED/);
+  await assert.rejects(() => decideReview(staff, item.id, 'REJECTED', 'nope'), /ADMIN_REQUIRED|CAPABILITY_REQUIRED/);
 
   const rejected = await decideReview(adminA, item.id, 'REJECTED', 'Duplicate record');
   assert.equal(rejected.state, 'REJECTED');

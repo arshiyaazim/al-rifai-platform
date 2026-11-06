@@ -1,5 +1,6 @@
 import {rows, row, tx, text, isoDate, moneyMinor, DomainError, type Actor} from './db.ts';
 import {recordAudit} from './audit.ts';
+import {assertCapability} from './authz.ts';
 import {enumerateDutyShifts} from '../shift-boundary.ts';
 
 export type RateRow = {
@@ -18,6 +19,7 @@ export async function upsertRate(actor: Actor, input: {
   destinationKey: string; destinationLabel: string; shiftRateMinor: number;
   conveyanceMinor?: number; effectiveFrom?: string; active?: boolean;
 }) {
+  assertCapability(actor, 'payroll.manage');
   const key = text(input.destinationKey, 'destinationKey', {max: 80}).toLowerCase();
   const created = await row(
     `INSERT INTO rate_config (destination_key, destination_label, shift_rate_minor, conveyance_minor, effective_from, active)

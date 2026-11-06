@@ -1,5 +1,7 @@
+import type {PoolClient} from 'pg';
 import {rows, row, tx, text, optionalText, optionalMobile, isoDate, shift, DomainError, type Actor} from './db.ts';
 import {recordAudit, newId} from './audit.ts';
+import {assertCapability} from './authz.ts';
 import {createEmployee, updateEmployee} from './employees.ts';
 import {createProgram} from './programs.ts';
 import {recordAttendance} from './attendance.ts';
@@ -467,6 +469,7 @@ function mergeCorrections(payload: Record<string, unknown>, corrections: Record<
  * submitter, and every change is written to the append-only audit trail.
  */
 export async function correctReviewItem(actor: Actor, id: string, corrections: Record<string, unknown>) {
+  assertCapability(actor, 'review.decide');
   if (actor.role !== 'ADMIN') throw new DomainError('ADMIN_REQUIRED', 403);
   const clean = validateCorrections(String((await row<{domain: string}>('SELECT domain FROM review_items WHERE id = $1', [id]))?.domain ?? ''), corrections);
   return tx(async (client) => {
@@ -491,7 +494,7 @@ export async function correctReviewItem(actor: Actor, id: string, corrections: R
       entity: 'review_item',
       entityId: id,
       detail: {domain: item.domain, corrections: clean, state: 'PENDING'},
-    });
+    }, client);
     return {id, corrected: true, fields: Object.keys(clean), state: 'PENDING'};
   });
 }
@@ -502,6 +505,7 @@ export async function correctReviewItem(actor: Actor, id: string, corrections: R
  * does not create a cash instruction.
  */
 export async function correctCashSubmission(actor: Actor, id: string, corrections: Record<string, unknown>) {
+  assertCapability(actor, 'review.decide');
   if (actor.role !== 'ADMIN') throw new DomainError('ADMIN_REQUIRED', 403);
   const clean = validateCorrections('CASH', corrections);
   return tx(async (client) => {
@@ -526,7 +530,7 @@ export async function correctCashSubmission(actor: Actor, id: string, correction
       entity: 'cash_submission',
       entityId: id,
       detail: {corrections: clean, state: 'PENDING_REVIEW'},
-    });
+    }, client);
     return {id, corrected: true, fields: Object.keys(clean), state: 'PENDING_REVIEW'};
   });
 }
@@ -554,18 +558,23 @@ export async function submitForReview(
   return created;
 }
 
-async function applyItem(actor: Actor, item: {domain: Domain; action: Action; target_ref: string | null; payload: Record<string, unknown>}) {
-  if (item.domain === 'EMPLOYEE' && item.action === 'CREATE') return createEmployee(actor, item.payload as never);
+async function applyItem(
+  client: Pick<PoolClient, 'query'>,
+  actor: Actor,
+  item: {domain: Domain; action: Action; target_ref: string | null; payload: Record<string, unknown>},
+) {
+  if (item.domain === 'EMPLOYEE' && item.action === 'CREATE') return createEmployee(actor, item.payload as never, client);
   if (item.domain === 'EMPLOYEE' && item.action === 'UPDATE') {
     if (!item.target_ref) throw new DomainError('TARGET_REQUIRED');
-    return updateEmployee(actor, item.target_ref, item.payload as never);
+    return updateEmployee(actor, item.target_ref, item.payload as never, client);
   }
-  if (item.domain === 'PROGRAM' && item.action === 'CREATE') return createProgram(actor, item.payload as never);
-  if (item.domain === 'ATTENDANCE' && item.action === 'CREATE') return recordAttendance(actor, item.payload as never);
+  if (item.domain === 'PROGRAM' && item.action === 'CREATE') return createProgram(actor, item.payload as never, {}, client);
+  if (item.domain === 'ATTENDANCE' && item.action === 'CREATE') return recordAttendance(actor, item.payload as never, client);
   throw new DomainError(`DOMAIN_NOT_IMPLEMENTED:${item.domain}:${item.action}`, 501);
 }
 
 export async function decideReview(actor: Actor, id: string, decision: 'APPROVED' | 'REJECTED', reason?: string) {
+  assertCapability(actor, 'review.decide');
   if (actor.role !== 'ADMIN') throw new DomainError('ADMIN_REQUIRED', 403);
   const why = optionalText(reason, 'reason', 500);
   return tx(async (client) => {
@@ -579,7 +588,7 @@ export async function decideReview(actor: Actor, id: string, decision: 'APPROVED
     if (item.submitted_by === actor.id) throw new DomainError('REVIEWER_IS_SUBMITTER', 403);
 
     let applied: unknown = null;
-    if (decision === 'APPROVED') applied = await applyItem(actor, item);
+    if (decision === 'APPROVED') applied = await applyItem(client, actor, item);
 
     await client.query(
       `UPDATE review_items SET state = $2, decided_at = now(), updated_at = now() WHERE id = $1`,
@@ -590,19 +599,25 @@ export async function decideReview(actor: Actor, id: string, decision: 'APPROVED
       [newId('rvd'), id, decision, why, actor.id],
     );
     await recordAudit({actor, action: `REVIEW_${decision}`, entity: 'review_item', entityId: id,
-      detail: {domain: item.domain, action: item.action}});
+      detail: {domain: item.domain, action: item.action}}, client);
     return {id, state: decision, applied};
   });
 }
 
 export async function withdrawReview(actor: Actor, id: string) {
-  const found = await row<{submitted_by: string; state: string}>('SELECT submitted_by, state FROM review_items WHERE id = $1', [id]);
-  if (!found) throw new DomainError('ITEM_NOT_FOUND', 404);
-  if (found.submitted_by !== actor.id) throw new DomainError('NOT_SUBMITTER', 403);
-  if (found.state !== 'PENDING') throw new DomainError('ITEM_NOT_PENDING', 409);
-  await row(`UPDATE review_items SET state = 'WITHDRAWN', decided_at = now(), updated_at = now() WHERE id = $1 RETURNING id`, [id]);
-  await recordAudit({actor, action: 'REVIEW_WITHDRAWN', entity: 'review_item', entityId: id});
-  return {id, state: 'WITHDRAWN'};
+  return tx(async (client) => {
+    const found = await client.query<{submitted_by: string; state: string}>(
+      'SELECT submitted_by, state FROM review_items WHERE id = $1 FOR UPDATE', [id],
+    );
+    if (!found.rowCount) throw new DomainError('ITEM_NOT_FOUND', 404);
+    if (found.rows[0].submitted_by !== actor.id) throw new DomainError('NOT_SUBMITTER', 403);
+    if (found.rows[0].state !== 'PENDING') throw new DomainError('ITEM_NOT_PENDING', 409);
+    await client.query(
+      `UPDATE review_items SET state = 'WITHDRAWN', decided_at = now(), updated_at = now() WHERE id = $1`, [id],
+    );
+    await recordAudit({actor, action: 'REVIEW_WITHDRAWN', entity: 'review_item', entityId: id}, client);
+    return {id, state: 'WITHDRAWN'};
+  });
 }
 
 // ── Queue counts (dashboard / navigation badge) ────────────────────────────

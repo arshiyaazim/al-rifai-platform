@@ -2,7 +2,9 @@ import {actorFor, bodyOf, errorResponse, ok} from '../_shared';
 import {
   approveInstruction, createAccount, createInstruction, createLedgerEntry, decideCashSubmission,
   incomeExpense, listAccounts, listInstructions, listLedger, postInstruction, rejectInstruction, submitCash,
+  closeReconciliation, createReconciliation, getInstructionDetail, listReconciliations, reversePosting,
 } from '@/lib/standalone/finance';
+import {assertCapability} from '@/lib/standalone/authz';
 import {rows, takaToMinor} from '@/lib/standalone/db';
 
 export const runtime = 'nodejs';
@@ -10,10 +12,17 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
-    await actorFor(request, {csrf: false});
+    const actor = await actorFor(request, {csrf: false});
+    assertCapability(actor as never, 'cash.read');
     const url = new URL(request.url);
     const resource = url.searchParams.get('resource') ?? 'instructions';
     if (resource === 'accounts') return ok({rows: await listAccounts()});
+    if (resource === 'instruction') {
+      const id = url.searchParams.get('id');
+      if (!id) return ok({error: 'ID_REQUIRED'}, 400);
+      return ok(await getInstructionDetail(id));
+    }
+    if (resource === 'reconciliations') return ok({rows: await listReconciliations()});
     if (resource === 'ledger') {
       return ok({rows: await listLedger({
         accountId: url.searchParams.get('accountId') ?? undefined,
@@ -50,16 +59,22 @@ export async function POST(request: Request) {
     if (body.amountMinor === undefined && body.amount !== undefined) {
       body.amountMinor = takaToMinor(body.amount);
     }
+    if (body.countedBalanceMinor === undefined && body.countedBalance !== undefined) {
+      body.countedBalanceMinor = takaToMinor(body.countedBalance);
+    }
     if (action === 'instruction.create') return ok(await createInstruction(actor, body as never), 201);
     if (action === 'instruction.approve') return ok(await approveInstruction(actor, String(body.id)));
     if (action === 'instruction.reject') return ok(await rejectInstruction(actor, String(body.id), String(body.reason ?? '')));
     if (action === 'instruction.post') return ok(await postInstruction(actor, String(body.id)));
+    if (action === 'instruction.reverse') return ok(await reversePosting(actor, String(body.id), String(body.reason ?? '')));
     if (action === 'ledger.create') return ok(await createLedgerEntry(actor, body as never), 201);
     if (action === 'account.create') return ok(await createAccount(actor, body as never), 201);
     if (action === 'submission.submit') return ok(await submitCash(actor, body as never), 201);
     if (action === 'submission.decide') {
       return ok(await decideCashSubmission(actor, String(body.id), body.decision === 'REJECTED' ? 'REJECTED' : 'APPROVED', String(body.reason ?? '')));
     }
+    if (action === 'reconciliation.create') return ok(await createReconciliation(actor, body as never), 201);
+    if (action === 'reconciliation.close') return ok(await closeReconciliation(actor, String(body.id), body.note ? String(body.note) : null));
     return ok({error: 'UNKNOWN_ACTION'}, 400);
   } catch (error) {
     return errorResponse(error);

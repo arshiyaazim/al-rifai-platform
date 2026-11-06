@@ -11,6 +11,7 @@ import {
 } from '@/lib/standalone/review';
 import {decideCashSubmission} from '@/lib/standalone/finance';
 import {reviewActionsFor, type ReviewActor} from '@/lib/review-ui';
+import {assertCapability} from '@/lib/standalone/authz';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -83,6 +84,7 @@ export async function POST(request: Request) {
     const id = String(body.id ?? '');
 
     if (action === 'decide') {
+      assertCapability(actor as never, 'review.decide');
       const decision = body.decision === 'REJECTED' ? 'REJECTED' : 'APPROVED';
       const reason = String(body.reason ?? '');
       if (body.kind === 'cash_submission') {
@@ -92,6 +94,7 @@ export async function POST(request: Request) {
     }
 
     if (action === 'correct') {
+      assertCapability(actor as never, 'review.decide');
       const domain = String(body.domain ?? '').toUpperCase();
       const corrections = pickCorrections(body, domain);
       if (body.kind === 'cash_submission') {

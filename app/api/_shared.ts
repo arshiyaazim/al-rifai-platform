@@ -5,7 +5,10 @@ import {DomainError} from '@/lib/standalone/db';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export type RouteContext = {identity: {id: string; role: 'ADMIN' | 'USER'; username?: string}; token: string};
+export type RouteContext = {
+  identity: {id: string; role: 'ADMIN' | 'USER'; username?: string; capabilities?: string[]};
+  token: string;
+};
 
 export function ok(body: unknown, status = 200) {
   return NextResponse.json(body, {status, headers: {'Cache-Control': 'no-store'}});
@@ -27,7 +30,14 @@ export function errorResponse(error: unknown) {
 export async function actorFor(request: Request, {csrf = true} = {}) {
   const {identity, token} = await currentSession(request);
   if (csrf) await assertCsrf(request, token);
-  return {id: identity.id, role: identity.role, username: identity.username, displayName: identity.displayName};
+  return {
+    id: identity.id,
+    role: identity.role,
+    username: identity.username,
+    displayName: identity.displayName,
+    capabilities: identity.capabilities,
+    superAdmin: identity.superAdmin,
+  };
 }
 
 export async function bodyOf<T = Record<string, unknown>>(request: Request): Promise<T> {

@@ -7,6 +7,8 @@ export type PageUser = {
   role: 'ADMIN' | 'USER';
   displayName: string;
   mustChangePassword: boolean;
+  capabilities: string[];
+  superAdmin: boolean;
 };
 
 /** Server-side identity for pages. Unauthenticated visitors go to /login. */
@@ -19,6 +21,8 @@ export async function pageUser(): Promise<PageUser> {
       role: identity.role,
       displayName: identity.displayName,
       mustChangePassword: identity.mustChangePassword,
+      capabilities: identity.capabilities,
+      superAdmin: identity.superAdmin,
     };
   } catch {
     redirect('/login');

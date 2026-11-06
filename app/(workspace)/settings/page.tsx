@@ -1,6 +1,7 @@
 import {listAccounts} from '@/lib/standalone/finance';
 import {integrationStatus, listChats} from '@/lib/standalone/whatsapp';
-import {money, pageUser} from '@/lib/standalone/session';
+import {money, pageUser, when} from '@/lib/standalone/session';
+import {listUsers} from '@/lib/standalone/users';
 import {ActionForm} from '@/components/standalone/action-form';
 
 export const dynamic = 'force-dynamic';
@@ -8,6 +9,7 @@ export const dynamic = 'force-dynamic';
 export default async function SettingsPage() {
   const user = await pageUser();
   const [accounts, status] = await Promise.all([listAccounts(), integrationStatus()]);
+  const users = user.superAdmin ? await listUsers() : [];
   const chats = await Promise.all((status.accounts as Array<{id: string}>).map((account) => listChats(account.id)));
 
   return (
@@ -129,6 +131,69 @@ export default async function SettingsPage() {
           </table>
         </section>
       </div>
+
+      {user.superAdmin ? (
+        <section className="card" style={{marginTop: 18}}>
+          <h3>User administration</h3>
+          <p className="muted">
+            Super Admin only. Passwords are hashed before storage; a reset revokes every session of the target account.
+            The last active administrator cannot be deactivated or demoted.
+          </p>
+          <table>
+            <thead><tr><th>User</th><th>Role</th><th>Active</th><th>Must change password</th><th>Last seen</th></tr></thead>
+            <tbody>
+              {users.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.display_name}<div className="muted">{row.username}</div></td>
+                  <td>{row.role}</td>
+                  <td>{row.active ? 'yes' : 'no'}</td>
+                  <td>{row.must_change_password ? 'yes' : 'no'}</td>
+                  <td>{when(row.last_seen_at)}</td>
+                </tr>
+              ))}
+              {!users.length ? <tr><td colSpan={5} className="muted">No users.</td></tr> : null}
+            </tbody>
+          </table>
+          <div className="split">
+            <ActionForm
+              title="Create user"
+              endpoint="/api/users"
+              submitLabel="Create user"
+              fields={[
+                {name: 'username', label: 'Username', required: true},
+                {name: 'displayName', label: 'Display name'},
+                {name: 'role', label: 'Role', type: 'select', options: [
+                  {value: 'USER', label: 'User'}, {value: 'ADMIN', label: 'Admin'}]},
+                {name: 'password', label: 'Initial password (min 8)', required: true},
+              ]}
+            />
+            <ActionForm
+              title="Update user"
+              endpoint="/api/users"
+              submitLabel="Save user"
+              hidden={{action: 'update'}}
+              fields={[
+                {name: 'user', label: 'Username or id', required: true},
+                {name: 'displayName', label: 'Display name'},
+                {name: 'role', label: 'Role', type: 'select', options: [
+                  {value: '', label: 'Unchanged'}, {value: 'USER', label: 'User'}, {value: 'ADMIN', label: 'Admin'}]},
+                {name: 'active', label: 'Active', type: 'select', options: [
+                  {value: '', label: 'Unchanged'}, {value: 'true', label: 'Active'}, {value: 'false', label: 'Inactive'}]},
+              ]}
+            />
+            <ActionForm
+              title="Reset password"
+              endpoint="/api/users"
+              submitLabel="Reset password"
+              hidden={{action: 'reset-password'}}
+              fields={[
+                {name: 'user', label: 'Username or id', required: true},
+                {name: 'password', label: 'New password (min 8)', required: true},
+              ]}
+            />
+          </div>
+        </section>
+      ) : null}
     </>
   );
 }

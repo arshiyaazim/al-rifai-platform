@@ -6,6 +6,8 @@ import test, {beforeEach} from 'node:test';
 import {createPool} from '../../db/postgres.mjs';
 import {row} from '../../lib/standalone/db.ts';
 import {routePendingMessages} from '../../lib/message-router.ts';
+import {approveInstruction, decideCashSubmission} from '../../lib/standalone/finance.ts';
+import {correctCashSubmission} from '../../lib/standalone/review.ts';
 
 const admin = {id: 'a'.repeat(64), role: 'ADMIN'};
 const TEST_BUSINESS_CHATS = ['8801844836824@s.whatsapp.net', '120363000000000001@g.us'];
@@ -21,7 +23,7 @@ beforeEach(async () => {
   const owner = createPool({role: 'app', readOnly: false, applicationName: 'alrifai-router-test-reset'});
   try {
     await owner.query(`TRUNCATE TABLE
-      audit_events, cash_instructions, cash_postings, ledger_entries,
+      audit_events, cash_reversals, cash_reconciliations, cash_instructions, cash_postings, ledger_entries,
       cash_submission_reviews, cash_submissions, review_decisions, review_items,
       attendance, identity_aliases, program_pay, program_source_messages,
       program_assignments, program_events, programs, employees,
@@ -158,6 +160,11 @@ test('cash: valid Admin outgoing message creates REVIEW instruction', async () =
   assert.equal(instr.source_message_id, 'msg-cash-valid-1');
   assert.equal(instr.source_block_key, 'payment-block-0');
   assert.ok(instr.source_hash);
+  // Automated writes are attributed to the stable system actor, so the sole
+  // human Administrator can approve them without a self-review deadlock.
+  assert.equal(instr.created_by, 'system:whatsapp-router');
+  const approved = await approveInstruction(admin, instr.id);
+  assert.equal(approved.state, 'APPROVED');
 });
 
 test('cash: incoming Accountant message does NOT create instruction', async () => {
@@ -229,6 +236,12 @@ test('cash: missing amount → cash_submissions review candidate', async () => {
   const sub = await row("SELECT * FROM cash_submissions ORDER BY created_at DESC LIMIT 1");
   assert.ok(sub);
   assert.equal(sub.state, 'PENDING_REVIEW');
+  assert.equal(sub.submitted_by, 'system:whatsapp-router');
+  await assert.rejects(() => decideCashSubmission(admin, sub.id, 'APPROVED'), /INVALID_AMOUNT/);
+  await correctCashSubmission(admin, sub.id, {amountMinor: 5000});
+  const decided = await decideCashSubmission(admin, sub.id, 'APPROVED');
+  assert.equal(decided.state, 'APPROVED');
+  assert.ok(decided.instructionId);
 });
 
 test('cash: missing beneficiary → cash_submissions review candidate', async () => {

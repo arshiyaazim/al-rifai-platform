@@ -1,22 +1,28 @@
 import Link from 'next/link';
-import {incomeExpense, listAccounts, listInstructions, listLedger} from '@/lib/standalone/finance';
+import {incomeExpense, listAccounts, listInstructions, listLedger, listReconciliations} from '@/lib/standalone/finance';
 import {listCashReviewCandidates} from '@/lib/standalone/review';
 import {rows} from '@/lib/standalone/db';
-import {money} from '@/lib/standalone/session';
+import {money, pageUser, when} from '@/lib/standalone/session';
+import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
 import {formatReviewAmount, formatReviewTimestamp, reviewCategoryLabel, reviewCategoryTone, reviewStateLabel, reviewStateTone} from '@/lib/review-ui';
 
 export const dynamic = 'force-dynamic';
 
 export default async function CashPage() {
+  const user = await pageUser();
+  const canReview = can(user as never, 'cash.review');
+  const canReverse = can(user as never, 'cash.reverse');
+  const canReconcile = can(user as never, 'cash.reconcile');
   const today = new Date().toISOString().slice(0, 10);
-  const [accounts, instructions, ledger, report, submissions, cashCandidates] = await Promise.all([
+  const [accounts, instructions, ledger, report, submissions, cashCandidates, reconciliations] = await Promise.all([
     listAccounts(), listInstructions({}), listLedger({limit: 60}),
     incomeExpense(`${today.slice(0, 8)}01`, today),
-    rows<{id: string; state: string; submitted_by: string; created_at: string; display_name: string | null}>(
-      'SELECT s.id, s.state, s.submitted_by, s.created_at, u.display_name FROM cash_submissions s LEFT JOIN cash_portal_users u ON u.id = s.submitted_by ORDER BY s.created_at DESC LIMIT 30',
+    rows<{id: string; state: string; submitted_by: string; created_at: string; instruction_id: string | null; display_name: string | null}>(
+      'SELECT s.id, s.state, s.submitted_by, s.created_at, s.instruction_id, u.display_name FROM cash_submissions s LEFT JOIN cash_portal_users u ON u.id = s.submitted_by ORDER BY s.created_at DESC LIMIT 30',
     ),
     listCashReviewCandidates({state: 'PENDING_REVIEW', limit: 50}),
+    listReconciliations(25),
   ]);
   const pending = instructions.filter((instruction) => (instruction as {state: string}).state === 'REVIEW').slice(0, 20);
 
@@ -81,7 +87,7 @@ export default async function CashPage() {
       <section className="card" style={{marginBottom: 18}}>
         <div className="page-head" style={{marginBottom: 8}}>
           <div><h3>Cash review candidates ({cashCandidates.length})</h3></div>
-          <span className="muted">Reviewers can inspect source evidence and correct supported fields. Approving a candidate does not post or settle funds.</span>
+          <span className="muted">Reviewers can inspect source evidence and correct supported fields. Approving a candidate creates a linked REVIEW instruction; it never posts or settles funds.</span>
         </div>
         {cashCandidates.length ? (
           <table>
@@ -117,19 +123,24 @@ export default async function CashPage() {
       <section className="card">
         <h3>Instructions ({instructions.length})</h3>
         <table>
-          <thead><tr><th>Payee</th><th>Method</th><th>Amount</th><th>State</th><th>Source</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Instruction</th><th>Payee</th><th>Method</th><th>Amount</th><th>State</th><th>Source</th><th>Actions</th></tr></thead>
           <tbody>
             {instructions.slice(0, 40).map((instruction) => {
               const item = instruction as unknown as {
                 id: string; employee_name: string; method: string; amount_minor: string; state: string;
                 source_channel?: string | null; source_message_id?: string | null; source_block_key?: string | null;
+                reversal_id?: string | null; reversed_at?: string | null; reversal_reason?: string | null;
               };
               return (
                 <tr key={item.id}>
+                  <td><Link href={`/cash/${item.id}`} style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.id}</Link></td>
                   <td>{item.employee_name}</td>
                   <td>{item.method}</td>
                   <td>{money(item.amount_minor)}</td>
-                  <td><span className={`pill ${item.state === 'POSTED' ? 'ok' : item.state === 'REJECTED' ? 'bad' : 'warn'}`}>{item.state}</span></td>
+                  <td>
+                    <span className={`pill ${item.state === 'POSTED' ? 'ok' : item.state === 'VOID' || item.state === 'REJECTED' ? 'bad' : 'warn'}`}>{item.state}</span>
+                    {item.reversal_id ? <div className="muted" style={{fontSize: 10}}>reversed {when(item.reversed_at)}</div> : null}
+                  </td>
                   <td style={{maxWidth: 260}}>
                     <div className="muted" style={{fontSize: 11}}>{item.source_channel ?? 'WEB'}</div>
                     {item.source_message_id ? (
@@ -147,12 +158,14 @@ export default async function CashPage() {
                       </div>
                     ) : item.state === 'APPROVED' ? (
                       <ActionForm compact endpoint="/api/finance" action="instruction.post" submitLabel="Post" hidden={{id: item.id}} fields={[]} />
+                    ) : item.state === 'POSTED' && canReverse ? (
+                      <ActionForm compact endpoint="/api/finance" action="instruction.reverse" submitLabel="Reverse" hidden={{id: item.id}} fields={[{name: 'reason', label: 'Reversal reason', required: true}]} />
                     ) : <span className="muted">—</span>}
                   </td>
                 </tr>
               );
             })}
-            {!instructions.length ? <tr><td colSpan={6} className="muted">No instructions yet.</td></tr> : null}
+            {!instructions.length ? <tr><td colSpan={7} className="muted">No instructions yet.</td></tr> : null}
           </tbody>
         </table>
         {pending.length ? <p className="muted">{pending.length} instruction(s) awaiting approval. Posting remains a separate explicit admin action.</p> : null}
@@ -192,19 +205,87 @@ export default async function CashPage() {
             ]}
           />
           <table>
-            <thead><tr><th>Submitted by</th><th>State</th></tr></thead>
+            <thead><tr><th>Submitted by</th><th>State</th><th>Instruction</th><th>Decision</th></tr></thead>
             <tbody>
               {submissions.map((submission) => (
                 <tr key={submission.id}>
                   <td>{submission.display_name ?? submission.submitted_by.slice(0, 12)}</td>
                   <td><span className={`pill ${submission.state === 'APPROVED' ? 'ok' : submission.state === 'REJECTED' ? 'bad' : 'warn'}`}>{submission.state}</span></td>
+                  <td>{submission.instruction_id ? <Link href={`/cash/${submission.instruction_id}`}>{submission.instruction_id}</Link> : <span className="muted">—</span>}</td>
+                  <td>
+                    {submission.state === 'PENDING_REVIEW' && canReview ? (
+                      <div className="row-actions">
+                        <ActionForm compact endpoint="/api/review" action="decide" submitLabel="Approve candidate" hidden={{id: submission.id, kind: 'cash_submission', decision: 'APPROVED'}} fields={[]} />
+                        <ActionForm compact endpoint="/api/review" action="decide" submitLabel="Reject candidate" hidden={{id: submission.id, kind: 'cash_submission', decision: 'REJECTED'}} fields={[{name: 'reason', label: 'Reason', required: true}]} />
+                      </div>
+                    ) : <span className="muted">—</span>}
+                  </td>
                 </tr>
               ))}
-              {!submissions.length ? <tr><td colSpan={2} className="muted">No submissions.</td></tr> : null}
+              {!submissions.length ? <tr><td colSpan={4} className="muted">No submissions.</td></tr> : null}
             </tbody>
           </table>
         </section>
       </div>
+
+      <section className="card" style={{marginBottom: 18}}>
+        <div className="page-head" style={{marginBottom: 8}}>
+          <div><h3>Reconciliation ({reconciliations.length})</h3></div>
+          <span className="muted">Expected balance is derived from the immutable ledger. A non-zero variance must be explained; closing never posts an automatic adjustment.</span>
+        </div>
+        {canReconcile ? (
+          <div className="split" style={{marginBottom: 12}}>
+            <ActionForm
+              title="Start reconciliation"
+              endpoint="/api/finance"
+              action="reconciliation.create"
+              submitLabel="Record count"
+              fields={[
+                {name: 'accountId', label: 'Account', type: 'select', required: true,
+                  options: accounts.map((account) => ({value: account.id, label: `${account.code} — ${account.name}`}))},
+                {name: 'periodStart', label: 'Period start', type: 'date', required: true, defaultValue: today.slice(0, 8) + '01'},
+                {name: 'periodEnd', label: 'Period end', type: 'date', required: true, defaultValue: today},
+                {name: 'countedBalance', label: 'Counted balance (BDT)', required: true, placeholder: '0.00'},
+                {name: 'note', label: 'Note'},
+              ]}
+            />
+            <ActionForm
+              title="Close reconciliation"
+              endpoint="/api/finance"
+              action="reconciliation.close"
+              submitLabel="Close"
+              fields={[
+                {name: 'id', label: 'Reconciliation id', required: true},
+                {name: 'note', label: 'Closing note (required for variance)', type: 'textarea'},
+              ]}
+            />
+          </div>
+        ) : null}
+        <table>
+          <thead><tr><th>Period</th><th>Account</th><th>Expected</th><th>Counted</th><th>Variance</th><th>State</th><th>Note</th></tr></thead>
+          <tbody>
+            {reconciliations.map((row) => {
+              const item = row as unknown as {
+                id: string; account_code: string; period_start: string; period_end: string;
+                expected_balance_minor: string; counted_balance_minor: string; variance_minor: string;
+                state: string; note: string | null;
+              };
+              return (
+                <tr key={item.id}>
+                  <td>{item.period_start} → {item.period_end}<div className="muted" style={{fontFamily: 'ui-monospace, monospace', fontSize: 10}}>{item.id}</div></td>
+                  <td>{item.account_code}</td>
+                  <td>{money(item.expected_balance_minor)}</td>
+                  <td>{money(item.counted_balance_minor)}</td>
+                  <td><span className={`pill ${Number(item.variance_minor) === 0 ? 'ok' : 'warn'}`}>{money(item.variance_minor)}</span></td>
+                  <td>{item.state}</td>
+                  <td>{item.note ?? '—'}</td>
+                </tr>
+              );
+            })}
+            {!reconciliations.length ? <tr><td colSpan={7} className="muted">No reconciliations recorded.</td></tr> : null}
+          </tbody>
+        </table>
+      </section>
     </>
   );
 }

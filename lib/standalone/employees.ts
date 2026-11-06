@@ -1,5 +1,7 @@
+import type {PoolClient} from 'pg';
 import {row, rows, tx, text, optionalText, mobile, isoDate, DomainError, type Actor} from './db.ts';
 import {recordAudit} from './audit.ts';
+import {assertCapability} from './authz.ts';
 
 export type EmployeeRow = {
   employee_mobile: string;
@@ -63,7 +65,7 @@ export type EmployeeInput = {
   notes?: string | null;
 };
 
-export async function createEmployee(actor: Actor, input: EmployeeInput) {
+async function createEmployeeOn(client: Pick<PoolClient, 'query'>, actor: Actor, input: EmployeeInput) {
   const employeeMobile = mobile(input.employeeMobile, 'employeeMobile');
   const preferredName = text(input.preferredName, 'preferredName', {max: 150});
   const dutyType = optionalText(input.dutyType, 'dutyType', 20);
@@ -74,55 +76,61 @@ export async function createEmployee(actor: Actor, input: EmployeeInput) {
   const joinedOn = input.joinedOn ? isoDate(input.joinedOn, 'joinedOn') : null;
   const notes = optionalText(input.notes, 'notes', 2000);
 
-  return tx(async (client) => {
-    const existing = await client.query<{employee_mobile: string; preferred_name: string}>(
-      'SELECT employee_mobile, preferred_name FROM employees WHERE employee_mobile = $1',
-      [employeeMobile],
-    );
-    if (existing.rowCount) {
-      // Same mobile = same employee. A different name becomes an alias, never a
-      // second employee.
-      const current = existing.rows[0];
-      if (current.preferred_name.toLowerCase() !== preferredName.toLowerCase()) {
-        await client.query(
-          `UPDATE employees
-              SET name_aliases = (
-                    SELECT array_agg(DISTINCT v) FROM unnest(name_aliases || ARRAY[$1]::text[]) AS v
-                  ),
-                  revision = revision + 1
-            WHERE employee_mobile = $2`,
-          [preferredName, employeeMobile],
-        );
-      }
-      await recordAudit({actor, action: 'EMPLOYEE_EXISTS', entity: 'employee', entityId: employeeMobile});
-      return {created: false, employeeMobile};
+  const existing = await client.query<{employee_mobile: string; preferred_name: string}>(
+    'SELECT employee_mobile, preferred_name FROM employees WHERE employee_mobile = $1',
+    [employeeMobile],
+  );
+  if (existing.rowCount) {
+    // Same mobile = same employee. A different name becomes an alias, never a
+    // second employee.
+    const current = existing.rows[0];
+    if (current.preferred_name.toLowerCase() !== preferredName.toLowerCase()) {
+      await client.query(
+        `UPDATE employees
+            SET name_aliases = (
+                  SELECT array_agg(DISTINCT v) FROM unnest(name_aliases || ARRAY[$1]::text[]) AS v
+                ),
+                revision = revision + 1
+          WHERE employee_mobile = $2`,
+        [preferredName, employeeMobile],
+      );
     }
-    await client.query(
-      `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, joined_on, notes, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [employeeMobile, preferredName, dutyType, designation, joinedOn, notes, actor.id],
-    );
-    await recordAudit({
-      actor, action: 'EMPLOYEE_CREATED', entity: 'employee', entityId: employeeMobile,
-      detail: {preferredName, dutyType},
-    });
-    return {created: true, employeeMobile};
-  });
+    await recordAudit({actor, action: 'EMPLOYEE_EXISTS', entity: 'employee', entityId: employeeMobile}, client);
+    return {created: false, employeeMobile};
+  }
+  await client.query(
+    `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, joined_on, notes, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [employeeMobile, preferredName, dutyType, designation, joinedOn, notes, actor.id],
+  );
+  await recordAudit({
+    actor, action: 'EMPLOYEE_CREATED', entity: 'employee', entityId: employeeMobile,
+    detail: {preferredName, dutyType},
+  }, client);
+  return {created: true, employeeMobile};
 }
 
-export async function updateEmployee(
+export async function createEmployee(actor: Actor, input: EmployeeInput, client?: Pick<PoolClient, 'query'>) {
+  assertCapability(actor, 'employee.manage');
+  if (client) return createEmployeeOn(client, actor, input);
+  return tx((txClient) => createEmployeeOn(txClient, actor, input));
+}
+
+async function updateEmployeeOn(
+  client: Pick<PoolClient, 'query'>,
   actor: Actor,
   employeeMobile: string,
   patch: {preferredName?: string; dutyType?: string | null; designation?: string | null; state?: string; notes?: string | null},
 ) {
   const key = mobile(employeeMobile, 'employeeMobile');
-  const employee = await row<{revision: number} & EmployeeRow>('SELECT * FROM employees WHERE employee_mobile = $1', [key]);
+  const existing = await client.query<EmployeeRow>('SELECT * FROM employees WHERE employee_mobile = $1 FOR UPDATE', [key]);
+  const employee = existing.rows[0];
   if (!employee) throw new DomainError('EMPLOYEE_NOT_FOUND', 404);
   const nextState = patch.state ?? employee.state;
   if (!['ACTIVE', 'INACTIVE', 'SUSPENDED'].includes(nextState)) throw new DomainError('INVALID_STATE');
   const dutyType = patch.dutyType === undefined ? employee.duty_type : optionalText(patch.dutyType, 'dutyType', 20);
   if (dutyType && !['escort', 'crew', 'office', 'other'].includes(dutyType)) throw new DomainError('INVALID_DUTY_TYPE');
-  const updated = await row<EmployeeRow>(
+  const updated = await client.query<EmployeeRow>(
     `UPDATE employees
         SET preferred_name = $2, duty_type = $3, designation = $4, state = $5, notes = $6,
             revision = revision + 1
@@ -137,6 +145,17 @@ export async function updateEmployee(
       patch.notes === undefined ? employee.notes : optionalText(patch.notes, 'notes', 2000),
     ],
   );
-  await recordAudit({actor, action: 'EMPLOYEE_UPDATED', entity: 'employee', entityId: key, detail: {patch}});
-  return updated;
+  await recordAudit({actor, action: 'EMPLOYEE_UPDATED', entity: 'employee', entityId: key, detail: {patch}}, client);
+  return updated.rows[0];
+}
+
+export async function updateEmployee(
+  actor: Actor,
+  employeeMobile: string,
+  patch: {preferredName?: string; dutyType?: string | null; designation?: string | null; state?: string; notes?: string | null},
+  client?: Pick<PoolClient, 'query'>,
+) {
+  assertCapability(actor, 'employee.manage');
+  if (client) return updateEmployeeOn(client, actor, employeeMobile, patch);
+  return tx((txClient) => updateEmployeeOn(txClient, actor, employeeMobile, patch));
 }

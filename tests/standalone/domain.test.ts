@@ -1,7 +1,7 @@
 // Domain-level integration tests. Require the disposable database prepared by
 // scripts/standalone/install.mjs (see tests/standalone/README.md).
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, {before} from 'node:test';
 import {createHash} from 'node:crypto';
 import {rows, row} from '../../lib/standalone/db.ts';
 import {createEmployee, updateEmployee, listEmployees} from '../../lib/standalone/employees.ts';
@@ -11,6 +11,9 @@ import {createInstruction, approveInstruction, postInstruction, listAccounts, cr
 import {submitForReview, decideReview} from '../../lib/standalone/review.ts';
 import {upsertRate, monthlySalary} from '../../lib/standalone/payroll.ts';
 import {hashBootstrapPassword} from '../../lib/cash-portal.ts';
+import {resetBusinessState} from './reset.mjs';
+
+before(async () => { await resetBusinessState('alrifai-domain-test-reset'); });
 
 const adminA = {id: 'a'.repeat(64), role: 'ADMIN' as const};
 const adminB = {id: 'b'.repeat(64), role: 'ADMIN' as const};
@@ -139,7 +142,7 @@ test('review: staff submit, admin decides, self-review refused', async () => {
     payload: {employeeMobile: '01812345678', preferredName: 'Karim Mia', dutyType: 'crew'},
   });
   assert.equal(item.state, 'PENDING');
-  await assert.rejects(() => decideReview(user, item.id, 'APPROVED'), /ADMIN_REQUIRED/);
+  await assert.rejects(() => decideReview(user, item.id, 'APPROVED'), /ADMIN_REQUIRED|CAPABILITY_REQUIRED/);
   const decided = await decideReview(adminA, item.id, 'APPROVED');
   assert.equal(decided.state, 'APPROVED');
   const employee = await row('SELECT preferred_name FROM employees WHERE employee_mobile = $1', ['+8801812345678']);

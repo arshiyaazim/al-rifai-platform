@@ -1,5 +1,7 @@
-import {rows, row, tx, isoDate, shift, mobile, text, DomainError, type Actor} from './db.ts';
+import type {PoolClient} from 'pg';
+import {rows, tx, isoDate, shift, mobile, text, DomainError, type Actor} from './db.ts';
 import {recordAudit, stableId} from './audit.ts';
+import {assertCapability} from './authz.ts';
 
 export type AttendanceInput = {
   employeeMobile: string;
@@ -9,7 +11,7 @@ export type AttendanceInput = {
   hours?: number | null;
 };
 
-export async function recordAttendance(actor: Actor, input: AttendanceInput) {
+async function recordAttendanceOn(client: Pick<PoolClient, 'query'>, actor: Actor, input: AttendanceInput) {
   const employeeMobile = mobile(input.employeeMobile, 'employeeMobile');
   const dutyDate = isoDate(input.dutyDate, 'dutyDate');
   const dutyShift = shift(input.shift);
@@ -18,22 +20,26 @@ export async function recordAttendance(actor: Actor, input: AttendanceInput) {
   const hours = input.hours === undefined || input.hours === null ? null : Number(input.hours);
   if (hours !== null && (!Number.isFinite(hours) || hours < 0 || hours > 24)) throw new DomainError('INVALID_HOURS');
 
-  return tx(async (client) => {
-    const employee = await client.query('SELECT 1 FROM employees WHERE employee_mobile = $1', [employeeMobile]);
-    if (!employee.rowCount) throw new DomainError('EMPLOYEE_NOT_FOUND', 404);
-    const id = stableId('att', [employeeMobile, dutyDate, dutyShift]);
-    const result = await client.query(
-      `INSERT INTO attendance (id, employee_mobile, duty_date, shift, state, hours, source, recorded_by)
-       VALUES ($1,$2,$3,$4,$5,$6,'WEB',$7)
-       ON CONFLICT (employee_mobile, duty_date, shift) DO UPDATE
-         SET state = EXCLUDED.state, hours = EXCLUDED.hours
-       RETURNING *`,
-      [id, employeeMobile, dutyDate, dutyShift, state, hours, actor.id],
-    );
-    await recordAudit({actor, action: 'ATTENDANCE_RECORDED', entity: 'attendance', entityId: id,
-      detail: {employeeMobile, dutyDate, shift: dutyShift, state, hours}});
-    return result.rows[0];
-  });
+  const employee = await client.query('SELECT 1 FROM employees WHERE employee_mobile = $1', [employeeMobile]);
+  if (!employee.rowCount) throw new DomainError('EMPLOYEE_NOT_FOUND', 404);
+  const id = stableId('att', [employeeMobile, dutyDate, dutyShift]);
+  const result = await client.query(
+    `INSERT INTO attendance (id, employee_mobile, duty_date, shift, state, hours, source, recorded_by)
+     VALUES ($1,$2,$3,$4,$5,$6,'WEB',$7)
+     ON CONFLICT (employee_mobile, duty_date, shift) DO UPDATE
+       SET state = EXCLUDED.state, hours = EXCLUDED.hours
+     RETURNING *`,
+    [id, employeeMobile, dutyDate, dutyShift, state, hours, actor.id],
+  );
+  await recordAudit({actor, action: 'ATTENDANCE_RECORDED', entity: 'attendance', entityId: id,
+    detail: {employeeMobile, dutyDate, shift: dutyShift, state, hours}}, client);
+  return result.rows[0];
+}
+
+export async function recordAttendance(actor: Actor, input: AttendanceInput, client?: Pick<PoolClient, 'query'>) {
+  assertCapability(actor, 'attendance.manage');
+  if (client) return recordAttendanceOn(client, actor, input);
+  return tx((txClient) => recordAttendanceOn(txClient, actor, input));
 }
 
 export async function listAttendance(filters: {from?: string; to?: string; employee?: string; limit?: number} = {}) {
@@ -65,11 +71,14 @@ export async function attendanceSummary(month?: string) {
 }
 
 export async function deleteAttendance(actor: Actor, id: string) {
-  const existing = await row<{id: string}>('SELECT id FROM attendance WHERE id = $1', [id]);
-  if (!existing) throw new DomainError('ATTENDANCE_NOT_FOUND', 404);
-  await row('DELETE FROM attendance WHERE id = $1 RETURNING id', [id]);
-  await recordAudit({actor, action: 'ATTENDANCE_DELETED', entity: 'attendance', entityId: id});
-  return {id};
+  assertCapability(actor, 'attendance.manage');
+  return tx(async (client) => {
+    const existing = await client.query<{id: string}>('SELECT id FROM attendance WHERE id = $1 FOR UPDATE', [id]);
+    if (!existing.rowCount) throw new DomainError('ATTENDANCE_NOT_FOUND', 404);
+    await client.query('DELETE FROM attendance WHERE id = $1', [id]);
+    await recordAudit({actor, action: 'ATTENDANCE_DELETED', entity: 'attendance', entityId: id}, client);
+    return {id};
+  });
 }
 
 export const attendanceText = text;

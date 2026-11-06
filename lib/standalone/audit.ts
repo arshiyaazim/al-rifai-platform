@@ -1,4 +1,5 @@
 import {createHash, randomUUID} from 'node:crypto';
+import type {PoolClient} from 'pg';
 import {rows, row, type Actor} from './db.ts';
 
 export type AuditInput = {
@@ -11,22 +12,32 @@ export type AuditInput = {
   sourceRef?: string | null;
 };
 
-/** Append-only audit record. There is no update or delete path anywhere. */
-export async function recordAudit(input: AuditInput): Promise<void> {
-  await row(
+/**
+ * Append-only audit record. There is no update or delete path anywhere.
+ *
+ * When a business mutation runs inside `tx()`, pass that transaction's client
+ * so the audit row commits or rolls back with the mutation. Calling this
+ * without a client remains valid for standalone audit events.
+ */
+export async function recordAudit(input: AuditInput, client?: Pick<PoolClient, 'query'>): Promise<void> {
+  const params = [
+    input.actor.id,
+    input.actor.role ?? null,
+    input.action.slice(0, 80),
+    input.entity.slice(0, 60),
+    input.entityId ?? null,
+    JSON.stringify(input.detail ?? {}),
+    input.source ?? 'WEB',
+    input.sourceRef ?? null,
+  ];
+  const sql =
     `INSERT INTO audit_events (actor, actor_role, action, entity, entity_id, detail, source, source_ref)
-     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING id`,
-    [
-      input.actor.id,
-      input.actor.role ?? null,
-      input.action.slice(0, 80),
-      input.entity.slice(0, 60),
-      input.entityId ?? null,
-      JSON.stringify(input.detail ?? {}),
-      input.source ?? 'WEB',
-      input.sourceRef ?? null,
-    ],
-  );
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8) RETURNING id`;
+  if (client) {
+    await client.query(sql, params);
+    return;
+  }
+  await row(sql, params);
 }
 
 export type AuditListRow = {

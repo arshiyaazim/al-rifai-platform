@@ -28,7 +28,7 @@
 // admin's existing outgoing reply.
 // WA-02 is raw-ingestion/identity-only; no business processing from WA-02.
 
-import {row, rows, tx, DomainError, type Actor} from './standalone/db.ts';
+import {row, rows, tx, type Actor} from './standalone/db.ts';
 import {newId, stableId, recordAudit} from './standalone/audit.ts';
 import {createInstruction} from './standalone/finance.ts';
 import {createProgram, potentialDuplicates} from './standalone/programs.ts';
@@ -84,6 +84,12 @@ export type ReviewCategory =
   | 'PROCESSING_ERROR';
 
 // ── Live Router activation / cutover configuration ──────────────────────
+// Automated router writes are attributed to a stable system identity. The
+// invoking human is recorded on the batch audit row. This is what allows the
+// sole human Administrator to review and approve router-created Cash items
+// without violating the "reviewer is not submitter" rule.
+const SYSTEM_ACTOR: Actor = {id: 'system:whatsapp-router', role: 'ADMIN'};
+
 const ROUTER_ENABLED_KEY = 'phase3_router_enabled';
 const cutoverKey = (accountId: string) => `phase3_cutover_rowid:${accountId}`;
 const businessChatsKey = (accountId: string) => `phase3_business_chats:${accountId}`;
@@ -900,7 +906,7 @@ export async function routePendingMessages(
             action = 'ignored';
             result.ignored += 1;
           } else {
-            const cashResult = await handleCash(actor, message, text);
+            const cashResult = await handleCash(SYSTEM_ACTOR, message, text);
             result.instructions += cashResult.created ? 1 : 0;
             result.reviewItems += cashResult.reviewSubmitted ? 1 : 0;
             classification = cashResult.created
@@ -917,7 +923,7 @@ export async function routePendingMessages(
           action = 'ignored';
           result.ignored += 1;
         } else if (domain === 'VESSEL' && message.direction === 'INCOMING') {
-          const vesselResult = await handleVessel(actor, message, text);
+          const vesselResult = await handleVessel(SYSTEM_ACTOR, message, text);
           result.programs += vesselResult.programsCreated ?? (vesselResult.created ? 1 : 0);
           result.reviewItems += vesselResult.reviewSubmitted ? 1 : 0;
           // Preserve the specific rejection reasons (WA-02 account and
@@ -939,7 +945,7 @@ export async function routePendingMessages(
           message.direction === 'OUTGOING' &&
           (chatAuth.purpose === 'ORDERS' || chatAuth.purpose === 'BOTH')
         ) {
-          const confResult = await handleConfirmation(actor, message, text, adminJids);
+          const confResult = await handleConfirmation(SYSTEM_ACTOR, message, text, adminJids);
           result.confirmations += confResult.confirmed ? 1 : 0;
           result.reviewItems += confResult.classification === 'CONFIRMATION_AMBIGUOUS' || confResult.classification === 'CONFIRMATION_UNMATCHED' ? 1 : 0;
           classification = confResult.classification;
@@ -1012,7 +1018,7 @@ export async function routePendingMessages(
     actor,
     action: 'WHATSAPP_ROUTER_BATCH',
     entity: 'whatsapp',
-    detail: result,
+    detail: {...result, invokedBy: actor.id},
     source: 'SYSTEM',
   });
 
