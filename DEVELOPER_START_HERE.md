@@ -298,6 +298,69 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 - **Runtime/deps:** no new npm packages; Dockerfile/compose unchanged; the router is app-side (`/api/whatsapp` `route`/`process`), not the sync worker; no new bridge permissions. Cash remains REVIEW/PENDING_REVIEW only (no posting/approval/ledger); WA-02 remains rejected.
 - **Verdict:** code and integration tests are ready (49/49 twice), but production deployment is **BLOCKED** on the migration path, the historical reprocessing guard, and the vessel authorization data; it also needs a fresh pre-Phase-3 backup and an Owner decision on CI evidence.
 
+### Phase 3 historical cutover design — 2026-11-06 (DESIGN ONLY; not implemented)
+
+**Current pipeline (ordered):**
+1. Bridge SQLite `messages.db` (WA-01/WA-02) is append-only; the sync worker reads rows above `whatsapp_sync_state.last_rowid`.
+2. The worker upserts `whatsapp_messages` with `(account_id, chat_jid, message_id)` identity, `source_rowid`, `source_timestamp`, direction, sender, text and media metadata, then commits the checkpoint.
+3. Migration 004 adds `processing_status` with `DEFAULT 'PENDING'`; the worker does not set it, so **every existing and newly mirrored row is PENDING**.
+4. An ADMIN `POST /api/whatsapp` action `route` (or `process`, which delegates to the same `routePendingMessages()`) claims all PENDING/FAILED/PROCESSING rows with **no historical cutoff**, classifies them and creates Cash REVIEW instructions / Vessel DRAFT programs / review items.
+5. Cash is WA-01 Admin OUTGOING in a CASH/BOTH chat; Vessel is WA-01 INCOMING in an ORDERS/BOTH chat with an authorized participant; WA-02 is rejected for business processing; no posting/approval/ledger.
+
+**Root cause of the replay risk:** 004's `DEFAULT 'PENDING'` backfills all **34,355** production messages to PENDING; the router claims every PENDING row; production has **2,010 chats all `purpose='BOTH', authorized=true`** (1,959 direct / 51 group) from the Phase 2 capture import, and `whatsapp_accounts.admin_jids` is **empty (length 0)**. Cash is currently fail-closed by the empty admin list, but Vessel direct chats are auto-authorized; once admin JIDs are configured, a single route/process call would parse the whole history. Sync checkpoints are `wa-01 = 19,588` and `wa-02 = 15,145`; all 34,355 rows have `source_rowid` (0 nulls).
+
+**Strategy comparison:**
+
+| Strategy | Safety | Delayed msgs | Replay/restart | Rollback | Complexity |
+|---|---|---|---|---|---|
+| A. `source_timestamp` cutoff | Unsafe: WhatsApp time ≠ ingestion order; delayed/queued messages are misclassified | Excludes valid delayed messages | Fragile | Simple | Low |
+| B. Monotonic watermark (`whatsapp_sync_state.last_rowid` / `source_rowid` / `id`) | Safe: append-only order | New rowid → eligible even with an old timestamp | Safe | Watermark is immutable | Medium |
+| C. Explicit `processing_eligible` flag set by the worker | Safest/explicit | Safe | Safe | Needs worker + schema change | High |
+| D. Migration-time marking of historical rows | Safe if the watermark is correct | Safe | Idempotent | Data-only; Phase 2 ignores it | Low |
+
+**Recommended: B + D + an activation gate + a separate business-authorization allowlist.**
+- Capture the cutover watermark **before** the update, in the migration transaction: per account `whatsapp_sync_state.last_rowid` (and optionally the global `max(id)`), stored in `app_settings` (`phase3_cutover_rowid:wa-01`, `phase3_cutover_rowid:wa-02`, `phase3_cutover_id`).
+- Mark historical rows `processing_status='COMPLETED'`, `classification='HISTORICAL_PRE_PHASE3'`, `processed_at=now()` where `source_rowid <= cutover`. Rows with `source_rowid > cutover` stay PENDING and are the only new eligible messages. History remains stored and queryable.
+- Add a router activation gate (e.g., `app_settings.phase3_router_enabled` or a dedicated env flag); the route/process action refuses with `ROUTER_DISABLED` until the migration and authorization setup are complete.
+- Add a defense-in-depth router guard: `source_rowid > cutover` (fallback `id > cutover_id` only when `source_rowid` is null). This prevents a stray PENDING historical row from being claimed even if the marking is skipped or re-run.
+- Replace the capture-scope authorization with an explicit business allowlist before enabling: set every `whatsapp_chats` row to `authorized=false` and configure only the Owner-approved Cash/Orders chats with the correct purpose, **or** add a separate `whatsapp_processing_chats` allowlist. Configure the verified WA-01 Admin JID(s) in `whatsapp_accounts.admin_jids` and populate `escort_client_group_authorizations` for approved group participants. Do not reuse the Phase 2 “capture everything” `BOTH/true` rows as business authorization.
+
+**How migration/deployment timing is handled:** the router is disabled while the migration runs. New bridge rows arriving during the migration have `source_rowid` above the captured checkpoint, so they are not marked historical and remain PENDING for post-enable processing. A worker restart/replay cannot lower the watermark; the `ON CONFLICT` upsert updates existing rows and does not create rows below the checkpoint. Delayed WhatsApp messages with old timestamps but new rowids are eligible, which is the intended behavior. After the migration commits, the Owner configures the business allowlist and enables the router.
+
+**Required future changes (not implemented):**
+- Migration: append the cutover capture/marking to 004, or add a new `008_phase3_cutover.sql` after 007 (recommended for separation; bump `schema_meta` accordingly).
+- Router: activation-gate check and the watermark guard in `claimMessages()`; return `ROUTER_DISABLED`/`HISTORICAL_SKIPPED` rather than silently processing.
+- Authorization: the explicit chat/participant/Admin allowlist described above.
+- Tests: focused cutover tests (see below), plus the existing 49-test suite.
+
+**Race-condition analysis:**
+- Migration vs sync worker: the checkpoint is captured first; bridge rowids are append-only; rows above it are new and stay PENDING. Rows at/below it are already committed and correctly marked historical.
+- Router vs migration: the activation gate prevents claims until the migration commits; the router then sees the final rows.
+- Concurrent routers: `FOR UPDATE SKIP LOCKED` + the `PROCESSING` status ensure one claimer.
+- Crash/restart: `PROCESSING` older than 30 minutes is reclaimed; `FAILED` retries after the 10-minute backoff with `retry_count < 10`; `processing_status` prevents duplicate work after restart.
+- Duplicate replay: message identity plus the Cash `cash_instructions_source_identity` / program duplicate rules keep business rows unique.
+- Unauthorized chats/participants: the allowlist and `escort_client_group_authorizations` remain fail-closed; WA-02 is rejected.
+- Delayed messages: new `source_rowid` → eligible; timestamps are never used for eligibility.
+
+**Test plan (isolated test DB; not yet added):**
+1. Pre-cutover historical PENDING row (`source_rowid <= cutoff`) → cutover marking → router processes 0; row is COMPLETED/HISTORICAL.
+2. Post-cutover row (`source_rowid > cutoff`) → processed into the expected Cash/Vessel record.
+3. Delayed message with an old `source_timestamp` but a new `source_rowid` → eligible.
+4. Duplicate replay of a post-cutover message → no duplicate instruction/program.
+5. Concurrent router calls → one claim.
+6. Crash recovery (`PROCESSING` older than 30 minutes) → reclaimed without duplication.
+7. Unauthorized chat (`authorized=false`/wrong purpose) → ignored.
+8. WA-02 message → no Cash/Vessel record.
+9. Cash-vs-Vessel separation: payment text in an ORDERS chat, vessel text in a CASH chat → no cross-domain record.
+10. Activation gate disabled → route/process returns `ROUTER_DISABLED` and writes nothing.
+11. Empty `admin_jids` → Cash rejected; configured Admin JID → processed.
+12. A new row inserted during the cutover → remains eligible, not marked historical.
+13. Re-running the cutover marking → idempotent; no new rows marked.
+
+**Rollback:** the cutover is a data update; the Phase 2 app ignores the new columns, so an app-only rollback to `20261105-phase2` is safe. Re-running the cutover only marks rows at/below the fixed watermark. A full DB rollback to 1.2.0 still requires a fresh restore; no down migrations. Keep the `20261105-phase2` image and take a fresh verified dump before the cutover.
+
+**Owner decisions required:** the authorized Cash chat(s), Orders chat(s), group participants and WA-01 Admin JID(s); the cutover window and router-enable time; B+D versus adding the explicit `processing_eligible` flag (C); whether to pause ingestion during the index/marking window; acceptance of no CI run (billing lock); and whether any historical backfill is ever approved (separate task only).
+
 ## 11. Mandatory maintenance rule — overwrite current state, do not append history
 
 **Every code, configuration, schema, feature, workflow, port, URL, folder, Docker, Git, or deployment change MUST update this file in the same commit.** This includes feature removals and failed/blocked implementations that materially affect the current picture.
