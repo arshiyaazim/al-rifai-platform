@@ -23,14 +23,16 @@ silence is not approval.
 | Item | Value |
 |---|---|
 | Branch | `feature/phase3-router-cash-vessel` |
-| Code commit | `545d374` (`feature/phase3-router-cash-vessel`) |
-| Candidate image | `local/al-rifai-platform:phase3-ai-rc-545d374` |
-| Candidate digest | `sha256:2ef776f2b75b3803c781be313cac7fb7f8de12c95e3479ed456224e9ac463f38` |
+| Release commit | `e3b56c4` (`main`, merge of `078352f`) |
+| Feature branch | `feature/phase3-router-cash-vessel` at `078352f` |
+| Candidate image | `local/al-rifai-platform:phase3-ai-rc-e3b56c4` |
+| Candidate digest | `sha256:0625fd9034952ecbb861dfb3f518393742b678e01f0c1ad4830183404a6a7720` |
 | Production DB | `alrifai_v2_phase3`, schema `1.4.0` |
 | Test DB | `alrifai_v2_test`, schema `1.5.0`, 46 tables |
-| Tests | 83/83 unit, 110/110 integration |
+| Tests | 83/83 unit, 112/112 integration (verified at `e3b56c4`) |
 | Checks | typecheck, lint, Next build, Docker build, `pnpm audit --prod` |
-| Candidate smoke | health 200 on the migrated clone, `schemaVersion 1.5.0`, `/api/assistant` 401, both workers disabled |
+| Candidate smoke | health 200 on the migrated clone, `schemaVersion 1.5.0`; `/vessel`, `/employees`, `/attendance`, `/api/assistant` all 401; both workers disabled |
+| GitHub | `main` and tag `v2.0.0-phase3-ai` point at the verified release source |
 
 Migration rehearsal evidence (2026-11-06):
 
@@ -143,7 +145,7 @@ Expected: `schemaVersion 1.5.0`, `tables 46`, `migrations 8`.
 
 ```bash
 cd /opt/vps/al-rifai-standalone/apps/al-rifai
-ALRIFAI_TAG=phase3-ai-rc-545d374 docker compose up -d app sync
+ALRIFAI_TAG=phase3-ai-rc-e3b56c4 docker compose up -d app sync
 docker ps --filter name=al-rifai-phase3
 curl -sk https://app.al-rifai.iamazim.com/api/health
 ```
