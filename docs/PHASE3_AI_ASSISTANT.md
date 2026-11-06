@@ -1,6 +1,10 @@
 # Phase 3 WA-02 AI Communication Foundation
 
 **Status:** IMPLEMENTED AND TESTED in an isolated branch/database; **NOT DEPLOYED**
+**Branch:** `feature/phase3-router-cash-vessel` at `e7ab9d1` (pushed)
+**Candidate image:** `local/al-rifai-platform:phase3-ai-dev-e7ab9d1`
+**Candidate digest:** `sha256:a309fc26b0c229f9e5dedcf9fbdca14c9a9b7cbb1481f914c133e03f0b3a7133`
+**Tests:** 77/77 unit, 104/104 integration; typecheck, lint, Next build, Docker build, audit clean
 **Production:** remains schema 1.4.0 on `alrifai_v2_phase3`
 **Development schema:** 1.5.0 with `009_phase3_ai_assistant.sql`
 **Feature flags:** `AI_WA02_ENABLED=0`, `AI_OUTBOUND_ENABLED=0`
