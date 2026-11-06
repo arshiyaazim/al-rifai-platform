@@ -1,5 +1,21 @@
 # AL-RIFA'I — Standalone Business Management Application
 
+## 🚀 Current Release: v1.4.0-phase3-rc
+
+- **Schema version:** 1.4.0
+- **Docker image:** `al-rifai-platform:phase3-rc-final4`
+- **Image digest:** `sha256:5ede13dfd0f452af5b41bd444321b03b151620844f5217958db71318c34ffaa2`
+- **Release branch merged:** `feature/phase3-router-cash-vessel` → `main`
+- **Merge commit:** `2e2a274`
+- **Release tag:** `v1.4.0-phase3-rc`
+- **Deployment guide:** See [`DEVELOPER_START_HERE.md`](./DEVELOPER_START_HERE.md)
+- **Rollback:** See [`PHASE3_ROLLBACK_INSTRUCTIONS.md`](./PHASE3_ROLLBACK_INSTRUCTIONS.md)
+
+**Production status:** not yet cut over. The running Phase 2 application and the
+`alrifai_v2` database remain untouched until Owner approval.
+
+---
+
 A lean, self-contained business application for small shipping/agency operations:
 employees and escorts, vessel programs and assignments, attendance, cash and
 accounts, payroll, approvals, reports — plus an optional WhatsApp relay adapter.
@@ -14,7 +30,7 @@ its own administrator, accounts, rates, relay and authorized chats.
 | Runtime | Node.js ≥ 22.13 (tested 22.23.4) |
 | Package manager | pnpm 11.25.0 (or npm/npx) |
 | Database | PostgreSQL 16 (≥ 13 supported by the SQL used) |
-| Framework | Next.js 16.3.8 |
+| Framework | Next.js 16.4.1 |
 | Schema | fresh baseline, `db/standalone/schema.sql` + additive migrations 002–008 (version 1.4.0) |
 
 ---

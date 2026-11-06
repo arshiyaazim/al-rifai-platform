@@ -2,17 +2,116 @@
 
 > **Canonical current-state developer map — not a changelog.** Read this first before modifying code, database, Docker, WhatsApp ingestion, or deployment.
 >
-> **Last reconciled:** 2026-11-06. **Source:** `feature/phase3-router-cash-vessel` at `d3b3a20` (pushed) (Live Router cutover gate, complete Cash lifecycle, capability enforcement, transaction-aware audit, incremental migration runner; **95/95 integration tests**, 69/69 unit tests); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
+> **Last reconciled:** 2026-11-06. **Source:** `main` at `2e2a274` (Phase 3 RC merged; tag `v1.4.0-phase3-rc`) (Live Router cutover gate, complete Cash lifecycle, capability enforcement, transaction-aware audit, incremental migration runner; **95/95 integration tests**, 69/69 unit tests); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
 >
 > **Priority:** **BUILD → RUN → LIVE → IMPROVE**. Do not block releases on unrelated legacy data migration, historical Git branches, exhaustive tests, or non-blocking cleanup. Never claim a workflow is live solely because code exists.
+
+## Database Migration Strategy (Phase 3)
+
+### Overview
+
+Phase 3 introduces schema **1.4.0**. The migration is **additive and
+non-destructive** — all existing production rows are preserved. The Phase 3
+chain adds five tables plus columns/indexes:
+
+| Object | Purpose |
+|---|---|
+| `program_source_messages` | multi-message Vessel provenance |
+| `escort_client_group_authorizations` | approved group participants |
+| `cash_reversals` | immutable reversal records |
+| `cash_reconciliations` | expected/counted/variance reconciliation |
+| `schema_migrations` | checksum-tracked migration ledger |
+
+It also adds router processing state and Cash source/correction columns, replaces
+the review pending index, and extends the ledger source check.
+
+### Baseline Strategy
+
+After the approved production migration to `1.4.0`, schema `1.4.0` becomes the
+new baseline. Future migrations must:
+
+1. start from schema version `1.4.0`;
+2. be recorded in `schema_migrations`;
+3. include a reversible down-migration where feasible;
+4. be rehearsed against a production copy before deployment.
+
+### Running Migrations
+
+This application reads the centralized `.env` / `PGHOST`, `PGPORT`,
+`PGDATABASE`, `PGSCHEMA`, `PGUSER`, `PGPASSWORD` variables. It does **not** use
+`DATABASE_URL`; use `PGDATABASE` to point at a rehearsal database.
+
+#### Fresh install (new database)
+
+```bash
+pnpm db:preflight
+pnpm db:install
+```
+
+#### Upgrade existing database
+
+```bash
+# Always back up first
+pg_dump -Fc -d alrifai_v2 -f backup_$(date +%Y%m%d_%H%M%S).dump
+
+# Dry run: shows pending additive migrations, changes nothing
+pnpm db:migrate --dry-run
+
+# Apply
+pnpm db:migrate
+
+# Verify
+pnpm db:verify
+psql -d alrifai_v2 -c "SELECT version, name, applied_at FROM schema_migrations ORDER BY applied_at DESC LIMIT 5;"
+```
+
+#### Rehearsal against a production copy
+
+```bash
+# 1. Dump production (read-only)
+pg_dump -Fc -d alrifai_v2 -f /tmp/prod_copy.dump
+
+# 2. Create an isolated rehearsal database
+createdb -O alrifai_app alrifai_v2_rehearsal
+pg_restore -d alrifai_v2_rehearsal --no-owner --role=alrifai_app /tmp/prod_copy.dump
+
+# 3. Migrate the rehearsal database
+PGDATABASE=alrifai_v2_rehearsal pnpm db:migrate
+
+# 4. Verify counts and schema
+PGDATABASE=alrifai_v2_rehearsal pnpm db:verify
+```
+
+Already rehearsed on 2026-11-06 against a real 34,420-message production dump:
+schema `1.2.0 → 1.4.0`, all messages/chats/aliases/media/users preserved.
+
+### Feature Flags (Phase 3)
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `PHASE3_ROUTER_WORKER_ENABLED` | `0` | Enables automatic WhatsApp → domain routing |
+| `ALRIFAI_VESSEL_PROCESSING_ENABLED` | `0` | Enables Vessel processing; disabled Vessel rows stay `PENDING` |
+
+**Both must remain `0` until Owner-controlled allowlists (chat JIDs, group
+participants, WA-01 Admin JIDs, cutover watermark, and the Cash capability
+matrix) are written to the database.** The database gate
+`phase3_router_enabled` and per-account watermark/allowlist are also required.
+
+### Rollback
+
+See [`PHASE3_ROLLBACK_INSTRUCTIONS.md`](./PHASE3_ROLLBACK_INSTRUCTIONS.md).
+
+### Deployment Checklist
+
+See [`PHASE3_VPS_RELEASE_CHECKLIST.md`](./PHASE3_VPS_RELEASE_CHECKLIST.md).
 
 ## 1. Identity and authoritative locations
 
 | Item | Current value / source |
 |---|---|
 | Git repository | https://github.com/arshiyaazim/al-rifai-platform |
-| Git branch | `feature/phase3-router-cash-vessel` at current HEAD (pushed; 95/95 integration, 69/69 unit); `main` untouched at `e6becfc` |
-| Verified baseline | `e6becfc` (Phase 2, `main`, untouched); Phase 3 verified on the feature branch at the completion commit. |
+| Git branch | `main` at `2e2a274` (Phase 3 RC merge; tag `v1.4.0-phase3-rc`); feature branch merged |
+| Verified baseline | Phase 2 `e6becfc`; Phase 3 merged into `main` at `2e2a274`. Production is still on Phase 2 until cutover. |
 | Local Git checkout (VPS) | `/opt/al-rifai-platform` (`main` at `e6becfc`) |
 | Phase 3 test worktree (VPS) | `/opt/al-rifai-phase3-test` at the Task 5F.2B commit (separate worktree; production source unchanged) |
 | Standalone app source / root `.env` (VPS) | `/opt/vps/al-rifai-standalone/apps/al-rifai` |
