@@ -2,7 +2,8 @@
 
 **Recorded:** 2026-11-06
 **Branch:** `feature/phase3-router-cash-vessel`
-**Release candidate commit:** `4e9ae01`
+**Release candidate code commit:** `4e9ae01`
+**Documentation tip:** `4c398a4` (docs-only; same application code as `4e9ae01`)
 **Schema:** `1.4.0`
 **Production deployment:** NOT EXECUTED
 
@@ -13,7 +14,7 @@
 | Tag | `al-rifai-platform:phase3-rc-4e9ae01` |
 | Manifest digest | `sha256:010e42bf149cfc1127afa51a39a3e21a1d94c1e55c933630d35f94be01f0b7ea` |
 | Image ID | `010e42bf149c` |
-| Build source | clean feature-branch commit `4e9ae01` |
+| Build source | clean feature-branch code commit `4e9ae01` |
 | Runtime | Node 22, Next.js 16.4.1, non-root `10001:10001` |
 
 The image was built locally only. It was not pushed, tagged as production, or
