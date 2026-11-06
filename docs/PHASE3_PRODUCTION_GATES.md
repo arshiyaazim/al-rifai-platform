@@ -483,3 +483,32 @@ docker compose --env-file /opt/vps/al-rifai-standalone/apps/al-rifai/.env \
 ```
 
 Without `--env-file`, the parameterised flags default to `0` (safe).
+
+---
+
+## 10. Adaptive-rules release candidate and pending production scope
+
+**Candidate:** `local/al-rifai-platform:phase3-ai-rc-86d659a`
+**Digest:** `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
+**Release source:** `86d659a` (tag `v2.3.0-phase3-adaptive-rules`)
+**Tests:** 97/97 unit, 120/120 integration.
+
+Pending production operations (each requires explicit approval):
+
+1. Deploy the candidate image; no schema change; rollback `e3b56c4`.
+2. Import master data: 218 employees (216 master + 2 derived), 23 rates,
+   94 programs, 93 pay rows, 439 attendance; no financial effect.
+3. Import posted Cash history: 1,586 instructions + 1,586 postings +
+   1,586 ledger entries; represented Cash Payment balance −85,225,900 minor.
+4. Import legacy Cash REVIEW backlog: 2,161 instructions; no posting.
+5. Run Cash coverage backfill: 52 new REVIEW instructions (5,431,100 minor),
+   45 duplicate candidates, 68 incomplete/ambiguous review candidates;
+   no posting; idempotent.
+
+Release handling is active for post-cutover release-group messages after
+deployment. Historical release messages below the 19634 watermark are not
+reprocessed as live events.
+
+The Accountant registry remains unconfigured in production, preserving the
+current chat-purpose behavior. It can be enabled later with
+`scripts/standalone/manage-authorized-contact.mjs` after Owner approval.
