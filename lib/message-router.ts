@@ -31,7 +31,7 @@
 import {row, rows, tx, type Actor} from './standalone/db.ts';
 import {newId, stableId, recordAudit} from './standalone/audit.ts';
 import {createInstruction} from './standalone/finance.ts';
-import {createProgram, potentialDuplicates} from './standalone/programs.ts';
+import {createProgram, potentialDuplicates, releaseProgram} from './standalone/programs.ts';
 import {submitForReview} from './standalone/review.ts';
 import {classifyDomain, type Domain} from './message-classifier.ts';
 import {jidsMatch} from './whatsapp-identity.mjs';
@@ -42,6 +42,7 @@ export type RouterResult = {
   instructions: number;
   programs: number;
   confirmations: number;
+  releases: number;
   reviewItems: number;
   ignored: number;
   errors: number;
@@ -555,6 +556,120 @@ async function handleCash(
   return {created: true, reviewSubmitted: false, reasons: []};
 }
 
+/** Release groups are recognised by the approved setting or their configured label. */
+async function isReleaseGroup(accountId: string, chatJid: string): Promise<boolean> {
+  const setting = await row<{value: unknown}>(
+    "SELECT value FROM app_settings WHERE key = 'phase3_release_groups:' || $1",
+    [accountId],
+  );
+  if (Array.isArray(setting?.value) && setting.value.includes(chatJid)) return true;
+  const chat = await row<{label: string | null}>(
+    'SELECT label FROM whatsapp_chats WHERE account_id = $1 AND chat_jid = $2',
+    [accountId, chatJid],
+  );
+  return /release/i.test(chat?.label ?? '');
+}
+
+/**
+ * Apply a structured Escort Release Slip to exactly one matching program.
+ * Ambiguous or incomplete slips are sent to review and never release a program.
+ */
+async function handleReleaseSlip(
+  actor: Actor,
+  message: MessageToProcess,
+  text: string,
+  blocks: Array<{blockKey: string; fields: Record<string, string | number | null>; reasons: string[]}>,
+): Promise<{created: boolean; reviewSubmitted: boolean; reasons: string[]; programsCreated?: number; releases?: number}> {
+  let released = 0;
+  let reviewSubmitted = false;
+  const reasons: string[] = [];
+  for (const block of blocks) {
+    const fields = block.fields as {
+      motherVessel: string | null; lighterVessel: string | null; escortMobile: string | null;
+      startDate: string | null; startShift: 'D' | 'N' | null; endDate: string | null;
+      endShift: 'D' | 'N' | null; totalDays: number | null; foodBillMinor: number | null;
+    };
+    const escortMobile = fields.escortMobile ? `+88${fields.escortMobile}` : null;
+    if (block.reasons.length || !escortMobile || !fields.endDate || !fields.endShift) {
+      const submitted = await submitReviewItem(actor, 'PROGRAM', 'UPDATE', message.message_id,
+        'INCOMPLETE_VESSEL_ORDER', {
+          sourceMessageId: message.message_id,
+          sourceChatJid: message.chat_jid,
+          sourceAccountId: message.account_id,
+          sourceTimestamp: message.source_timestamp,
+          senderJid: message.sender_jid,
+          rawText: text,
+          fields,
+          reasons: block.reasons.length ? block.reasons : ['ESCORT_MOBILE_UNRESOLVED', 'RELEASE_DATE_UNRESOLVED'],
+          releaseCategory: 'RELEASE_INCOMPLETE',
+          parser: 'release-slip',
+        });
+      if (submitted.submitted) reviewSubmitted = true;
+      reasons.push(...(block.reasons.length ? block.reasons : ['RELEASE_INCOMPLETE']));
+      continue;
+    }
+    const candidates = await rows<{id: string; start_date: string; end_date: string | null}>(
+      `SELECT id, start_date::text AS start_date, end_date::text AS end_date
+         FROM programs
+        WHERE escort_mobile = $1
+          AND state NOT IN ('VOIDED','COMPLETED')
+          AND start_date <= $2
+          AND (end_date IS NULL OR end_date <= $2)
+          AND ($3::text IS NULL OR lower(btrim(lighter_vessel)) = lower(btrim($3)))
+          AND ($4::date IS NULL OR start_date = $4)
+        ORDER BY start_date DESC`,
+      [escortMobile, fields.endDate, fields.lighterVessel ?? null, fields.startDate ?? null],
+    );
+    if (candidates.length !== 1) {
+      const submitted = await submitReviewItem(actor, 'PROGRAM', 'UPDATE', message.message_id,
+        'UNMATCHED_VESSEL_ASSIGNMENT', {
+          sourceMessageId: message.message_id,
+          sourceChatJid: message.chat_jid,
+          sourceAccountId: message.account_id,
+          sourceTimestamp: message.source_timestamp,
+          senderJid: message.sender_jid,
+          rawText: text,
+          fields,
+          candidates: candidates.map((candidate) => candidate.id),
+          releaseCategory: candidates.length ? 'RELEASE_AMBIGUOUS' : 'RELEASE_PROGRAM_NOT_MATCHED',
+          parser: 'release-slip',
+        });
+      if (submitted.submitted) reviewSubmitted = true;
+      reasons.push(candidates.length ? 'RELEASE_AMBIGUOUS' : 'RELEASE_PROGRAM_NOT_MATCHED');
+      continue;
+    }
+    const candidate = candidates[0];
+    try {
+      await releaseProgram(actor, candidate.id, {
+        endDate: fields.endDate,
+        endShift: fields.endShift,
+        note: `WhatsApp release slip ${message.message_id}`,
+      });
+      await recordProgramSource(candidate.id, message.account_id, message.chat_jid, message.message_id, 'contributor');
+      released += 1;
+    } catch (error) {
+      const code = (error as Error).message.split(':')[0];
+      const submitted = await submitReviewItem(actor, 'PROGRAM', 'UPDATE', message.message_id,
+        'PROCESSING_ERROR', {
+          sourceMessageId: message.message_id,
+          sourceChatJid: message.chat_jid,
+          sourceAccountId: message.account_id,
+          sourceTimestamp: message.source_timestamp,
+          senderJid: message.sender_jid,
+          rawText: text,
+          fields,
+          programId: candidate.id,
+          error: code,
+          releaseCategory: 'RELEASE_APPLY_FAILED',
+          parser: 'release-slip',
+        });
+      if (submitted.submitted) reviewSubmitted = true;
+      reasons.push(`RELEASE_APPLY_FAILED:${code}`);
+    }
+  }
+  return {created: false, reviewSubmitted, reasons, programsCreated: 0, releases: released};
+}
+
 /**
  * Parse a message for vessel order and optionally create program(s) in DRAFT.
  * Supports multiple lighter vessels per message and multi-message correlation.
@@ -566,7 +681,7 @@ async function handleVessel(
   actor: Actor,
   message: MessageToProcess,
   text: string,
-): Promise<{created: boolean; reviewSubmitted: boolean; reasons: string[]; programsCreated?: number}> {
+): Promise<{created: boolean; reviewSubmitted: boolean; reasons: string[]; programsCreated?: number; releases?: number}> {
   // Vessel authorization: WA-01 only
   const vesselAuth = await isVesselAuthorized(message.account_id);
   if (!vesselAuth.authorized) {
@@ -581,6 +696,31 @@ async function handleVessel(
   );
   if (!groupAuth.authorized) {
     return {created: false, reviewSubmitted: false, reasons: [groupAuth.reason as string]};
+  }
+
+  const {parseReleaseSlips} = await import('./release-slip.ts');
+  const releaseBlocks = parseReleaseSlips(text);
+  const releaseGroup = await isReleaseGroup(message.account_id, message.chat_jid);
+  if (releaseGroup) {
+    if (!releaseBlocks.length) {
+      const submitted = await submitReviewItem(actor, 'PROGRAM', 'UPDATE', message.message_id,
+        'EXTRACTION_FAILED', {
+          sourceMessageId: message.message_id,
+          sourceChatJid: message.chat_jid,
+          sourceAccountId: message.account_id,
+          sourceTimestamp: message.source_timestamp,
+          senderJid: message.sender_jid,
+          rawText: text,
+          reasons: ['NO_STRUCTURED_RELEASE_BLOCK'],
+          releaseCategory: 'RELEASE_UNSTRUCTURED',
+          parser: 'release-slip',
+        });
+      return {created: false, reviewSubmitted: submitted.submitted, reasons: ['NO_STRUCTURED_RELEASE_BLOCK'], programsCreated: 0, releases: 0};
+    }
+    return handleReleaseSlip(actor, message, text, releaseBlocks);
+  }
+  if (releaseBlocks.length) {
+    return handleReleaseSlip(actor, message, text, releaseBlocks);
   }
 
   const {parseEscortOrder} = await import('./escort-intake-candidate.mjs');
@@ -857,6 +997,7 @@ export async function routePendingMessages(
     instructions: 0,
     programs: 0,
     confirmations: 0,
+    releases: 0,
     reviewItems: 0,
     ignored: 0,
     errors: 0,
@@ -900,6 +1041,12 @@ export async function routePendingMessages(
       } else {
         const cls = classifyDomain(text, chatAuth.purpose);
         domain = cls.domain;
+        // The approved release group is a release channel, not an order
+        // channel. Route every incoming message there through release handling
+        // so unstructured chatter can never become a vessel order.
+        if (await isReleaseGroup(message.account_id, message.chat_jid)) {
+          domain = 'VESSEL';
+        }
 
         // Cash: only WA-01 Admin OUTGOING messages in Accountant conversation
         if (domain === 'CASH' && message.direction === 'OUTGOING') {
@@ -945,6 +1092,7 @@ export async function routePendingMessages(
           } else {
             const vesselResult = await handleVessel(SYSTEM_ACTOR, message, text);
             result.programs += vesselResult.programsCreated ?? (vesselResult.created ? 1 : 0);
+            result.releases += vesselResult.releases ?? 0;
             result.reviewItems += vesselResult.reviewSubmitted ? 1 : 0;
             // Preserve the specific rejection reasons (WA-02 account and
             // unauthorized group participant); every other no-op vessel outcome
