@@ -309,7 +309,7 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 - Combined: **95/95 integration tests**, run sequentially with `--test-concurrency=1`. Unit suite: **69/69**.
 - Migration: `alrifai_v2_test` 1.3.3 → 1.4.0, 35 tables, 7 ledger rows; repeat run is a no-op. Fresh disposable DB: install 34 tables/1.4.0; migrate 35 tables; `install --force` succeeds.
 - The Live Router remains default-disabled in production; test activation is synthetic and confined to the test DB.
-- Production remains `1.2.0`; **no Phase 3 workflow is marked LIVE** and no production financial posting occurred.
+- Production is now on `alrifai_v2_phase3` at `1.4.0`; the router/Vessel flags remain off, so no Phase 3 business routing or financial posting is active.
 
 ## 7. WhatsApp ingestion facts and boundaries
 
@@ -327,9 +327,9 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 ## 8. Database and secrets
 
 - **Current database:** `alrifai_v2_phase3`, PostgreSQL, schema `1.4.0` (live since 2026-11-06 18:14 UTC). `alrifai_v2` remains schema `1.2.0` as the cold rollback database. Migration 008 and the final-sync procedure were verified on test, fresh and production-copy databases. Legacy `alrifai` is retained for rollback and is not part of the new application's business state.
-- **Isolated Phase 3 test DB:** `alrifai_v2_test` on the existing `vps-infra-postgres-1` (owner `alrifai_app`, UTF8) is at schema `1.4.0`: 35 tables (including `schema_migrations`), 5 functions, 15 triggers. Migrations 002–008 are applied, including `cash_submissions.instruction_id`, `cash_reversals`, `cash_reconciliations`, and the extended ledger source values. It is separate from `alrifai_v2`/`alrifai` and must be the explicit `PGDATABASE` for installation/migration/integration tests. Production `alrifai_v2` remains `1.2.0` and is not migrated or modified.
+- **Isolated Phase 3 test DB:** `alrifai_v2_test` on the existing `vps-infra-postgres-1` (owner `alrifai_app`, UTF8) is at schema `1.4.0`: 35 tables (including `schema_migrations`), 5 functions, 15 triggers. Migrations 002–008 are applied, including `cash_submissions.instruction_id`, `cash_reversals`, `cash_reconciliations`, and the extended ledger source values. It is separate from `alrifai_v2`/`alrifai` and must be the explicit `PGDATABASE` for installation/migration/integration tests. The cold rollback DB `alrifai_v2` remains `1.2.0` and is not migrated or modified.
 - **Installer repeat-safety:** a second run without `--force` refuses with `ALREADY_INSTALLED`. `--force` now skips the non-idempotent baseline and re-applies only the additive layers + grants; verified on the disposable fresh DB. Prefer `pnpm db:migrate` for a controlled upgrade.
-- **Installer/migrations:** fresh `schema.sql` + additive `002`–`008`, all idempotent, schema `1.4.0`. `scripts/standalone/migrate.mjs` is the incremental, checksum-tracked path. Production schema remains `1.2.0` and is not migrated. Do not reintroduce the legacy migration chain just to match historical DB structure.
+- **Installer/migrations:** fresh `schema.sql` + additive `002`–`008`, all idempotent, schema `1.4.0`. `scripts/standalone/migrate.mjs` is the incremental, checksum-tracked path. The live schema is `1.4.0`; the cold rollback DB remains `1.2.0`. Do not reintroduce the legacy migration chain just to match historical DB structure.
 - **Phase 2 tables/columns:** `whatsapp_media` (one row per captured attachment, unique per account/chat/message, FK to the message) and identity evidence columns on `identity_aliases` (`display_name`, `name_source`, `canonical_jid`, `person_key`, first/last seen, `metadata`). The live migration was applied with a verified `pg_dump` (`/var/lib/vps/al-rifai/backups/pre-phase2-20261105-1111.dump`) and preserved all 34,090 pre-change messages.
 - **Dedup key:** `(account_id, chat_jid, message_id)`. `(account_id, message_id)` alone loses one known WA-01 duplicate-ID-across-chat case.
 - **Central configuration:** `/opt/vps/al-rifai-standalone/apps/al-rifai/.env`; shared loader `lib/env.mjs`; `pnpm env:check` prints missing key names, not values.
@@ -399,7 +399,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 
 **Phase 3 production readiness audit — 2026-11-06 (implementation complete; deployment NOT executed):** **CODE READY; PRODUCTION GATED.**
 
-- **Environment:** production app/sync remain on `local/al-rifai-platform:20261105-phase2`; PostgreSQL 16.15; `alrifai_v2` at `1.2.0 / 30 tables`; feature worktree carries the Phase 3 completion work. WA-01/WA-02 bridges are up and untouched.
+- **Environment:** production was cut over on 2026-11-06 18:14 UTC to `al-rifai-phase3-app-1` / `al-rifai-phase3-sync-1`, image `local/al-rifai-platform:phase3-rc-final5`, database `alrifai_v2_phase3` at `1.4.0`. The old Phase 2 containers and `alrifai_v2` (`1.2.0`) are preserved as a cold rollback path. WA-01/WA-02 bridges are untouched. Feature flags remain `0`.
 - **Schema compatibility:** 004–008 are additive/idempotent and drop no data. 004 adds processing state; 005 adds multi-message vessel correlation; 006 adds group authorization and review category; 007 replaces the pending-review index and adds correction/source columns; 008 adds candidate→instruction linkage, immutable reversals, reconciliation and the extended ledger source values. Business tables are empty in production; 34,376 messages, 2,010 chats, ~2,595 identity aliases and media rows must survive. No new functions/triggers are added by 008 except the immutable reversal trigger.
 - **Migration path:** `scripts/standalone/migrate.mjs` is checksum-tracked, idempotent and grants the runtime role. Verified on `alrifai_v2_test` (1.3.3 → 1.4.0, 35 tables) and on a fresh disposable DB (install 34 tables/1.4.0; migrate 35 tables/7 ledger rows; repeat install `--force` succeeds). `db:migrate`, `db:verify`, `db:preflight` now exist.
 - **Historical reprocessing guard:** unchanged and still mandatory. The Live Router is default-disabled, requires explicit per-account `phase3_cutover_rowid:*` and `phase3_business_chats:*`, and never rewrites historical statuses. Production has 0 `phase3_%` settings.
@@ -471,7 +471,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 12. A new row inserted during the cutover → remains eligible, not marked historical.
 13. Re-running the cutover marking → idempotent; no new rows marked.
 
-**Rollback:** the cutover is a data update; the Phase 2 app ignores the new columns, so an app-only rollback to `20261105-phase2` is safe. Re-running the cutover only marks rows at/below the fixed watermark. A full DB rollback to 1.2.0 still requires a fresh restore; no down migrations. Keep the `20261105-phase2` image and take a fresh verified dump before the cutover.
+**Rollback (post-cutover):** stop/remove the `al-rifai-phase3` project, restore `.env.pre-phase3`, and start the preserved `alrifai-v2-app-1` / `alrifai-v2-sync-1`. The old sync catches up raw messages/media from the append-only bridge stores. `alrifai_v2_phase3` is retained intact; Phase 3 business records are not deleted. Full divergence-aware procedure: `docs/PHASE3_CUTOVER_RUNBOOK.md`.
 
 **Owner decisions required:** the authorized Cash chat(s), Orders chat(s), group participants and WA-01 Admin JID(s); the cutover window and router-enable time; B+D versus adding the explicit `processing_eligible` flag (C); whether to pause ingestion during the index/marking window; acceptance of no CI run (billing lock); and whether any historical backfill is ever approved (separate task only).
 
