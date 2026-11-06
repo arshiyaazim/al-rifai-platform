@@ -1,5 +1,5 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../_shared';
-import {assignEscort, createProgram, getProgram, listPrograms, releaseProgram, voidProgram} from '@/lib/standalone/programs';
+import {assignEscort, completeProgram, createProgram, getProgram, listPrograms, releaseProgram, startProgramDuty, updateProgram, voidProgram} from '@/lib/standalone/programs';
 import {assertCapability, can} from '@/lib/standalone/authz';
 import {submitForReview} from '@/lib/standalone/review';
 
@@ -41,10 +41,26 @@ export async function POST(request: Request) {
       const result = await createProgram(actor as never, body as never, {channel: 'WEB'});
       return ok(result, 201);
     }
+    if (action === 'update') {
+      assertCapability(actor as never, 'vessel.command');
+      if (!body.programId) return ok({error: 'PROGRAM_REQUIRED'}, 400);
+      return ok(await updateProgram(actor as never, String(body.programId), body as never));
+    }
     if (action === 'assign') {
       assertCapability(actor as never, 'vessel.command');
       if (!body.programId) return ok({error: 'PROGRAM_REQUIRED'}, 400);
-      return ok(await assignEscort(actor as never, String(body.programId), body as never));
+      const replace = body.replace === true || body.replace === 'yes' || body.replace === '1';
+      return ok(await assignEscort(actor as never, String(body.programId), {...body, replace} as never));
+    }
+    if (action === 'start') {
+      assertCapability(actor as never, 'vessel.command');
+      if (!body.programId) return ok({error: 'PROGRAM_REQUIRED'}, 400);
+      return ok(await startProgramDuty(actor as never, String(body.programId)));
+    }
+    if (action === 'complete') {
+      assertCapability(actor as never, 'vessel.release');
+      if (!body.programId) return ok({error: 'PROGRAM_REQUIRED'}, 400);
+      return ok(await completeProgram(actor as never, String(body.programId)));
     }
     if (action === 'release') {
       assertCapability(actor as never, 'vessel.release');

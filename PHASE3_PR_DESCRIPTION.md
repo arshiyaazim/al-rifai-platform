@@ -60,14 +60,24 @@
 |---|---|
 | Typecheck | 0 errors |
 | Lint | 0 errors |
-| Unit tests | 69/69 |
-| Integration tests | 95/95 |
+| Unit tests | 83/83 |
+| Integration tests | 110/110 |
 | Next.js build | pass |
 | Docker build | pass |
 | `pnpm audit --prod` | no known vulnerabilities |
 | Test DB | `1.4.0`, 35 tables, repeat migration no-op |
 | Fresh disposable DB | install 34 tables/1.4.0; migrate 35 tables/7 rows; `--force` passes |
 | Production-copy rehearsal | 34,420 messages preserved, 1.2.0 → 1.4.0, automatic Cash and Vessel pipeline verified |
+
+### WA-02 AI communication foundation
+- Deterministic policy engine, explicit WA-02 contact/Admin categories, scoped
+  employee/Cash/Vessel/applicant/order/message tools, tool-run audit and
+  escalations.
+- Applicant draft dedupe, employee self-record access, Admin grounded queries,
+  prompt-injection blocking, WA-02/Cash separation.
+- Outbound DRAFT/PREVIEW/APPROVE/QUEUE/SENDING/SENT/FAILED/DELIVERY_UNKNOWN lifecycle with idempotency, attempt evidence, two kill switches and a mock-tested MCP sender; disabled in production.
+- Optional LLM rephrasing layer that cannot invent numeric facts and falls back to deterministic answers.
+- Migration 009 / schema 1.5.0 is development-only and not applied to production.
 
 ## Not included / not authorized
 

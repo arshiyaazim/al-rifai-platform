@@ -140,13 +140,18 @@ export async function approveInstruction(actor: Actor, id: string) {
     if (!found.rowCount) throw new DomainError('INSTRUCTION_NOT_FOUND', 404);
     const instruction = found.rows[0];
     if (instruction.state !== 'REVIEW') throw new DomainError('INSTRUCTION_NOT_PENDING', 409);
-    if (instruction.created_by === actor.id) throw new DomainError('REVIEWER_IS_SUBMITTER', 403);
     if (!instruction.account_id) throw new DomainError('ACCOUNT_REQUIRED', 400);
+    // Owner policy (2026-11-06): the verified Admin may approve a manual
+    // instruction they created when they are the sole participating authorized
+    // user. General users never reach this branch because of the role and
+    // capability checks above. Posting remains a separate explicit action.
+    const selfApproval = instruction.created_by === actor.id;
     await client.query(
       `UPDATE cash_instructions SET state='APPROVED', approved_at=now(), approved_by=$2 WHERE id=$1`,
       [id, actor.id],
     );
-    await recordAudit({actor, action: 'INSTRUCTION_APPROVED', entity: 'instruction', entityId: id}, client);
+    await recordAudit({actor, action: 'INSTRUCTION_APPROVED', entity: 'instruction', entityId: id,
+      detail: selfApproval ? {selfApproval: true, role: actor.role} : {selfApproval: false}}, client);
     return {id, state: 'APPROVED'};
   });
 }

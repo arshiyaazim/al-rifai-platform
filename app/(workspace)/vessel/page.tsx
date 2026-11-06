@@ -15,9 +15,12 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-export default async function VesselPage() {
+export default async function VesselPage({searchParams}: {searchParams: Promise<{q?: string; state?: string}>}) {
+  const filters = await searchParams;
+  const q = (filters.q ?? '').trim();
+  const state = filters.state ?? '';
   const [programs, vesselReviews] = await Promise.all([
-    listPrograms({}),
+    listPrograms({q, state: state || undefined}),
     listReviewQueue({domain: 'PROGRAM', state: 'PENDING', limit: 100}),
   ]);
   const active = programs.filter((program) => !['VOIDED', 'COMPLETED'].includes(program.state));
@@ -42,6 +45,21 @@ export default async function VesselPage() {
           <Link href="/review?domain=PROGRAM">Open Vessel review queue →</Link>
         </div>
       </div>
+
+      <form method="get" className="card form compact" style={{marginBottom: 18}}>
+        <div className="grid">
+          <label><span>Search</span><input name="q" defaultValue={q} placeholder="Mother, lighter or escort" /></label>
+          <label><span>State</span>
+            <select name="state" defaultValue={state}>
+              <option value="">All states</option>
+              {['DRAFT','ASSIGNED','IN_DUTY','RELEASED','COMPLETED','VOIDED'].map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <button type="submit">Filter programs</button>
+      </form>
 
       <ActionForm
         title="New program (one row per lighter)"
@@ -74,11 +92,11 @@ export default async function VesselPage() {
           <tbody>
             {programs.map((program) => (
               <tr key={program.id}>
-                <td>{program.mother_vessel} → {program.lighter_vessel}<div className="muted" style={{fontFamily: 'ui-monospace, monospace'}}>{program.id}</div></td>
+                <td><Link href={`/vessel/${encodeURIComponent(program.id)}`}>{program.mother_vessel} → {program.lighter_vessel}</Link><div className="muted" style={{fontFamily: 'ui-monospace, monospace'}}>{program.id}</div></td>
                 <td>{program.escort_name ?? '—'}<div className="muted">{program.escort_mobile ?? ''}</div></td>
                 <td>{program.start_date} · {program.start_shift}</td>
                 <td>{program.end_date ? `${program.end_date} · ${program.end_shift}` : '—'}</td>
-                <td><span className={`pill ${program.state === 'RELEASED' ? 'ok' : program.state === 'VOIDED' ? 'bad' : ''}`}>{program.state}</span></td>
+                <td><span className={`pill ${['RELEASED','COMPLETED'].includes(program.state) ? 'ok' : program.state === 'VOIDED' ? 'bad' : ''}`}>{program.state}</span></td>
                 <td>{money(program.total_minor)}{program.pay_state === 'UNRESOLVED' ? <div className="muted">unresolved</div> : null}</td>
               </tr>
             ))}

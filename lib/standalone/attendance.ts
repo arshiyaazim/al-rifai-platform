@@ -9,6 +9,7 @@ export type AttendanceInput = {
   shift: string;
   state?: 'PRESENT' | 'ABSENT' | 'LEAVE';
   hours?: number | null;
+  reason?: string | null;
 };
 
 async function recordAttendanceOn(client: Pick<PoolClient, 'query'>, actor: Actor, input: AttendanceInput) {
@@ -22,6 +23,13 @@ async function recordAttendanceOn(client: Pick<PoolClient, 'query'>, actor: Acto
 
   const employee = await client.query('SELECT 1 FROM employees WHERE employee_mobile = $1', [employeeMobile]);
   if (!employee.rowCount) throw new DomainError('EMPLOYEE_NOT_FOUND', 404);
+  const existing = await client.query<{state: string; hours: string | null}>(
+    'SELECT state, hours::text AS hours FROM attendance WHERE employee_mobile=$1 AND duty_date=$2 AND shift=$3',
+    [employeeMobile, dutyDate, dutyShift],
+  );
+  const reason = input.reason ? text(input.reason, 'reason', {max: 500}) : null;
+  const corrected = (existing.rowCount ?? 0) > 0
+    && (existing.rows[0].state !== state || String(existing.rows[0].hours ?? '') !== String(hours ?? ''));
   const id = stableId('att', [employeeMobile, dutyDate, dutyShift]);
   const result = await client.query(
     `INSERT INTO attendance (id, employee_mobile, duty_date, shift, state, hours, source, recorded_by)
@@ -31,8 +39,16 @@ async function recordAttendanceOn(client: Pick<PoolClient, 'query'>, actor: Acto
      RETURNING *`,
     [id, employeeMobile, dutyDate, dutyShift, state, hours, actor.id],
   );
-  await recordAudit({actor, action: 'ATTENDANCE_RECORDED', entity: 'attendance', entityId: id,
-    detail: {employeeMobile, dutyDate, shift: dutyShift, state, hours}}, client);
+  await recordAudit({
+    actor,
+    action: corrected ? 'ATTENDANCE_CORRECTED' : 'ATTENDANCE_RECORDED',
+    entity: 'attendance',
+    entityId: id,
+    detail: {
+      employeeMobile, dutyDate, shift: dutyShift, state, hours,
+      ...(corrected ? {previous: existing.rows[0], reason} : {}),
+    },
+  }, client);
   return result.rows[0];
 }
 

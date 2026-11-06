@@ -173,6 +173,17 @@ test('cash: valid Admin outgoing message creates REVIEW instruction', async () =
   assert.equal(approved.state, 'APPROVED');
 });
 
+test('cash: bare bridge sender matches a full configured Admin JID', async () => {
+  await ensureAccount('wa-01');
+  await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-cash-bare-admin-1', 'OUTGOING', '8801880446111',
+    'ID: 01712345678 Bare Admin Escort 01812345678(B) 333.00/- duty pay');
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.instructions, 1);
+  const created = await row("SELECT state,amount_minor,source_message_id FROM cash_instructions WHERE source_message_id='msg-cash-bare-admin-1'");
+  assert.equal(created.state, 'REVIEW');
+  assert.equal(Number(created.amount_minor), 33300);
+});
+
 test('cash: incoming Accountant message does NOT create instruction', async () => {
   await ensureAccount('wa-01');
   const before = await countInstructions();
@@ -555,6 +566,16 @@ test('vessel: same escort/date with different lighter is NOT a duplicate', async
   assert.equal(result.programs, 2, 'Different lighter vessels on same date are not duplicates');
   const after = await countPrograms();
   assert.equal(after, before + 2);
+});
+
+test('vessel: bare group sender matches a full configured participant JID', async () => {
+  await ensureAccount('wa-01');
+  await stageMessage('wa-01', '120363000000000001@g.us', 'msg-vessel-bare-participant-1', 'INCOMING', '8801722222222',
+    'Mother Vessel: MV Bare Match\nLighter Vessel: B-1\nMaster mobile: 01911111111\n17/11/26(D)');
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.programs, 1);
+  const program = await row("SELECT state FROM programs WHERE source_message_id='msg-vessel-bare-participant-1'");
+  assert.equal(program.state, 'DRAFT');
 });
 
 test('vessel: WA-02 business processing rejected', async () => {
