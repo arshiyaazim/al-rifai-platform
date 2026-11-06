@@ -2,8 +2,8 @@
 
 **Recorded:** 2026-11-06
 **Branch:** `feature/phase3-router-cash-vessel`
-**Release candidate code commit:** current feature-branch HEAD (see `git log`)
-**Documentation tip:** current feature-branch HEAD
+**Release candidate code commit:** `06f7c66`
+**Documentation tip:** this documentation commit (child of `06f7c66`)
 **Schema:** `1.4.0`
 **Feature branch:** pushed to `origin/feature/phase3-router-cash-vessel` at `1a5d92e`
 **Production deployment:** NOT EXECUTED
@@ -12,9 +12,9 @@
 
 | Field | Value |
 |---|---|
-| Tag | `al-rifai-platform:phase3-rc-final2` |
-| Manifest digest | `sha256:069cbe0bdb56475551b991ba3b56450d945825ad74b39bef65995b74ec37d048` |
-| Build source | current feature-branch HEAD |
+| Tag | `al-rifai-platform:phase3-rc-final3` |
+| Manifest digest | `sha256:d9e7f7652f9e9cdf15f0b5bf82361ea295108857fda35fca071f266b5b3b3884` |
+| Build source | code commit `06f7c66` |
 | Runtime | Node 22, Next.js 16.4.1, non-root `10001:10001` |
 
 The image was built locally only. It was not pushed, tagged as production, or
@@ -29,15 +29,15 @@ deployed.
 | Unit tests | `pnpm test:unit` | 69/69 pass |
 | Integration tests | `pnpm test:standalone` | 95/95 pass |
 | Next.js build | `pnpm build` | pass |
-| Docker build | `docker build -t al-rifai-platform:phase3-rc-final2 .` | pass |
+| Docker build | `docker build -t al-rifai-platform:phase3-rc-final3 .` | pass |
 | Dependency audit | `pnpm audit --prod` | no known vulnerabilities |
 | Test DB migration | `scripts/standalone/migrate.mjs` | `1.3.3` → `1.4.0`, 35 tables, 7 ledger rows; repeat no-op |
 | Fresh disposable DB | installer + migrate + `--force` | install 34 tables/1.4.0; migrate 35 tables; `--force` pass |
-| Runtime smoke | local Next server + authenticated HTTP | health 200/schema 1.4.0; dashboard/cash/review/vessel/settings 200; `/cash/[id]` 200 with audit |
+| Runtime smoke | release image `phase3-rc-final3` + authenticated HTTP | health 200/schema 1.4.0; dashboard/cash/review/vessel/settings 200; `/cash/[id]` 200 with audit |
 | Production-copy migration rehearsal | restored real `alrifai_v2` dump into `alrifai_v2_phase3_rehearsal` | 1.2.0 → 1.4.0; 34,420 messages / 2,010 chats / 2,597 aliases / 261 media / 3 users preserved |
-| Automatic WhatsApp pipeline | image `phase3-rc-final2` + rehearsal DB | post-cutover synthetic message → REVIEW instruction without manual route; history remained PENDING |
+| Automatic WhatsApp pipeline | image `phase3-rc-final3` + rehearsal DB | post-cutover synthetic message → REVIEW instruction without manual route; history remained PENDING |
 | Vessel activation gate | same image, flag 0 then 1 | deferred message stayed PENDING with flag 0; created DRAFT program after flag 1 |
-| HTTP lifecycle on production copy | image `phase3-rc-final2` | create → assign account → approve → post → reverse → reconcile; ledger DEBIT+CREDIT; audit complete |
+| HTTP lifecycle on production copy | image `phase3-rc-final3` | create → assign account → approve → post → reverse → reconcile; ledger DEBIT+CREDIT; audit complete |
 
 ## Integration suite breakdown
 

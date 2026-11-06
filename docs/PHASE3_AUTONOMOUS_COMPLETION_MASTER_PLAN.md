@@ -340,7 +340,7 @@ All DB commands run with `--test-concurrency=1` and an explicit
 | 2026-11-06 | Phase F release candidate | **Pushed** — commits `39a9023`…`1a5d92e`; image `sha256:010e42bf…`; evidence in `docs/PHASE3_RELEASE_EVIDENCE.md`; main merge and production deployment await Owner approval |
 | 2026-11-06 | Second-pass reassessment | **Complete** — automatic router worker, Vessel deferral gate, Cash account assignment, candidate originator fix, payroll/reporting integrity, legacy bootstrap removal |
 | 2026-11-06 | Production-copy migration rehearsal | **Complete** — real 34,420-message dump restored, migrated 1.2.0→1.4.0, all data preserved |
-| 2026-11-06 | Automatic pipeline + HTTP lifecycle on copy | **Verified** — image `phase3-rc-final2`, synthetic Cash/Vessel messages, assign/approve/post/reverse/reconcile |
+| 2026-11-06 | Automatic pipeline + HTTP lifecycle on copy | **Verified** — image `phase3-rc-final3`, synthetic Cash/Vessel messages, assign/approve/post/reverse/reconcile |
 | 2026-11-06 | Final verification | **69/69 unit, 95/95 integration**, typecheck, lint, build, Docker build, audit clean |
 
 ### Newly verified during implementation
@@ -411,8 +411,8 @@ Docker build, dependency audit clean, test DB at `1.4.0`, fresh disposable DB
 install/migrate/`--force`, production-copy migration rehearsal, automatic
 WhatsApp Cash/Vessel routing and full HTTP Cash lifecycle on that copy.
 
-**Release image:** `al-rifai-platform:phase3-rc-final2`,
-`sha256:069cbe0bdb56475551b991ba3b56450d945825ad74b39bef65995b74ec37d048`.
+**Release image:** `al-rifai-platform:phase3-rc-final3`,
+`sha256:d9e7f7652f9e9cdf15f0b5bf82361ea295108857fda35fca071f266b5b3b3884`.
 
 **Not done (requires Owner):**
 
