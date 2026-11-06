@@ -328,7 +328,7 @@ All DB commands run with `--test-concurrency=1` and an explicit
 | 2026-11-06 | Dependency remediation | **Complete** — Next.js 16.4.1, Zod 4.6.6, fast-uri 3.1.9; `pnpm audit --prod` clean |
 | 2026-11-06 | Verification | **91/91 integration tests**, 67/67 unit tests, typecheck, lint, Next build and Docker build pass |
 | 2026-11-06 | Phase E polish/docs | **Complete** — README, developer map, PR description, release checklist and rollback runbook updated |
-| 2026-11-06 | Phase F release candidate | **Code/test complete** — commits `39a9023`, `79b43a2`, `04692bf`, `4e9ae01`; image `sha256:010e42bf…`; evidence in `docs/PHASE3_RELEASE_EVIDENCE.md`; feature branch push pending |
+| 2026-11-06 | Phase F release candidate | **Pushed** — commits `39a9023`…`1a5d92e`; image `sha256:010e42bf…`; evidence in `docs/PHASE3_RELEASE_EVIDENCE.md`; main merge and production deployment await Owner approval |
 
 ### Newly verified during implementation
 
@@ -345,6 +345,33 @@ All DB commands run with `--test-concurrency=1` and an explicit
   was performed.
 
 ---
+
+## 9. Current handoff (2026-11-06)
+
+**State:** Phase 3 release candidate is complete on
+`feature/phase3-router-cash-vessel` at `1a5d92e`, pushed to GitHub. `main`
+remains `e6becfc` (Phase 2). Production remains on image
+`local/al-rifai-platform:20261105-phase2`, DB `alrifai_v2` at `1.2.0`.
+
+**Verified:** 67/67 unit, 91/91 integration, typecheck, lint, Next build,
+Docker build, dependency audit clean, test DB at `1.4.0`, fresh disposable DB
+install/migrate/`--force` verified.
+
+**Not done (requires Owner):**
+
+1. PR review and merge to `main`.
+2. Fresh verified production backup.
+3. Production migration (`pnpm db:migrate`) and image deployment.
+4. Enabling the Live Router with Owner-approved chats, participants, Admin JIDs
+   and captured watermarks.
+5. Any real Cash posting, reversal or reconciliation.
+
+**Next safe action after approval:** restore the production dump to an isolated
+copy, run `pnpm db:preflight` and `pnpm db:migrate`, verify `1.4.0` and the Cash
+read/audit pages, then follow `PHASE3_VPS_RELEASE_CHECKLIST.md`.
+
+**Do not:** edit the legacy application, production DB, bridge stores or
+deployment `.env`; force-push; delete Phase 3 tables/records; auto-post funds.
 
 ## 9. Handoff rule
 

@@ -5,6 +5,7 @@
 **Release candidate code commit:** `4e9ae01`
 **Documentation tip:** `4c398a4` (docs-only; same application code as `4e9ae01`)
 **Schema:** `1.4.0`
+**Feature branch:** pushed to `origin/feature/phase3-router-cash-vessel` at `1a5d92e`
 **Production deployment:** NOT EXECUTED
 
 ## Image
