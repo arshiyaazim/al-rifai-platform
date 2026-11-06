@@ -171,7 +171,7 @@ jobs:
           PGPASSWORD: owner-secret
           ALRIFAI_REVIEW_DB_USER: alrifai_runtime
           ALRIFAI_REVIEW_PASSWORD: runtime-secret
-        run: node --experimental-strip-types --test --test-concurrency=1 tests/standalone/message-router.test.mjs
+        run: node --experimental-strip-types --test --test-concurrency=1 tests/standalone/message-router.test.mjs tests/standalone/router-cutover.test.mjs
 
   review-queue-tests:
     name: Review Queue Integration Tests
@@ -231,6 +231,63 @@ jobs:
           ALRIFAI_REVIEW_PASSWORD: runtime-secret
         run: pnpm test:review
 
+  cash-lifecycle-tests:
+    name: Cash Lifecycle Integration Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: alrifai_app
+          POSTGRES_PASSWORD: owner-secret
+          POSTGRES_DB: alrifai_v2
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U alrifai_app -d alrifai_v2"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        run: npm install -g pnpm@11.25.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install disposable database schema
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: |
+          PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'alrifai_runtime') THEN CREATE ROLE alrifai_runtime LOGIN PASSWORD 'runtime-secret'; END IF; END \$\$;"
+          node --experimental-strip-types scripts/standalone/install.mjs \
+            --admin-user owner --admin-password 'test-secret' --admin-name 'Owner'
+
+      - name: Run Cash lifecycle tests
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: 5432
+          PGDATABASE: alrifai_v2
+          PGUSER: alrifai_app
+          PGPASSWORD: owner-secret
+          ALRIFAI_REVIEW_DB_USER: alrifai_runtime
+          ALRIFAI_REVIEW_PASSWORD: runtime-secret
+        run: node --experimental-strip-types --test --test-concurrency=1 tests/standalone/cash-lifecycle.test.mjs tests/standalone/users.test.mjs
+
   migration-validation:
     name: Migration Validation
     runs-on: ubuntu-latest
@@ -277,9 +334,10 @@ jobs:
           node --experimental-strip-types scripts/standalone/install.mjs --preflight
           node --experimental-strip-types scripts/standalone/install.mjs \
             --admin-user owner --admin-password 'test-secret' --admin-name 'Owner'
-          node --experimental-strip-types scripts/standalone/install.mjs --force
+          node --experimental-strip-types scripts/standalone/migrate.mjs
+          node --experimental-strip-types scripts/standalone/migrate.mjs
 
-      - name: Verify schema version is 1.3.3
+      - name: Verify schema version is 1.4.0
         env:
           PGHOST: 127.0.0.1
           PGPORT: 5432
@@ -288,7 +346,9 @@ jobs:
           PGPASSWORD: owner-secret
         run: |
           VERSION=$(PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -t -A -c "SELECT value FROM schema_meta WHERE key = 'schema_version'")
-          test "$VERSION" = "1.3.3"
+          test "$VERSION" = "1.4.0"
+          TABLES=$(PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -t -A -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
+          test "$TABLES" = "35"
 
   nextjs-build:
     name: Next.js Build
@@ -353,6 +413,7 @@ jobs:
       - domain-integration-tests
       - router-tests
       - review-queue-tests
+      - cash-lifecycle-tests
       - migration-validation
       - nextjs-build
       - docker-build-validation
@@ -360,7 +421,7 @@ jobs:
     steps:
       - name: Enforce all upstream checks succeeded
         run: |
-          RESULTS="${{ needs.lint-and-typecheck.result }} ${{ needs.unit-tests.result }} ${{ needs.domain-integration-tests.result }} ${{ needs.router-tests.result }} ${{ needs.review-queue-tests.result }} ${{ needs.migration-validation.result }} ${{ needs.nextjs-build.result }} ${{ needs.docker-build-validation.result }}"
+          RESULTS="${{ needs.lint-and-typecheck.result }} ${{ needs.unit-tests.result }} ${{ needs.domain-integration-tests.result }} ${{ needs.router-tests.result }} ${{ needs.review-queue-tests.result }} ${{ needs.cash-lifecycle-tests.result }} ${{ needs.migration-validation.result }} ${{ needs.nextjs-build.result }} ${{ needs.docker-build-validation.result }}"
           echo "CI job results for ${{ github.ref }}: $RESULTS"
           for r in $RESULTS; do
             if [ "$r" != "success" ]; then

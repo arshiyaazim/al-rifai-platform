@@ -15,7 +15,7 @@ its own administrator, accounts, rates, relay and authorized chats.
 | Package manager | pnpm 11.25.0 (or npm/npx) |
 | Database | PostgreSQL 16 (≥ 13 supported by the SQL used) |
 | Framework | Next.js 16.3.8 |
-| Schema | fresh baseline, `db/standalone/schema.sql` (version 1.2.0) |
+| Schema | fresh baseline, `db/standalone/schema.sql` + additive migrations 002–008 (version 1.4.0) |
 
 ---
 
@@ -27,7 +27,7 @@ its own administrator, accounts, rates, relay and authorized chats.
 | Employees | Profiles, aliases, status, assignment history, attendance history |
 | Vessel | Programs (one row per lighter), escort assignment/replacement, release, void, ±1-day duplicate warning |
 | Attendance | Day/night records per employee, monthly summary |
-| Cash & Accounts | Accounts, payment instructions (`REVIEW → APPROVED → POSTED / REJECTED`), postings, ledger, income/expense, balances, staff submissions |
+| Cash & Accounts | Accounts, payment instructions (`REVIEW → APPROVED → POSTED / REJECTED / VOID`), postings, immutable ledger, reversal (contra entry), account reconciliation, income/expense, balances, staff submissions and audit history |
 | Payroll | Configurable shift rates, derived program pay, monthly salary allocation by actual duty date |
 | Review | Staff submissions, admin decisions, self-review prevention |
 | Reports | CSV exports for every dataset + immutable audit trail |
@@ -170,11 +170,13 @@ pnpm db:install --admin-user owner --admin-password '…' --admin-name 'Owner'
 The password is hashed (PBKDF2-SHA256, 600 000 iterations) before it is stored;
 only the hash is written. Remove the plaintext from `.env` afterwards. The
 installer is transactional: it applies `db/standalone/schema.sql` plus the
-additive `002_raw_import.sql` layer, grants the runtime role, seeds the
-administrator and verifies 30 tables / 5 functions / 14 triggers. It prints the
-administrator id — put it in `ALRIFAI_CASH_SUPER_ADMIN_IDS`.
+additive layers `002`–`008`, grants the runtime role, seeds the administrator
+and verifies 34 tables / 5 functions / 15 triggers at schema `1.4.0`. It prints
+the administrator id — put it in `ALRIFAI_CASH_SUPER_ADMIN_IDS`.
 
-Re-running against an installed schema stops unless `--force` is passed.
+Re-running against an installed schema stops unless `--force` is passed. `--force`
+now means "apply the additive layers and grants again"; it never re-runs the
+non-idempotent baseline. For a controlled upgrade use `pnpm db:migrate` instead.
 
 ### 3.5.1 Recovering an administrator password
 
@@ -192,6 +194,29 @@ The command refuses an unknown account (a typo cannot mint an administrator),
 enforces the shared 8-character minimum, writes a `PASSWORD_RESET` audit row and
 revokes every existing session of that account. The password itself is never
 echoed, logged or stored; hash, revocation and audit are one transaction.
+
+### 3.5.2 Incremental upgrades
+
+Existing installations use the checksum-tracked migration runner:
+
+```bash
+pnpm db:preflight      # connectivity + current version, no change
+pnpm db:migrate        # apply pending additive layers, then grant runtime access
+pnpm db:verify         # re-run the preflight; pending must be empty
+```
+
+The ledger is `schema_migrations` inside the target schema. Re-running is a no-op;
+editing an already-applied migration is refused unless
+`--allow-checksum-change` is explicitly supplied. Production upgrades still
+require a verified `pg_dump`, Owner approval and the release checklist.
+
+### 3.5.3 User administration
+
+The configured Super Admin can create users, change a role, deactivate an
+account and reset a password from **Settings → User administration**. Passwords
+are hashed before storage; a reset revokes every session of the target account.
+The final active administrator cannot be deactivated or demoted. Ordinary
+administrators cannot manage users.
 
 ### 3.6 Start
 
@@ -290,21 +315,24 @@ sha256sum /var/backups/alrifai-*.dump > /var/backups/alrifai-$(date +%Y%m%d-%H%M
 ```
 
 Restore into a new database first, then switch `PGDATABASE`. Updates: back up,
-replace the source, `pnpm install --frozen-lockfile && pnpm build`, apply any new
-`schema_meta` version step (none yet beyond 1.2.0), restart, verify `/api/health`.
+replace the source, `pnpm install --frozen-lockfile && pnpm build`, run
+`pnpm db:migrate` (additive, checksum-tracked), restart, verify `/api/health`.
+The current schema is `1.4.0` (migrations 002–008).
 
 ---
 
 ## 7. Tests
 
 ```bash
-pnpm test:unit        # pure functions (35 assertions)
-pnpm test:standalone  # domain + WhatsApp-adapter tests, needs the disposable DB
+pnpm test:unit        # pure functions (67 assertions)
+pnpm test:standalone  # all DB suites: domain, WhatsApp adapter, router,
+                      # cutover, Review Queue, Cash lifecycle and users
 ```
 
 The integration tests are destructive to their schema: run them against a
 disposable database (or a dedicated schema) prepared with `pnpm db:install`, and
-always with `--test-concurrency=1`.
+always with `--test-concurrency=1`. They reset business tables between files;
+never point them at production.
 
 ---
 
@@ -349,6 +377,10 @@ always with `--test-concurrency=1`.
   is reported per program and not allocated to a month (no verified travel date
   is captured), and advances/food-bill rules are not implemented — they need an
   owner decision, not an invention.
+* Cash supports instruction, review, approval, posting, reversal and
+  reconciliation. Reversal is a contra ledger entry; original postings and
+  ledger rows are never edited. Reconciliation records variance but never posts
+  an automatic adjustment.
 * Single currency (BDT by default) and single organization per installation.
 * English UI only.
 * Legacy AL-RIFA'I modules are preserved under `legacy-runtime/` and are not part

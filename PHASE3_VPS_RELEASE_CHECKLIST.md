@@ -1,74 +1,76 @@
 # Phase 3 VPS Release Checklist
 
-**For owner approval and deployment AFTER PR review.**  
-Do NOT execute before owner approval. No automatic deployment.
+**Release candidate:** `feature/phase3-router-cash-vessel`
+**Target schema:** `1.4.0` (migrations 002–008)
+**Status:** CODE/TEST COMPLETE — production execution requires explicit Owner approval.
 
-## Pre-deployment
+> Do NOT migrate, rebuild, restart or deploy production from this checklist until
+> the Owner has approved the exact commit SHA, migration window and backup.
 
-- [ ] Owner approval obtained for PR on `feature/phase3-router-cash-vessel`
-- [ ] CI passes on feature branch (all jobs: lint, typecheck, unit tests, domain integration tests, router tests, migration validation, Next.js build, Docker validation)
-- [ ] Migration `004_phase3_router_state.sql` verified on disposable PostgreSQL → schema version 1.3.0
-- [ ] Verified commit SHA from `feature/phase3-router-cash-vessel`
-- [ ] Verified backup exists (`pg_dump` of production `alrifai_v2`)
-- [ ] Previous Docker image preserved (tagged for rollback)
+## 1. Pre-deployment evidence
 
-## Deployment Steps (run on VPS)
+- [ ] Owner approval recorded with the exact commit SHA and change list.
+- [ ] CI/test evidence attached: typecheck, lint, 67/67 unit, 91/91 integration,
+      Next.js build, Docker build, `pnpm audit --prod` clean.
+- [ ] Migration `008_phase3_cash_lifecycle.sql` verified on a disposable copy of
+      production data, not just the empty test DB.
+- [ ] Fresh verified backup of `alrifai_v2`:
+      `pg_dump -Fc`, SHA-256, `pg_restore -l` check, stored outside `/tmp`.
+- [ ] Previous image digest and tag retained for rollback.
+- [ ] Production business data preserved: 34k+ raw messages, chats, aliases,
+      media, sync checkpoints, import runs.
+- [ ] Owner-approved Phase 3 business chats, group participants and WA-01 Admin
+      JIDs are recorded (not guessed).
+- [ ] Cash capability matrix approved: who may review, post, reverse and
+      reconcile; whether approver and poster must differ.
 
-1. **Verify current state**
+## 2. Build and migration
+
+1. Record current production state:
    ```bash
-   cd /opt/al-rifai-platform
-   git status --short
-   git log --oneline -3
+   curl -fsS https://app.al-rifai.iamazim.com/api/health
+   docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
    ```
-
-2. **Pull the approved commit**
+2. Build the release image from the approved SHA (not a dirty checkout):
    ```bash
-   git fetch origin
-   git checkout <approved-commit-sha>
-   # or: git merge --ff-only origin/feature/phase3-router-cash-vessel
+   docker build -t al-rifai-platform:<sha> .
+   docker tag al-rifai-platform:<sha> al-rifai-platform:phase3-<sha>
    ```
-
-3. **Preserve deployment-critical files** (never overwrite)
-   - `.env` — stays in `/opt/vps/al-rifai-standalone/apps/al-rifai/.env`
-   - `/var/lib/vps/al-rifai/media` — media directory
-   - WhatsApp session stores — bridge-owned storage
-
-4. **Verify backup**
+3. Run migration preflight against a restored copy first, then production with
+   the Owner-approved window:
    ```bash
-   ls -la /var/lib/vps/al-rifai/backups/
-   # Confirm latest pg_dump exists and is readable
+   pnpm db:preflight    # current version, pending list, no change
+   pnpm db:migrate      # additive, checksum-tracked, grants runtime role
+   pnpm db:verify       # pending must be empty; version 1.4.0
    ```
+4. Do not use `install --force` as the production migration path; use
+   `db:migrate`. `--force` exists for additive repair, not as a version upgrade.
 
-5. **Build new Docker image** (only when runtime code changed)
-   ```bash
-   docker build -t al-rifai-platform:<commit-sha> .
-   docker tag al-rifai-platform:<commit-sha> al-rifai-platform:previous
-   ```
+## 3. Deploy
 
-6. **Apply migrations** (disposable PostgreSQL validation already done in CI)
-   ```bash
-   # Migration 004 is additive and idempotent — safe to apply
-   pnpm db:migrate
-   ```
+- [ ] Preserve `.env`, media directory and WhatsApp bridge stores.
+- [ ] Update the compose image pin to the approved digest.
+- [ ] Restart only `app` and `sync`; do not touch bridges or PostgreSQL.
+- [ ] Keep the previous image tagged and available.
 
-7. **Deploy** (restart services using compose.yaml)
-   ```bash
-   docker compose up -d --build
-   ```
+## 4. Verify
 
-8. **Verify deployment**
-   - [ ] `/api/health` returns 200
-   - [ ] Database/schema match (version 1.3.0)
-   - [ ] HTTPS login works and intended pages render
-   - [ ] WhatsApp worker checkpoints continue advancing when source rows arrive
-   - [ ] `sync-worker --mode=status` shows `last_error: null`
-   - [ ] No automatic financial posting (cash instructions remain in REVIEW)
+- [ ] `/api/health` = 200, schema `1.4.0`, database ok.
+- [ ] HTTPS login works; workspace pages render.
+- [ ] Cash page loads; no automatic posting exists.
+- [ ] A test instruction can be created in REVIEW and is visible in `/cash`.
+- [ ] Review Queue loads; decisions are role-checked server-side.
+- [ ] `/cash/[id]` shows instruction, ledger and audit history.
+- [ ] Sync checkpoints advance; `last_error` null for both accounts.
+- [ ] WhatsApp bridge session stores untouched.
+- [ ] No `phase3_%` settings are enabled until the Owner supplies the allowlist.
+- [ ] Cash postings count is unchanged unless the Owner separately authorizes a
+      real posting.
 
-9. **Preserve previous image** for rollback
-   - Do NOT remove `al-rifai-platform:previous`
+## 5. Post-deployment
 
-## Post-deployment
-
-- [ ] Owner confirms live verification
-- [ ] Mark `DEVELOPER_START_HERE.md` states updated if needed
-- [ ] No automatic backfill of historical messages
+- [ ] Owner confirms live verification.
+- [ ] Record image digest, Git SHA, schema version, timestamp, RAM/disk.
+- [ ] Preserve the pre-deployment dump and rollback image.
+- [ ] Update `DEVELOPER_START_HERE.md` with the deployed state.
+- [ ] Do not backfill historical WhatsApp messages automatically.

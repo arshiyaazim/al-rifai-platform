@@ -1,104 +1,75 @@
-# Phase 3 (Revised) — Pull Request Description
+# Phase 3 — Complete Cash Lifecycle, Router, Review Queue and Release Readiness
 
-**Branch:** `feature/phase3-router-cash-vessel`  
-**Baseline:** `e6becfc`  
-**Status:** Ready for review — local implementation only, no deployment  
+**Branch:** `feature/phase3-router-cash-vessel`
+**Baseline:** `e6becfc` (Phase 2 `main`)
+**Status:** release candidate; production NOT deployed
 
-## Scope Summary
+## What this PR adds
 
-Implement Phase 3 (Revised): shared WhatsApp message router with domain
-classification, authorization enforcement, crash-safe processing state,
-Review Queue integration for errors/ambiguity, source provenance linkage,
-Cash Domain Handler, Vessel Domain Handler, CI workflows, and documentation.
+### Shared WhatsApp router
+- Domain classification, per-account cutover watermark, business-chat
+  allowlist, crash-safe processing state and retry.
+- Automated writes are attributed to `system:whatsapp-router`; the invoking
+  human remains on the batch audit row. This lets a sole human Admin review
+  automated Cash items without a self-review deadlock.
 
-**Explicitly out of scope:**
-- No production deployment, no VPS access
-- No automatic financial posting (all cash instructions go to REVIEW state)
-- No expanded WhatsApp authorization scope (existing `whatsapp_chats.authorized` contract only)
-- No automatic outbound WhatsApp sender expansion (confirmation uses admin's existing outgoing reply)
-- No scope expansion beyond the six increments
+### Complete Cash lifecycle
+- `REVIEW → APPROVED → POSTED / REJECTED / VOID`.
+- Approved review candidate atomically creates a linked `REVIEW` instruction.
+- Immutable posting + ledger entry.
+- Reversal: one immutable `cash_reversals` row plus a contra `CREDIT` ledger
+  entry; original posting and ledger are never edited.
+- Reconciliation: expected/counted/variance, OPEN/CLOSED; non-zero variance
+  requires an explanation; closing never posts an automatic adjustment.
+- `/cash/[id]` shows instruction, posting, reversal, ledger and audit history.
 
-## Changes by Increment
+### Review Queue and Vessel
+- Category-aware queue, source evidence, corrections, decisions, withdrawal.
+- Vessel multi-message correlation, group participant authorization,
+  confirmation evidence and duplicate warnings.
 
-### Increment 1 — Router Foundation
-- `lib/message-router.ts` — shared router: domain classification, authorization,
-  processing state (PENDING/PROCESSING/COMPLETED/FAILED), retry with backoff,
-  Review Queue submission for errors/ambiguity, source provenance
-- `lib/message-classifier.ts` — pure CASH/VESSEL/UNKNOWN classifier from text
-  + chat purpose
-- `lib/standalone/whatsapp.ts` — added `routePending()` export calling
-  `routePendingMessages()`
-- `app/api/whatsapp/route.ts` — added `POST ?action=route` (ADMIN only)
-- `db/standalone/004_phase3_router_state.sql` — additive migration:
-  `processing_status`, `retry_count`, `last_error`, `last_processed_at` on
-  `whatsapp_messages`; schema version bumped to 1.3.0
+### Authorization
+- Explicit capabilities for cash review/post/reverse/reconcile/ledger/account,
+  payroll, employees, attendance, vessel command/release, WhatsApp, review and
+  user management.
+- Server-side enforcement in routes and services; USER direct writes are staged
+  through review where the model promises submission.
+- Super Admin user administration with last-admin lockout protection.
 
-### Increment 2 — Cash Domain
-- Incoming WhatsApp cash messages → `cash_instructions` in REVIEW state via
-  `createInstruction()` (existing verified business rule, unchanged)
-- Unparsable cash messages → `cash_submissions` PENDING_REVIEW with raw text
-  and parse errors (uses established `cash_submissions` path, NOT
-  `submitForReview` which rejects CASH domain by design)
-- Idempotent by `(source_message_id, source_block_key)` — no duplicates from replay
-- Provenance: `source_message_id`, `source_block_key` on `cash_instructions`
+### Database and release engineering
+- Migration `008_phase3_cash_lifecycle.sql`, schema `1.4.0`.
+- Checksum-tracked `scripts/standalone/migrate.mjs`; idempotent
+  `install --force`; shared runtime grants.
+- Next.js `16.4.1`, Zod `4.6.6`, fast-uri `3.1.9`; production audit clean.
 
-### Increment 3 — Vessel Domain
-- Incoming WhatsApp vessel messages → `programs` in DRAFT state via
-  `createProgram()` (existing verified business rule, unchanged)
-- Duplicate detection via `potentialDuplicates()` (±1 day warning → Review
-  Queue; exact same-day → skip, logged)
-- Provenance: `source_message_id`, `source_chat_jid` on `programs`
-- Admin outgoing confirmation matched by existing `applyConfirmation()` — no
-  new outbound sender
+### Audit integrity
+- `recordAudit(input, client)` participates in the business transaction.
+- Review decisions apply domain writes on the same transaction client.
 
-### Increment 4 — Review Queue
-- `review_items` domain PROGRAM for vessel parse errors and duplicate warnings
-- `cash_submissions` domain CASH for cash parse errors (established path)
-- No auto-decision: all review items require manual admin review via
-  `POST /api/review` (existing endpoint, unchanged)
+## Verification
 
-### Increment 5 — Frontend Integration
-- No new UI required for minimal Phase 3 scope
-- Existing UI pages unchanged: `messages/page.tsx`, `cash/page.tsx`,
-  `vessel/page.tsx`, `review/page.tsx`
-- Router accessible via existing API surface (`POST /api/whatsapp?action=route`)
+| Check | Result |
+|---|---|
+| Typecheck | 0 errors |
+| Lint | 0 errors |
+| Unit tests | 67/67 |
+| Integration tests | 91/91 |
+| Next.js build | pass |
+| Docker build | pass |
+| `pnpm audit --prod` | no known vulnerabilities |
+| Test DB | `1.4.0`, 35 tables, repeat migration no-op |
+| Fresh disposable DB | install 34 tables/1.4.0; migrate 35 tables/7 rows; `--force` passes |
 
-### Increment 6 — CI / Tests / Docs
-- `.github/workflows/ci.yml` — CI pipeline: dependency install (pnpm), lint,
-  typecheck, unit tests, domain integration tests (disposable PostgreSQL),
-  router tests, migration validation (disposable PostgreSQL), Next.js build,
-  Docker build validation, synthetic fixtures only (no production creds)
-- `tests/standalone/message-classifier.test.mjs` — pure classifier tests
-- `tests/standalone/message-router.test.mjs` — router integration tests
-- `DEVELOPER_START_HERE.md` — updated in place: Phase 3 entries marked
-  IMPLEMENTED / LOCALLY TESTED / CI NOT RUN / PRODUCTION NOT DEPLOYED /
-  LIVE NOT VERIFIED
+## Not included / not authorized
 
-## Verification Status (local environment)
+- No production deployment, migration, restart or image activation.
+- No real financial posting, reversal or reconciliation execution.
+- No automatic historical WhatsApp backfill.
+- GitHub Actions has not run (account billing lock); local evidence is provided.
 
-| Check | Status | Notes |
-|---|---|---|
-| Classifier unit tests | Not run locally | Node.js v20 lacks `--experimental-strip-types`; run in CI |
-| Router integration tests | Not run locally | Requires disposable PostgreSQL; run in CI |
-| Lint / typecheck | Not run locally | pnpm not available locally; run in CI |
-| Migration validation | Not run locally | No psql/PostgreSQL/Docker locally; run in CI |
-| Next.js build | Not run locally | No pnpm locally; run in CI |
-| Docker build | Not run locally | No Docker locally; run in CI |
+## Owner decisions required before production
 
-No production credentials or messages are used anywhere. Tests use synthetic
-fixtures against a disposable PostgreSQL container in CI.
-
-## Release Gate (owner approval required before merge)
-
-1. CI passes on `feature/phase3-router-cash-vessel`
-2. Migration `004_phase3_router_state.sql` verified on disposable PostgreSQL
-   → schema version 1.3.0
-3. No automatic financial posting (cash instructions remain in REVIEW state)
-4. No duplicates from replay (idempotency by source key)
-5. Phase 2 intact — no changes to verified Cash/Vessel business rules
-6. Documentation updated (`DEVELOPER_START_HERE.md` in place)
-
-## VPS Deployment (after owner approval — NOT part of this PR)
-
-See `PHASE3_VPS_RELEASE_CHECKLIST.md` for the deployment procedure and
-`PHASE3_ROLLBACK_INSTRUCTIONS.md` for rollback steps.
+1. Approve exact release SHA, backup and migration window.
+2. Approve the Cash capability matrix and whether approver ≠ poster.
+3. Supply approved business chats, group participants and WA-01 Admin JIDs.
+4. Accept the local CI evidence if GitHub Actions remains unavailable.
