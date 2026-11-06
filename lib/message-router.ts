@@ -35,6 +35,8 @@ import {createProgram, potentialDuplicates, releaseProgram} from './standalone/p
 import {submitForReview} from './standalone/review.ts';
 import {classifyDomain, type Domain} from './message-classifier.ts';
 import {jidsMatch} from './whatsapp-identity.mjs';
+import {isAuthorizedCashConversation} from './authorized-contacts.ts';
+import {RULE_VERSION} from './business-rules.mjs';
 import type {WhatsAppAccount} from './standalone/whatsapp.ts';
 
 export type RouterResult = {
@@ -602,7 +604,7 @@ async function handleReleaseSlip(
           fields,
           reasons: block.reasons.length ? block.reasons : ['ESCORT_MOBILE_UNRESOLVED', 'RELEASE_DATE_UNRESOLVED'],
           releaseCategory: 'RELEASE_INCOMPLETE',
-          parser: 'release-slip',
+          parser: 'release-slip', ruleVersion: RULE_VERSION,
         });
       if (submitted.submitted) reviewSubmitted = true;
       reasons.push(...(block.reasons.length ? block.reasons : ['RELEASE_INCOMPLETE']));
@@ -632,7 +634,7 @@ async function handleReleaseSlip(
           fields,
           candidates: candidates.map((candidate) => candidate.id),
           releaseCategory: candidates.length ? 'RELEASE_AMBIGUOUS' : 'RELEASE_PROGRAM_NOT_MATCHED',
-          parser: 'release-slip',
+          parser: 'release-slip', ruleVersion: RULE_VERSION,
         });
       if (submitted.submitted) reviewSubmitted = true;
       reasons.push(candidates.length ? 'RELEASE_AMBIGUOUS' : 'RELEASE_PROGRAM_NOT_MATCHED');
@@ -661,7 +663,7 @@ async function handleReleaseSlip(
           programId: candidate.id,
           error: code,
           releaseCategory: 'RELEASE_APPLY_FAILED',
-          parser: 'release-slip',
+          parser: 'release-slip', ruleVersion: RULE_VERSION,
         });
       if (submitted.submitted) reviewSubmitted = true;
       reasons.push(`RELEASE_APPLY_FAILED:${code}`);
@@ -713,7 +715,7 @@ async function handleVessel(
           rawText: text,
           reasons: ['NO_STRUCTURED_RELEASE_BLOCK'],
           releaseCategory: 'RELEASE_UNSTRUCTURED',
-          parser: 'release-slip',
+          parser: 'release-slip', ruleVersion: RULE_VERSION,
         });
       return {created: false, reviewSubmitted: submitted.submitted, reasons: ['NO_STRUCTURED_RELEASE_BLOCK'], programsCreated: 0, releases: 0};
     }
@@ -1061,16 +1063,23 @@ export async function routePendingMessages(
             action = 'ignored';
             result.ignored += 1;
           } else {
-            const cashResult = await handleCash(SYSTEM_ACTOR, message, text);
-            result.instructions += cashResult.created ? 1 : 0;
-            result.reviewItems += cashResult.reviewSubmitted ? 1 : 0;
-            classification = cashResult.created
-              ? `CASH:REVIEW_CREATED`
-              : cashResult.reviewSubmitted
-                ? `CASH:REVIEW_SUBMITTED:${cashResult.reasons.join(',')}`
-                : 'CASH:IDEMPOTENT_SKIP';
-            action = cashResult.created ? 'cash_instruction_created'
-              : cashResult.reviewSubmitted ? 'cash_review_submitted' : 'cash_idempotent_skip';
+            const cashConversation = await isAuthorizedCashConversation(message.account_id, message.chat_jid);
+            if (!cashConversation.authorized) {
+              classification = `CASH:${cashConversation.reason ?? 'ACCOUNTANT_NOT_AUTHORIZED'}`;
+              action = 'ignored';
+              result.ignored += 1;
+            } else {
+              const cashResult = await handleCash(SYSTEM_ACTOR, message, text);
+              result.instructions += cashResult.created ? 1 : 0;
+              result.reviewItems += cashResult.reviewSubmitted ? 1 : 0;
+              classification = cashResult.created
+                ? `CASH:REVIEW_CREATED`
+                : cashResult.reviewSubmitted
+                  ? `CASH:REVIEW_SUBMITTED:${cashResult.reasons.join(',')}`
+                  : 'CASH:IDEMPOTENT_SKIP';
+              action = cashResult.created ? 'cash_instruction_created'
+                : cashResult.reviewSubmitted ? 'cash_review_submitted' : 'cash_idempotent_skip';
+            }
           }
         } else if (domain === 'CASH' && message.direction === 'INCOMING') {
           // Incoming messages never create cash instructions

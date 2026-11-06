@@ -46,3 +46,13 @@ test('incomplete release never becomes clean evidence', () => {
 test('ordinary order text is not a release slip', () => {
   assert.equal(isReleaseSlip('Mother Vessel: MV Test\nLighter Vessel: L-1\nMaster mobile: 01911111111'), false);
 });
+
+test('Bangla release labels are recognized', () => {
+  const text = 'এসকর্ট রিলিজ\nমাদার ভেসেল: এম.ভি. টেস্ট\nলাইটার ভেসেল: এল-১\nএসকর্ট নাম: টেস্ট\nএসকর্ট মোবাইল: 01812345678\nশুরু: 01/11/26 (D)\nরিলিজ তারিখ: 05/11/26 (N)';
+  const [block] = parseReleaseSlips(text);
+  assert.equal(block.fields.escortMobile, '01812345678');
+  assert.equal(block.fields.startDate, '2026-11-01');
+  assert.equal(block.fields.endDate, '2026-11-05');
+  assert.equal(block.fields.endShift, 'N');
+  assert.equal(block.fields.motherVessel, 'টেস্ট');
+});
