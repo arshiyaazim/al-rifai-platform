@@ -98,7 +98,9 @@ Final-sync rehearsal on an isolated clone of `alrifai_v2_phase3`:
 - WA-01 chats: 759 (production had 756; the three missing bridge chats are now
   imported);
 - one alias was intentionally normalized (`8801958122300` evidence source and
-  canonical person key); all other alias identity fields matched.
+  canonical person key); all other alias identity fields matched;
+- operational `whatsapp_import_runs` history can be backfilled idempotently;
+  3,987 production rows were exported and 76 missing rows inserted on the clone.
 
 The live delta at audit time was 7 messages, 2 WA-02 media rows and 5 WA-01
 aliases. The final cutover runbook requires re-measuring this delta immediately

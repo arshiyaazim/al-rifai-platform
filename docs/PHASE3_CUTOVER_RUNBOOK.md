@@ -188,7 +188,33 @@ docker stop alrifai-phase3-final-sync
 docker rm alrifai-phase3-final-sync
 ```
 
-### 4.4 Validate the delta
+### 4.4 Backfill operational import-run metadata
+
+Import runs are operational audit rows, not business records. The sync worker
+creates new runs but does not copy historical run rows. Preserve the production
+history with an idempotent merge:
+
+```bash
+docker exec vps-infra-postgres-1 psql -U vps_pg_admin -d alrifai_v2 \
+  -c "\copy (select id,account_id,source_path,source_sha256,snapshot_at,started_at,finished_at,rows_seen,rows_inserted,rows_skipped,status,error from whatsapp_import_runs) to stdout with (format csv)" \
+  > /tmp/import_runs.csv
+docker cp /tmp/import_runs.csv vps-infra-postgres-1:/tmp/import_runs.csv
+
+docker exec -i vps-infra-postgres-1 psql -U vps_pg_admin -d alrifai_v2_phase3 <<'SQL'
+CREATE TEMP TABLE tmp_import_runs (LIKE whatsapp_import_runs INCLUDING DEFAULTS);
+\copy tmp_import_runs FROM '/tmp/import_runs.csv' WITH (FORMAT csv)
+INSERT INTO whatsapp_import_runs SELECT * FROM tmp_import_runs ON CONFLICT (id) DO NOTHING;
+SELECT count(*) AS total_runs FROM whatsapp_import_runs;
+SQL
+
+docker exec vps-infra-postgres-1 rm -f /tmp/import_runs.csv
+rm -f /tmp/import_runs.csv
+```
+
+Verified on the rehearsal clone: 3,987 production rows exported; 76 missing rows
+inserted; conflict rows were skipped by primary key.
+
+### 4.5 Validate the delta
 
 ```bash
 docker exec vps-infra-postgres-1 psql -U vps_pg_admin -d alrifai_v2_phase3 \
