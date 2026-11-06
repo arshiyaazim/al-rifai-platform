@@ -2,7 +2,7 @@
 
 > **Canonical current-state developer map — not a changelog.** Read this first before modifying code, database, Docker, WhatsApp ingestion, or deployment.
 >
-> **Last reconciled:** 2026-11-06. **Source:** `main` at the Phase 3 cutover-safety merge (tag `v1.4.0-phase3-rc2`) (Live Router cutover gate, complete Cash lifecycle, capability enforcement, transaction-aware audit, incremental migration runner; **95/95 integration tests**, 69/69 unit tests); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
+> **Last reconciled:** 2026-11-06. **Source:** `main` at `ebd6ccb` (tag `v1.4.0-phase3-rc2`); production cut over 2026-11-06 18:14 UTC (Live Router cutover gate, complete Cash lifecycle, capability enforcement, transaction-aware audit, incremental migration runner; **95/95 integration tests**, 69/69 unit tests); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
 >
 > **Priority:** **BUILD → RUN → LIVE → IMPROVE**. Do not block releases on unrelated legacy data migration, historical Git branches, exhaustive tests, or non-blocking cleanup. Never claim a workflow is live solely because code exists.
 
@@ -111,16 +111,17 @@ verified [`docs/PHASE3_CUTOVER_RUNBOOK.md`](./docs/PHASE3_CUTOVER_RUNBOOK.md).
 | Item | Current value / source |
 |---|---|
 | Git repository | https://github.com/arshiyaazim/al-rifai-platform |
-| Git branch | `main` at the cutover-safety merge (tag `v1.4.0-phase3-rc2`); production still Phase 2 |
-| Verified baseline | Phase 2 `e6becfc`; Phase 3 merged into `main`; production is still on Phase 2 until cutover. |
+| Git branch | `main` at `ebd6ccb` (tag `v1.4.0-phase3-rc2`); Phase 3 live |
+| Verified baseline | Phase 2 `e6becfc`; Phase 3 cut over 2026-11-06 18:14 UTC. Old Phase 2 containers/DB preserved. |
 | Local Git checkout (VPS) | `/opt/al-rifai-platform` (`main` at `e6becfc`) |
 | Phase 3 test worktree (VPS) | `/opt/al-rifai-phase3-test` at the Task 5F.2B commit (separate worktree; production source unchanged) |
 | Standalone app source / root `.env` (VPS) | `/opt/vps/al-rifai-standalone/apps/al-rifai` |
 | Public application | https://app.al-rifai.iamazim.com |
 | Login | https://app.al-rifai.iamazim.com/login |
 | Public health | https://app.al-rifai.iamazim.com/api/health |
-| Production PostgreSQL DB | `alrifai_v2`, schema `public`, version `1.2.0` (deployed; must not be migrated by Phase 3 work) |
-| Isolated test DB | `alrifai_v2_test`, owner `alrifai_app`, **initialized at schema `1.4.0`** (001–008 + migration ledger), 35 tables. Tests must set `PGDATABASE=alrifai_v2_test`. |
+| Production PostgreSQL DB | `alrifai_v2_phase3`, schema `public`, version `1.4.0` (live) |
+| Isolated test DB | `alrifai_v2_test`, owner `alrifai_app`, **schema `1.4.0`** (001–008 + migration ledger), 35 tables. Tests must set `PGDATABASE=alrifai_v2_test`. |
+| Cold rollback DB | `alrifai_v2`, schema `1.2.0`, preserved untouched |
 | Legacy PostgreSQL DB | `alrifai` — retained, **not** active application DB |
 | WhatsApp source WA-01 | `/var/lib/vps/whatsapp/wa-01/store/messages.db` |
 | WhatsApp source WA-02 | `/var/lib/vps/whatsapp/wa-02/store/messages.db` |
@@ -191,7 +192,7 @@ the deployed SQLite direct-import / tail worker.
 
 **Compose-defined resource limits:** app **512 MiB**, sync **192 MiB**. Measured 2026-11-05 after Phase 2: app **~70 MiB**, sync **~32 MiB**. Disk **55 GB used / 194 GB total** (~139 GB free); `alrifai_v2` ~75 MB; media store **26 MB / 97 files**. Numbers are a dated snapshot, not current telemetry.
 
-**Runtime baseline (production, unchanged):** HTTPS health 200 with database OK and schema `1.2.0`; authenticated access to the workspace pages including `/messages`; both sync checkpoints advancing. Deployed image `local/al-rifai-platform:20261105-phase2` (`sha256:2950c068…`, built from `09b2a51`); rollback image `20261105-v3` (`sha256:c29d837c…`) retained. Confirm actual digests from Docker before any rollback. **Local test schema:** PostgreSQL 16, `alrifai_v2_test`, schema `1.4.0`, 35 tables; production not deployed.
+**Runtime baseline (production, 2026-11-06 18:14 UTC):** HTTPS health 200 with database OK and schema `1.4.0`; live stack `al-rifai-phase3-app-1` / `al-rifai-phase3-sync-1`, image `local/al-rifai-platform:phase3-rc-final5` (`sha256:8681b8ab…`). Old Phase 2 containers `alrifai-v2-app-1` / `alrifai-v2-sync-1` are stopped and preserved; old DB `alrifai_v2` remains schema `1.2.0`. Feature flags `PHASE3_ROUTER_WORKER_ENABLED=0`, `ALRIFAI_VESSEL_PROCESSING_ENABLED=0`; postings 0. Full cutover evidence: `docs/PHASE3_DEPLOYMENT_LOG.md`.
 
 ## 4. Code and directory map
 
@@ -325,7 +326,7 @@ Status terms: **LIVE** = owner agent reported real deployment/runtime validation
 
 ## 8. Database and secrets
 
-- **Current database:** `alrifai_v2`, PostgreSQL, schema version `1.2.0` (deployed); the Phase 3 branch defines `1.4.0` through migration 008, verified on the isolated test DB, a fresh disposable DB and a restored copy of real production data (`alrifai_v2_phase3_rehearsal`). Legacy `alrifai` is retained for rollback and is not part of the new application's business state.
+- **Current database:** `alrifai_v2_phase3`, PostgreSQL, schema `1.4.0` (live since 2026-11-06 18:14 UTC). `alrifai_v2` remains schema `1.2.0` as the cold rollback database. Migration 008 and the final-sync procedure were verified on test, fresh and production-copy databases. Legacy `alrifai` is retained for rollback and is not part of the new application's business state.
 - **Isolated Phase 3 test DB:** `alrifai_v2_test` on the existing `vps-infra-postgres-1` (owner `alrifai_app`, UTF8) is at schema `1.4.0`: 35 tables (including `schema_migrations`), 5 functions, 15 triggers. Migrations 002–008 are applied, including `cash_submissions.instruction_id`, `cash_reversals`, `cash_reconciliations`, and the extended ledger source values. It is separate from `alrifai_v2`/`alrifai` and must be the explicit `PGDATABASE` for installation/migration/integration tests. Production `alrifai_v2` remains `1.2.0` and is not migrated or modified.
 - **Installer repeat-safety:** a second run without `--force` refuses with `ALREADY_INSTALLED`. `--force` now skips the non-idempotent baseline and re-applies only the additive layers + grants; verified on the disposable fresh DB. Prefer `pnpm db:migrate` for a controlled upgrade.
 - **Installer/migrations:** fresh `schema.sql` + additive `002`–`008`, all idempotent, schema `1.4.0`. `scripts/standalone/migrate.mjs` is the incremental, checksum-tracked path. Production schema remains `1.2.0` and is not migrated. Do not reintroduce the legacy migration chain just to match historical DB structure.
@@ -375,7 +376,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 | 4 | Confirm document and sticker media | A live document/sticker attachment stored with SHA verification |
 | 5 | Complete identity map | Contact-book/push/profile names where the bridge exposes them; WA-02 store lacks `resolved_*` and participant columns |
 | 6 | Media retention and disk budget | A retention/size policy before the 26 MB store grows; keep the default 25 MB per-file ceiling |
-| 7 | Production Phase 3 migration/deploy | Owner approval, verified `pg_dump`, approved chats/participants/Admin JIDs, then follow `PHASE3_VPS_RELEASE_CHECKLIST.md` |
+| 7 | Phase 3 cutover | **DONE 2026-11-06 18:14 UTC** — live schema 1.4.0; old stack preserved; flags off |
 
 **Phase 3 implementation state (all items):**
 - Router Foundation: IMPLEMENTED + TESTED — `lib/message-router.ts`, `lib/message-classifier.ts`, state/retry, Review Queue submission, per-account cutover watermark. 50/50 router tests, 18/18 cutover tests.

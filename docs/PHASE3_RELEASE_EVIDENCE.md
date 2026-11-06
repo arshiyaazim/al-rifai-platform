@@ -7,7 +7,7 @@
 **Release tag:** `v1.4.0-phase3-rc2`
 **Schema:** `1.4.0`
 **Feature branch:** pushed to `origin/feature/phase3-router-cash-vessel`; cutover-safety code commit `2c82936`
-**Production deployment:** NOT EXECUTED
+**Production deployment:** EXECUTED 2026-11-06 18:14 UTC — Phase 3 live on `alrifai_v2_phase3`; old Phase 2 stack and DB preserved
 
 ## Image
 
@@ -109,6 +109,27 @@ before switching.
 New release artifact: `compose.phase3.yaml` (separate `al-rifai-phase3` Compose
 project, `PGDATABASE=alrifai_v2_phase3`, both flags `0`). The old `al-rifai-v2`
 containers remain stopped and preserved for rollback.
+
+## Cutover execution (2026-11-06 18:14 UTC)
+
+- Live stack: `alrifai-phase3-app-1` and `alrifai-phase3-sync-1`, image
+  `local/al-rifai-platform:phase3-rc-final5`
+  (`sha256:8681b8ab63deaeb6a9d31f38a52b96c6027db577ca6ac757b0996f34a47983ae`).
+- Live DB: `alrifai_v2_phase3`, schema `1.4.0`, 34,437 messages, 264 media rows,
+  2,602 aliases, 2,013 chats, 0 postings.
+- Old stack `alrifai-v2-app-1` / `alrifai-v2-sync-1` stopped and preserved;
+  old DB `alrifai_v2` remains schema `1.2.0`, 0 postings.
+- Pre-cutover backup: `/var/lib/vps/al-rifai/backups/alrifai_v2_FINAL_pre_cutover_20261106_191328.dump`
+  SHA-256 `82ffdd400c33734e8780b53c20fc956a9588185b9c0612f5b9295454139df6ec`.
+- Env rollback copy: `/opt/vps/al-rifai-standalone/apps/al-rifai/.env.pre-phase3`.
+- Measured downtime: ~16 seconds. First compose attempt failed because the image
+  was only tagged without the `local/` namespace; the same digest was tagged as
+  `local/al-rifai-platform:phase3-rc-final5` and the stack started.
+- Health 200 / schema 1.4.0; login 200; authenticated dashboard/cash/review/
+  vessel/settings all 200; unauthenticated dashboard 401, cash 307.
+- Both feature flags remain `0`; `app_settings.phase3_*` is empty; postings 0.
+- Sync checkpoints 19,634 / 15,181 with no error.
+- Full timeline: `docs/PHASE3_DEPLOYMENT_LOG.md`.
 
 ## Safety confirmation
 

@@ -1,6 +1,6 @@
 # Phase 3 Production Cutover Runbook
 
-**Status:** prepared and rehearsed; NOT executed
+**Status:** EXECUTED 2026-11-06 18:14 UTC — see `docs/PHASE3_DEPLOYMENT_LOG.md`
 **Release image:** `al-rifai-platform:phase3-rc-final5`
 **Image digest:** `sha256:8681b8ab63deaeb6a9d31f38a52b96c6027db577ca6ac757b0996f34a47983ae`
 **New database:** `alrifai_v2_phase3` (schema `1.4.0`)
@@ -73,6 +73,8 @@ evidence, not a fixed assumption.**
 ## 3. Preconditions — stop if any fail
 
 1. Owner has approved cutover with the exact image digest and cutover window.
+2. The image is tagged in the Compose namespace:
+   `docker tag alrifai-platform:phase3-rc-final5 local/al-rifai-platform:phase3-rc-final5`.
 2. `docker image inspect al-rifai-platform:phase3-rc-final5` succeeds.
 3. `alrifai_v2` health is 200; schema 1.2.0; postings 0.
 4. `alrifai_v2_phase3` is schema 1.4.0.

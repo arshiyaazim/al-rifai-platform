@@ -2,7 +2,7 @@
 
 **Release candidate:** `feature/phase3-router-cash-vessel`
 **Target schema:** `1.4.0` (migrations 002–008)
-**Status:** CODE/TEST COMPLETE — production execution requires explicit Owner approval.
+**Status:** EXECUTED 2026-11-06 18:14 UTC — see `docs/PHASE3_DEPLOYMENT_LOG.md`.
 
 > Do NOT migrate, rebuild, restart or deploy production from this checklist until
 > the Owner has approved the exact commit SHA, migration window and backup.

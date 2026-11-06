@@ -7,13 +7,18 @@
 - **Image digest:** `sha256:8681b8ab63deaeb6a9d31f38a52b96c6027db577ca6ac757b0996f34a47983ae`
 - **Release branch merged:** `feature/phase3-router-cash-vessel` → `main`
 - **Merge commit:** `8cd9436` (cutover-safety fix)
+- **Cutover executed:** 2026-11-06 18:14 UTC
+- **Live database:** `alrifai_v2_phase3` (schema 1.4.0)
+- **Rollback database:** `alrifai_v2` (schema 1.2.0, preserved)
 - **Release tag:** `v1.4.0-phase3-rc2` (the earlier `v1.4.0-phase3-rc` is retained)
 - **Cutover runbook:** See [`docs/PHASE3_CUTOVER_RUNBOOK.md`](./docs/PHASE3_CUTOVER_RUNBOOK.md)
 - **Deployment guide:** See [`DEVELOPER_START_HERE.md`](./DEVELOPER_START_HERE.md)
 - **Rollback:** See [`PHASE3_ROLLBACK_INSTRUCTIONS.md`](./PHASE3_ROLLBACK_INSTRUCTIONS.md)
 
-**Production status:** not yet cut over. The running Phase 2 application and the
-`alrifai_v2` database remain untouched until Owner approval.
+**Production status:** **LIVE on Phase 3** since 2026-11-06 18:14 UTC.
+`alrifai_v2_phase3` is the live database at schema 1.4.0. The old Phase 2
+containers and `alrifai_v2` are preserved as a cold rollback path. Feature flags
+remain OFF; no business routing or financial posting is active.
 
 ---
 
