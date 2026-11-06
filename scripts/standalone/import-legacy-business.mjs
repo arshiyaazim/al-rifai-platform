@@ -93,6 +93,8 @@ async function main() {
   try {
     await target.query(`SET search_path TO "${targetConfig.schema}"`);
     await source.query('SET search_path TO "public"');
+    // The legacy source is never written: enforce read-only at session level.
+    await source.query('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY');
     if (APPLY) await target.query('BEGIN');
 
     const account = await target.query("SELECT id FROM cash_accounts WHERE code = 'CASH' LIMIT 1");
