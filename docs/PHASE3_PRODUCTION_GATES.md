@@ -23,13 +23,14 @@ silence is not approval.
 | Item | Value |
 |---|---|
 | Branch | `feature/phase3-router-cash-vessel` |
-| Code commit | `e7ab9d1` plus the release commit below |
-| Candidate image | `local/al-rifai-platform:phase3-ai-rc-<commit>` |
-| Candidate digest | recorded after build (see release notes) |
+| Code commit | `545d374` (`feature/phase3-router-cash-vessel`) |
+| Candidate image | `local/al-rifai-platform:phase3-ai-rc-545d374` |
+| Candidate digest | `sha256:2ef776f2b75b3803c781be313cac7fb7f8de12c95e3479ed456224e9ac463f38` |
 | Production DB | `alrifai_v2_phase3`, schema `1.4.0` |
 | Test DB | `alrifai_v2_test`, schema `1.5.0`, 46 tables |
 | Tests | 83/83 unit, 110/110 integration |
 | Checks | typecheck, lint, Next build, Docker build, `pnpm audit --prod` |
+| Candidate smoke | health 200 on the migrated clone, `schemaVersion 1.5.0`, `/api/assistant` 401, both workers disabled |
 
 Migration rehearsal evidence (2026-11-06):
 
@@ -118,7 +119,7 @@ Expected: `schemaVersion 1.5.0`, `tables 46`, `migrations 8`.
 
 ```bash
 cd /opt/vps/al-rifai-standalone/apps/al-rifai
-ALRIFAI_TAG=phase3-ai-rc-<commit> docker compose up -d app sync
+ALRIFAI_TAG=phase3-ai-rc-545d374 docker compose up -d app sync
 docker ps --filter name=al-rifai-phase3
 curl -sk https://app.al-rifai.iamazim.com/api/health
 ```
