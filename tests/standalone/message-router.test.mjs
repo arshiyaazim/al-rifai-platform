@@ -8,6 +8,8 @@ import {row} from '../../lib/standalone/db.ts';
 import {routePendingMessages} from '../../lib/message-router.ts';
 
 const admin = {id: 'a'.repeat(64), role: 'ADMIN'};
+const TEST_BUSINESS_CHATS = ['8801844836824@s.whatsapp.net', '120363000000000001@g.us'];
+let nextRowid = 1;
 
 // Integration fixtures are shared state. Start every test from the same clean
 // fixture, and use the owner role only for this reset: the runtime role has no
@@ -15,6 +17,7 @@ const admin = {id: 'a'.repeat(64), role: 'ADMIN'};
 // on the audit/ledger tables. Nothing outside this disposable test database is
 // touched.
 beforeEach(async () => {
+  nextRowid = 1;
   const owner = createPool({role: 'app', readOnly: false, applicationName: 'alrifai-router-test-reset'});
   try {
     await owner.query(`TRUNCATE TABLE
@@ -23,11 +26,25 @@ beforeEach(async () => {
       attendance, identity_aliases, program_pay, program_source_messages,
       program_assignments, program_events, programs, employees,
       whatsapp_media, whatsapp_messages, whatsapp_chats, whatsapp_sync_state,
-      whatsapp_accounts, whatsapp_import_runs, escort_client_group_authorizations
+      whatsapp_accounts, whatsapp_import_runs, escort_client_group_authorizations,
+      app_settings
       RESTART IDENTITY`);
   } finally {
     await owner.end();
   }
+  // Test-only activation state: the Live Router is enabled with a synthetic
+  // zero watermark so every test message (source_rowid > 0) is eligible.
+  await row(
+    `INSERT INTO app_settings (key, value, updated_at)
+     VALUES
+       ('phase3_router_enabled','true'::jsonb,now()),
+       ('phase3_cutover_rowid:wa-01','0'::jsonb,now()),
+       ('phase3_cutover_rowid:wa-02','0'::jsonb,now()),
+       ('phase3_business_chats:wa-01',$1::jsonb,now()),
+       ('phase3_business_chats:wa-02',$1::jsonb,now())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
+    [JSON.stringify(TEST_BUSINESS_CHATS)],
+  );
 });
 
 async function ensureAccount(id, label = 'Test Account', adminJid = '8801880446111@s.whatsapp.net') {
@@ -50,6 +67,14 @@ async function ensureAccount(id, label = 'Test Account', adminJid = '88018804461
      ON CONFLICT (account_id) DO NOTHING`,
     [id],
   );
+  await row(
+    `INSERT INTO app_settings (key, value, updated_at)
+     VALUES
+       ($1,'0'::jsonb,now()),
+       ($2,$3::jsonb,now())
+     ON CONFLICT (key) DO NOTHING`,
+    [`phase3_cutover_rowid:${id}`, `phase3_business_chats:${id}`, JSON.stringify(TEST_BUSINESS_CHATS)],
+  );
   // Vessel orders require an approved group participant, not just an
   // authorized chat. The valid-order tests use this fixed group/sender; the
   // negative authorization test deactivates this row explicitly.
@@ -62,11 +87,11 @@ async function ensureAccount(id, label = 'Test Account', adminJid = '88018804461
   );
 }
 
-async function stageMessage(accountId, chatJid, messageId, direction, senderJid, text, status = 'PENDING') {
+async function stageMessage(accountId, chatJid, messageId, direction, senderJid, text, status = 'PENDING', sourceRowid = nextRowid++) {
   await row(
     `INSERT INTO whatsapp_messages
-       (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash, processing_status)
-     VALUES ($1,$2,$3,$4,$5,now(),$6,encode(sha256(convert_to($6,'UTF8')),'hex'),$7)
+       (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash, processing_status, source_rowid)
+     VALUES ($1,$2,$3,$4,$5,now(),$6,encode(sha256(convert_to($6,'UTF8')),'hex'),$7,$8)
      ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO UPDATE
        SET direction = EXCLUDED.direction,
            sender_jid = EXCLUDED.sender_jid,
@@ -74,12 +99,13 @@ async function stageMessage(accountId, chatJid, messageId, direction, senderJid,
            text_content = EXCLUDED.text_content,
            content_hash = EXCLUDED.content_hash,
            processing_status = EXCLUDED.processing_status,
+           source_rowid = EXCLUDED.source_rowid,
            retry_count = 0,
            last_error = NULL,
            last_processed_at = NULL,
            processed_at = NULL,
            classification = NULL`,
-    [accountId, chatJid, messageId, direction, senderJid, text, status],
+    [accountId, chatJid, messageId, direction, senderJid, text, status, sourceRowid],
   );
 }
 
@@ -323,10 +349,10 @@ test('router: FAILED messages are retryable after backoff', async () => {
   await row(
     `INSERT INTO whatsapp_messages
        (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash,
-        processing_status, retry_count, last_processed_at)
+        processing_status, retry_count, last_processed_at, source_rowid)
      VALUES ('wa-01','8801844836824@s.whatsapp.net','msg-cash-retry-1','OUTGOING','8801880446111@s.whatsapp.net',
        now(),'ID: 01712345678 Rahim Uddin 01812345678(B) 500/- test',encode(sha256('x'::bytea),'hex'),
-       'FAILED', 3, now() - interval '20 minutes')
+       'FAILED', 3, now() - interval '20 minutes', 900001)
      ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO NOTHING`);
 
   const before = await countInstructions();
@@ -344,10 +370,10 @@ test('router: PROCESSING messages older than 30 min are recovered', async () => 
   await row(
     `INSERT INTO whatsapp_messages
        (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash,
-        processing_status, retry_count, last_processed_at)
+        processing_status, retry_count, last_processed_at, source_rowid)
      VALUES ('wa-01','8801844836824@s.whatsapp.net','msg-cash-stuck-1','OUTGOING','8801880446111@s.whatsapp.net',
        now(),'ID: 01712345678 Rahim Uddin 01812345678(B) 500/- test',encode(sha256('y'::bytea),'hex'),
-       'PROCESSING', 0, now() - interval '40 minutes')
+       'PROCESSING', 0, now() - interval '40 minutes', 900001)
      ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO NOTHING`);
 
   const result = await routePendingMessages(admin, 10);
@@ -539,10 +565,10 @@ test('vessel: crash recovery - stuck PROCESSING messages recovered', async () =>
   await row(
     `INSERT INTO whatsapp_messages
        (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash,
-        processing_status, retry_count, last_processed_at)
+        processing_status, retry_count, last_processed_at, source_rowid)
      VALUES ('wa-01','120363000000000001@g.us','msg-vessel-stuck-1','INCOMING','8801722222222@s.whatsapp.net',
        now(),'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111',
-       encode(sha256('z'::bytea),'hex'),'PROCESSING', 0, now() - interval '40 minutes')
+       encode(sha256('z'::bytea),'hex'),'PROCESSING', 0, now() - interval '40 minutes', 900001)
      ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO NOTHING`);
 
   const result = await routePendingMessages(admin, 10);
@@ -888,10 +914,10 @@ test('review: crash recovery — stuck PROCESSING message recovered', async () =
   await row(
     `INSERT INTO whatsapp_messages
        (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash,
-        processing_status, retry_count, last_processed_at)
+        processing_status, retry_count, last_processed_at, source_rowid)
      VALUES ('wa-01','8801844836824@s.whatsapp.net','msg-review-stuck-1','OUTGOING','8801880446111@s.whatsapp.net',
        now(),'ID: 01712345678 Rahim Uddin 01812345678(B) 500/- test',encode(sha256('w'::bytea),'hex'),
-       'PROCESSING', 0, now() - interval '40 minutes')
+       'PROCESSING', 0, now() - interval '40 minutes', 900001)
      ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO NOTHING`);
 
   const result = await routePendingMessages(admin, 10);

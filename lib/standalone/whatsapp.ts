@@ -299,6 +299,8 @@ export async function processPending(actor: Actor, limit = 100) {
     confirmations: result.confirmations,
     ignored: result.ignored,
     errors: result.errors,
+    disabled: result.disabled ?? false,
+    reason: result.reason ?? null,
   };
 }
 

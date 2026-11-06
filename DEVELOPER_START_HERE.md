@@ -2,7 +2,7 @@
 
 > **Canonical current-state developer map — not a changelog.** Read this first before modifying code, database, Docker, WhatsApp ingestion, or deployment.
 >
-> **Last reconciled:** 2026-11-06. **Source:** `feature/phase3-router-cash-vessel` at commit `7b0330c` (Phase 3 router, 49/49 integration tests twice); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
+> **Last reconciled:** 2026-11-06. **Source:** `feature/phase3-router-cash-vessel` at the Task 5F.2B implementation commit (Live Router cutover gate; 67/67 router+cutover tests, Review API 7/7, finance 3/3); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
 >
 > **Priority:** **BUILD → RUN → LIVE → IMPROVE**. Do not block releases on unrelated legacy data migration, historical Git branches, exhaustive tests, or non-blocking cleanup. Never claim a workflow is live solely because code exists.
 
@@ -11,10 +11,10 @@
 | Item | Current value / source |
 |---|---|
 | Git repository | https://github.com/arshiyaazim/al-rifai-platform |
-| Git branch | `feature/phase3-router-cash-vessel` at `7b0330c` (pushed; full router suite 49/49 twice); `main` untouched at `e6becfc` |
+| Git branch | `feature/phase3-router-cash-vessel` at the Task 5F.2B commit (pushed; 67/67 router+cutover); `main` untouched at `e6becfc` |
 | Verified baseline | `e6becfc` (Phase 2, `main`, untouched); Phase 3 verified at `7b0330c`. |
 | Local Git checkout (VPS) | `/opt/al-rifai-platform` (`main` at `e6becfc`) |
-| Phase 3 test worktree (VPS) | `/opt/al-rifai-phase3-test` at `7b0330c` (separate worktree; production source unchanged) |
+| Phase 3 test worktree (VPS) | `/opt/al-rifai-phase3-test` at the Task 5F.2B commit (separate worktree; production source unchanged) |
 | Standalone app source / root `.env` (VPS) | `/opt/vps/al-rifai-standalone/apps/al-rifai` |
 | Public application | https://app.al-rifai.iamazim.com |
 | Login | https://app.al-rifai.iamazim.com/login |
@@ -277,7 +277,7 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 - CI Workflow: IMPLEMENTED — `.github/workflows/ci.yml` with lint, typecheck, unit tests, domain integration tests, router tests, Review Queue integration tests, migration validation (schema 1.3.3), Next.js build and Docker build validation. CI jobs never started — GitHub account locked due to a billing issue (run id 42093139485). PRODUCTION NOT DEPLOYED.
 - Frontend Integration: IMPLEMENTED — Review Queue pages/components, Cash review integration, Vessel review integration, role-based actions, source evidence and audit history. LOCALLY VERIFIED: typecheck+lint+build+unit+DB tests pass. PRODUCTION NOT DEPLOYED.
 - Docs: IMPLEMENTED — `DEVELOPER_START_HERE.md` updated in place; migration 007 added.
-- Test execution: test DB `alrifai_v2_test` at schema `1.3.3`; **full message-router suite 49/49 on two consecutive runs** after Tasks 5E.6–5E.7 — Cash **12/12**, Vessel **17/17**, Router **4/4**, Review **16/16**; Review API **7/7**; finance regression **3/3**. Implementation is present and the integration tests pass; production deployment is pending; live WhatsApp processing remains unverified. No workflow marked LIVE; production still `1.2.0` and not deployed.
+- Test execution: test DB `alrifai_v2_test` at schema `1.3.3`; existing `message-router.test.mjs` **49/49**, new cutover suite **18/18** (combined **67/67**); Review API **7/7**; finance regression **3/3**. The Live Router is default-disabled, uses per-account `phase3_cutover_rowid:` watermarks and an explicit `phase3_business_chats:` allowlist, and does not rewrite historical statuses. Production deployment is pending; live WhatsApp processing remains unverified. No workflow marked LIVE; production still `1.2.0` and not deployed.
 
 **Delivery boundary:** Implementation and integration tests complete on `feature/phase3-router-cash-vessel` at `7b0330c`; pushed to origin. No production deployment. Production readiness is **BLOCKED** pending the items in the audit block below.
 | 6 | Domain conversation routing | Cash/Vessel/HR/Recruitment/CRM routed to proper handlers; no unauthorized automatic posting |
@@ -317,6 +317,8 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 | B. Monotonic watermark (`whatsapp_sync_state.last_rowid` / `source_rowid` / `id`) | Safe: append-only order | New rowid → eligible even with an old timestamp | Safe | Watermark is immutable | Medium |
 | C. Explicit `processing_eligible` flag set by the worker | Safest/explicit | Safe | Safe | Needs worker + schema change | High |
 | D. Migration-time marking of historical rows | Safe if the watermark is correct | Safe | Idempotent | Data-only; Phase 2 ignores it | Low |
+
+**Superseded implementation note (Task 5F.2B):** the bulk historical-status marking described below is **not** implemented. The implemented design uses the per-account watermark in the router claim query, a default-disabled activation gate and an explicit business-chat allowlist, leaving historical processing statuses untouched. The analysis below remains as the design record.
 
 **Recommended: B + D + an activation gate + a separate business-authorization allowlist.**
 - Capture the cutover watermark **before** the update, in the migration transaction: per account `whatsapp_sync_state.last_rowid` (and optionally the global `max(id)`), stored in `app_settings` (`phase3_cutover_rowid:wa-01`, `phase3_cutover_rowid:wa-02`, `phase3_cutover_id`).
@@ -360,6 +362,15 @@ For production deployment, use the existing `compose.yaml` and image workflow. *
 **Rollback:** the cutover is a data update; the Phase 2 app ignores the new columns, so an app-only rollback to `20261105-phase2` is safe. Re-running the cutover only marks rows at/below the fixed watermark. A full DB rollback to 1.2.0 still requires a fresh restore; no down migrations. Keep the `20261105-phase2` image and take a fresh verified dump before the cutover.
 
 **Owner decisions required:** the authorized Cash chat(s), Orders chat(s), group participants and WA-01 Admin JID(s); the cutover window and router-enable time; B+D versus adding the explicit `processing_eligible` flag (C); whether to pause ingestion during the index/marking window; acceptance of no CI run (billing lock); and whether any historical backfill is ever approved (separate task only).
+
+**Task 5F.2B — Live Router cutover gate (IMPLEMENTED; test-verified 2026-11-06; not deployed):**
+- **Default disabled:** `routePendingMessages()` loads the activation config before any claim. `app_settings.phase3_router_enabled` must be JSON `true`; otherwise it returns `{disabled:true, reason:'ROUTER_DISABLED'}` with zero claims and zero business writes. Both `/api/whatsapp` actions `route` and `process` delegate to this function, so both are gated; direct internal callers cannot bypass it.
+- **Per-account watermark:** `app_settings.phase3_cutover_rowid:<account>` is an explicit non-negative JSON number, captured at cutover and never advanced automatically. `app_settings.phase3_business_chats:<account>` is an explicit JSON array of chat JIDs (an empty array is valid for identity-only WA-02). Every account in `whatsapp_sync_state` must have both; missing/invalid any account disables the router. Absence never defaults the watermark to zero.
+- **Claim query:** requires `source_rowid IS NOT NULL AND source_rowid > phase3_cutover_rowid:<m.account_id>` and `phase3_business_chats:<m.account_id>` contains `m.chat_jid`, while preserving the existing PENDING/FAILED/PROCESSING retry rules, `FOR UPDATE SKIP LOCKED`, retry limits and message identity.
+- **Historical safety:** no bulk UPDATE and no status rewrite. Historical rows retain their existing `processing_status` and are simply ineligible for Live Routing. Historical Backfill remains a separate path and is not gated by this watermark; it may parse an eligible historical message under its own authorization.
+- **Authorization:** capture `whatsapp_chats.authorized=true` is not business authorization. The explicit `phase3_business_chats` allowlist is required; the existing `whatsapp_chats` purpose/authorized checks, WA-01-only Cash/Vessel rules, `admin_jids` for Cash, group-participant authorization and WA-02 rejection remain in force.
+- **Tests:** new `tests/standalone/router-cutover.test.mjs` **18/18**; existing `message-router.test.mjs` **49/49**; combined **67/67**; Review API **7/7**; finance **3/3**. The tests use a synthetic test-only activation state and watermark; production remains disabled (0 `phase3_%` rows in production `app_settings`).
+- **Remaining production prerequisites:** configure the three keys with the Owner-approved Cash/Orders chats, group participants and WA-01 Admin JID(s); capture the real per-account cutover watermarks at deployment (audit-time checkpoints wa-01 19,588 / wa-02 15,145; recapture at the actual cutover); fresh verified backup; incremental migration/grant path; maintenance window; CI evidence. **Production Phase 3 routing is not activated.**
 
 ## 11. Mandatory maintenance rule — overwrite current state, do not append history
 

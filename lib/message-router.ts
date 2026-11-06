@@ -28,7 +28,7 @@
 // admin's existing outgoing reply.
 // WA-02 is raw-ingestion/identity-only; no business processing from WA-02.
 
-import {row, tx, DomainError, type Actor} from './standalone/db.ts';
+import {row, rows, tx, DomainError, type Actor} from './standalone/db.ts';
 import {newId, stableId, recordAudit} from './standalone/audit.ts';
 import {createInstruction} from './standalone/finance.ts';
 import {createProgram, potentialDuplicates} from './standalone/programs.ts';
@@ -44,6 +44,8 @@ export type RouterResult = {
   reviewItems: number;
   ignored: number;
   errors: number;
+  disabled?: boolean;
+  reason?: string | null;
   byMessage: Array<{
     messageId: string;
     classification: string;
@@ -81,6 +83,78 @@ export type ReviewCategory =
   | 'EXTRACTION_FAILED'
   | 'PROCESSING_ERROR';
 
+// ── Live Router activation / cutover configuration ──────────────────────
+const ROUTER_ENABLED_KEY = 'phase3_router_enabled';
+const cutoverKey = (accountId: string) => `phase3_cutover_rowid:${accountId}`;
+const businessChatsKey = (accountId: string) => `phase3_business_chats:${accountId}`;
+
+type RouterConfig = {
+  enabled: boolean;
+  reason: string | null;
+  watermarks: Map<string, bigint>;
+  businessChats: Map<string, Set<string>>;
+};
+
+function parseWatermark(value: unknown): bigint | null {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
+  if (typeof value === 'string' && /^[0-9]+$/.test(value.trim())) {
+    try {
+      return BigInt(value.trim());
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * The Live Router is default-disabled. It requires all of:
+ *   phase3_router_enabled = true
+ *   phase3_cutover_rowid:<account> = an explicit non-negative integer
+ *   phase3_business_chats:<account> = an explicit array of chat JIDs (empty is
+ *     valid for an identity-only account such as WA-02)
+ * for every account present in whatsapp_sync_state. Missing or invalid values
+ * fail closed; zero is only accepted when written explicitly. The watermark is
+ * never advanced automatically.
+ */
+async function loadRouterConfig(): Promise<RouterConfig> {
+  const disabled = (reason: string): RouterConfig => ({
+    enabled: false,
+    reason,
+    watermarks: new Map(),
+    businessChats: new Map(),
+  });
+
+  const settings = await rows<{key: string; value: unknown}>(
+    `SELECT key, value FROM app_settings
+      WHERE key = $1 OR key LIKE 'phase3_cutover_rowid:%' OR key LIKE 'phase3_business_chats:%'`,
+    [ROUTER_ENABLED_KEY],
+  );
+  const byKey = new Map(settings.map((setting) => [setting.key, setting.value]));
+  if (byKey.get(ROUTER_ENABLED_KEY) !== true) return disabled('ROUTER_DISABLED');
+
+  const accounts = await rows<{account_id: string}>(
+    'SELECT account_id FROM whatsapp_sync_state ORDER BY account_id',
+  );
+  if (!accounts.length) return disabled('ROUTER_NO_ACCOUNTS');
+
+  const watermarks = new Map<string, bigint>();
+  const businessChats = new Map<string, Set<string>>();
+  for (const {account_id: accountId} of accounts) {
+    const watermark = parseWatermark(byKey.get(cutoverKey(accountId)));
+    if (watermark === null) return disabled(`CUTOVER_WATERMARK_MISSING:${accountId}`);
+    const chats = byKey.get(businessChatsKey(accountId));
+    // An explicit empty array is valid for identity-only accounts (WA-02): it
+    // means no business chat is ever claimed. Missing or non-array is invalid.
+    if (!Array.isArray(chats) || !chats.every((chat) => typeof chat === 'string' && chat.trim() !== '')) {
+      return disabled(`BUSINESS_CHATS_INVALID:${accountId}`);
+    }
+    watermarks.set(accountId, watermark);
+    businessChats.set(accountId, new Set(chats as string[]));
+  }
+  return {enabled: true, reason: null, watermarks, businessChats};
+}
+
 /**
  * Claim a batch of messages for processing. Marks them PROCESSING atomically
  * so a concurrent worker or restart will not pick up the same messages.
@@ -99,18 +173,35 @@ async function claimMessages(
 ): Promise<MessageToProcess[]> {
   return tx(async (client) => {
     const claimed = await client.query<MessageToProcess>(
-      `SELECT id::text, account_id, chat_jid, message_id::text, direction,
-              sender_jid, to_char(source_timestamp AT TIME ZONE 'UTC',
-              'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS source_timestamp, text_content,
-              processing_status, retry_count, last_error
-         FROM whatsapp_messages
-        WHERE (processing_status = 'PENDING'
-               OR (processing_status = 'FAILED' AND retry_count < 10
-                   AND (last_processed_at IS NULL
-                        OR last_processed_at < now() - interval '10 minutes'))
-               OR (processing_status = 'PROCESSING'
-                   AND last_processed_at < now() - interval '30 minutes'))
-        ORDER BY id
+      `SELECT m.id::text, m.account_id, m.chat_jid, m.message_id::text, m.direction,
+              m.sender_jid, to_char(m.source_timestamp AT TIME ZONE 'UTC',
+              'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS source_timestamp, m.text_content,
+              m.processing_status, m.retry_count, m.last_error
+         FROM whatsapp_messages m
+        WHERE (m.processing_status = 'PENDING'
+               OR (m.processing_status = 'FAILED' AND m.retry_count < 10
+                   AND (m.last_processed_at IS NULL
+                        OR m.last_processed_at < now() - interval '10 minutes'))
+               OR (m.processing_status = 'PROCESSING'
+                   AND m.last_processed_at < now() - interval '30 minutes'))
+          -- Live Router eligibility: only messages above the account's own
+          -- immutable cutover watermark. Historical rows stay untouched.
+          AND m.source_rowid IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM app_settings s
+             WHERE s.key = 'phase3_cutover_rowid:' || m.account_id
+               AND jsonb_typeof(s.value) = 'number'
+               AND m.source_rowid > (s.value #>> '{}')::bigint
+          )
+          -- Capture authorization is not business authorization. Only chats
+          -- explicitly allowlisted for business processing are claimed.
+          AND EXISTS (
+            SELECT 1 FROM app_settings b
+             WHERE b.key = 'phase3_business_chats:' || m.account_id
+               AND jsonb_typeof(b.value) = 'array'
+               AND b.value ? m.chat_jid
+          )
+        ORDER BY m.id
         LIMIT $1
         FOR UPDATE SKIP LOCKED`,
       [limit],
@@ -756,8 +847,15 @@ export async function routePendingMessages(
     reviewItems: 0,
     ignored: 0,
     errors: 0,
+    disabled: false,
+    reason: null,
     byMessage: [],
   };
+
+  const config = await loadRouterConfig();
+  if (!config.enabled) {
+    return {...result, disabled: true, reason: config.reason};
+  }
 
   const claimed = await claimMessages(limit);
   if (claimed.length === 0) return result;
