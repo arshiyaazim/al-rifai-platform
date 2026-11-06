@@ -33,12 +33,20 @@ unexpected behaviour or data-integrity concern).
    docker compose stop app sync
    ```
 
-3. **Restore the previous image**
+3. **Revoke the Phase 3 project and restore the Phase 2 stack**
    ```bash
-   docker tag al-rifai-platform:<broken> al-rifai-platform:phase3-broken-<date>
-   # pin the previous verified digest in compose, then:
-   docker compose up -d app sync
+   docker compose -p al-rifai-phase3 \
+     -f /opt/al-rifai-platform/compose.yaml \
+     -f /opt/al-rifai-platform/compose.phase3.yaml down
+
+   cp -p /opt/vps/al-rifai-standalone/apps/al-rifai/.env.pre-phase3 \
+         /opt/vps/al-rifai-standalone/apps/al-rifai/.env
+
+   docker start alrifai-v2-app-1 alrifai-v2-sync-1
    ```
+   The old containers have their original `PGDATABASE=alrifai_v2` environment
+   baked in and remain preserved while stopped. Do not recreate them with the
+   Phase 3 override.
 
 4. **Verify rollback**
    - `/api/health` = 200.
@@ -47,8 +55,15 @@ unexpected behaviour or data-integrity concern).
    - Sync checkpoints continue to advance.
    - No new error signature in logs.
 
-5. **Preserve data**
+5. **Preserve data and handle divergence**
    - Do not drop `cash_reversals` or `cash_reconciliations`.
+   - Do not drop `alrifai_v2_phase3`; it holds every record created while Phase 3
+     was live.
+   - The old sync worker resumes from its pre-cutover checkpoint and catches up
+     raw messages/media from the append-only bridge stores automatically.
+   - Phase 3 Cash/Vessel/Review business records exist only in
+     `alrifai_v2_phase3`; Phase 2 cannot display them. Preserve them and escalate
+     the divergence to the Owner. Do not restore the old DB over the Phase 3 DB.
    - Do not remove `cash_submissions.instruction_id`.
    - Do not delete rows created during the failed release.
    - Do not restore the whole database unless corruption is proven; a restore

@@ -241,6 +241,26 @@ Stop conditions:
 
 ## 5. Switch to the Phase 3 stack
 
+### 5.1 Point CLI defaults at the new database (preserve the old env)
+
+Container environment is immutable once created, but CLI tools (`pnpm db:migrate`,
+`pnpm db:verify`, `admin:reset`) read the deployment `.env`. Preserve the old file
+and update only `PGDATABASE` so those tools cannot default to the cold backup:
+
+```bash
+ENV_FILE=/opt/vps/al-rifai-standalone/apps/al-rifai/.env
+cp -p "$ENV_FILE" "${ENV_FILE}.pre-phase3"
+chmod 600 "${ENV_FILE}.pre-phase3"
+grep -n '^PGDATABASE=' "$ENV_FILE"
+sed -i 's/^PGDATABASE=alrifai_v2$/PGDATABASE=alrifai_v2_phase3/' "$ENV_FILE"
+grep -n '^PGDATABASE=' "$ENV_FILE"
+```
+
+Expected: `PGDATABASE=alrifai_v2_phase3`. Do not change any other key. The Compose
+override repeats this value for the new containers.
+
+### 5.2 Stop the old app and start the new project
+
 Stop the old app; its container remains preserved (restart policy
 `unless-stopped` does not restart a manually stopped container):
 
@@ -299,6 +319,10 @@ the bridge stores, so on rollback it catches up raw messages automatically.
 # Stop and remove only the Phase 3 project containers
 docker compose -p al-rifai-phase3 \
   -f compose.yaml -f compose.phase3.yaml down
+
+# Restore the pre-cutover deployment env for CLI tools
+cp -p /opt/vps/al-rifai-standalone/apps/al-rifai/.env.pre-phase3 \
+      /opt/vps/al-rifai-standalone/apps/al-rifai/.env
 
 # Restore the preserved Phase 2 containers
 docker start alrifai-v2-app-1 alrifai-v2-sync-1
