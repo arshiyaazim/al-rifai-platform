@@ -43,6 +43,15 @@ Migration rehearsal evidence (2026-11-06):
 - Fresh install and migration now both produce 46 tables and 8 migration rows
   (the previous 44/45 difference was the missing `schema_migrations` ledger row
   in the installer, now fixed).
+- Migration `009` SHA-256: `319ecb43a2d4a22eb0c823205966961749ff10836715422444b7e180eda45321` (198 lines, 11 tables, 5 indexes, no destructive statement).
+- Final read-only check on 2026-11-06 confirmed production is still exactly the
+  rehearsal source: `messages=34442`, `chats=2013`, `accounts=2`, `postings=0`,
+  `programs=0`, no `ai_%` or `phase3_%` settings, sync `wa-01=19636`,
+  `wa-02=15184`. The clone remains representative.
+- Production routes: `/login` 200, `/api/assistant` 401, `/api/vessel` 401,
+  `/api/employees` 401 (authentication enforced).
+- Disk: 125 GB free; existing rollback image `phase3-rc-final5`
+  (`sha256:8681b8ab63deaeb6a9d31f38a52b96c6027db577ca6ac757b0996f34a47983ae`).
 
 ---
 
@@ -237,6 +246,7 @@ umask 077
 openssl rand -hex 32 > /etc/vps/services/whatsapp/wa-02-ai-sender.token
 chown 10001:10001 /etc/vps/services/whatsapp/wa-02-ai-sender.token
 chmod 400 /etc/vps/services/whatsapp/wa-02-ai-sender.token
+# Mirrors the existing wa-02-reader.token ownership (uid 10001 = app user).
 python3 - <<'PY'
 import hashlib, pathlib
 token = pathlib.Path('/etc/vps/services/whatsapp/wa-02-ai-sender.token').read_text().strip()
@@ -261,14 +271,14 @@ is a production bridge change and requires Gate 3 approval.
 
 ### 5.2 App container socket access
 
-The app runs as uid 10001; the bridge control directory is `0710` owned by the
-WA-02 bridge user. Mount the control directory and the token file read-only and
-add the bridge group:
+The app runs as uid 10001; the WA-02 control directory is `0710` uid/gid `10003`
+and the socket is `0660` uid/gid `10003`. Mount the control directory and the
+token file read-only and add group `10003`:
 
 ```yaml
 services:
   app:
-    group_add: ["<gid of /var/lib/vps/whatsapp/wa-02/control/mcp.sock>"]
+    group_add: ["10003"]  # gid of the WA-02 bridge control socket
     volumes:
       - type: bind
         source: /var/lib/vps/whatsapp/wa-02/control
