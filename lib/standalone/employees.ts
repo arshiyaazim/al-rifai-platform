@@ -18,7 +18,7 @@ export type EmployeeRow = {
 };
 
 export async function listEmployees(filters: {q?: string; state?: string; limit?: number} = {}) {
-  const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 500);
+  const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 10000);
   const q = (filters.q ?? '').trim().toLowerCase();
   return rows<EmployeeRow & {programs: string; attendance_days: string}>(
     `SELECT e.employee_mobile, e.preferred_name, e.name_aliases, e.duty_type, e.designation,

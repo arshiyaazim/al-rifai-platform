@@ -6,7 +6,7 @@ import {rows, row} from '../../lib/standalone/db.ts';
 import {createEmployee, listEmployees} from '../../lib/standalone/employees.ts';
 import {createProgram, assignEscort, releaseProgram, listPrograms, updateProgram, startProgramDuty, completeProgram} from '../../lib/standalone/programs.ts';
 import {recordAttendance, attendanceSummary, listAttendance} from '../../lib/standalone/attendance.ts';
-import {createInstruction, approveInstruction, postInstruction, listAccounts, createLedgerEntry, incomeExpense} from '../../lib/standalone/finance.ts';
+import {createInstruction, approveInstruction, postInstruction, listAccounts, createLedgerEntry, incomeExpense, countInstructions, countLedger} from '../../lib/standalone/finance.ts';
 import {submitForReview, decideReview} from '../../lib/standalone/review.ts';
 import {upsertRate, monthlySalary} from '../../lib/standalone/payroll.ts';
 import {hashBootstrapPassword} from '../../lib/cash-portal.ts';
@@ -157,6 +157,8 @@ test('finance: instruction, approval, posting, ledger balance', async () => {
 
   const ledger = await rows("SELECT * FROM ledger_entries WHERE instruction_id = $1", [instruction.id]);
   assert.equal(ledger.length, 1);
+  assert.ok(await countInstructions({}) >= 1);
+  assert.ok(await countLedger({}) >= 1);
   assert.equal(ledger[0].direction, 'DEBIT');
 
   // Posting is immutable and happens exactly once.

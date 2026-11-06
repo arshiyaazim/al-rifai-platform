@@ -10,7 +10,7 @@ export default async function AttendancePage({searchParams}: {searchParams: Prom
   const to = filters.to ?? '';
   const employee = filters.employee ?? '';
   const [records, summary, employees] = await Promise.all([
-    listAttendance({from: from || undefined, to: to || undefined, employee: employee || undefined}),
+    listAttendance({from: from || undefined, to: to || undefined, employee: employee || undefined, limit: 500}),
     attendanceSummary(), listEmployees({state: 'ACTIVE'}),
   ]);
   return (

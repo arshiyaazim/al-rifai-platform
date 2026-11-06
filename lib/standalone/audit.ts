@@ -51,7 +51,7 @@ export type AuditListRow = {
 };
 
 export async function listAudit(filters: {entity?: string; entityId?: string; limit?: number} = {}) {
-  const limit = Math.min(Math.max(Number(filters.limit) || 100, 1), 500);
+  const limit = Math.min(Math.max(Number(filters.limit) || 100, 1), 10000);
   return rows<AuditListRow>(
     `SELECT id::text, at, actor, action, entity, entity_id, source
        FROM audit_events

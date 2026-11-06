@@ -8,7 +8,7 @@ export default async function EmployeesPage({searchParams}: {searchParams: Promi
   const filters = await searchParams;
   const q = (filters.q ?? '').trim();
   const state = filters.state ?? '';
-  const employees = await listEmployees({q, state: state || undefined});
+  const employees = await listEmployees({q, state: state || undefined, limit: 500});
   return (
     <>
       <div className="page-head">

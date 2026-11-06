@@ -59,7 +59,7 @@ export async function recordAttendance(actor: Actor, input: AttendanceInput, cli
 }
 
 export async function listAttendance(filters: {from?: string; to?: string; employee?: string; limit?: number} = {}) {
-  const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 500);
+  const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 10000);
   return rows(
     `SELECT a.id, a.employee_mobile, e.preferred_name, a.duty_date::text AS duty_date, a.shift, a.state, a.hours
        FROM attendance a LEFT JOIN employees e ON e.employee_mobile = a.employee_mobile
