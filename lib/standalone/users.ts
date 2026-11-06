@@ -37,12 +37,17 @@ function configuredIds(): string[] {
 
 async function targetBy(client: Pick<PoolClient, 'query'>, idOrUsername: string): Promise<UserRow> {
   const value = text(idOrUsername, 'user', {max: 80});
-  const found = await client.query(
-    `SELECT * FROM cash_portal_users WHERE id = $1 OR lower(username) = lower($1) FOR UPDATE`,
-    [value],
+  // Resolve by exact id first. A username may legitimately look like a 64-hex
+  // id; testing both in one OR could select the wrong account.
+  const byId = await client.query(
+    'SELECT * FROM cash_portal_users WHERE id = $1 FOR UPDATE', [value],
   );
-  if (!found.rowCount) throw new DomainError('USER_NOT_FOUND', 404);
-  return found.rows[0] as UserRow;
+  if (byId.rowCount) return byId.rows[0] as UserRow;
+  const byName = await client.query(
+    'SELECT * FROM cash_portal_users WHERE lower(username) = lower($1) FOR UPDATE', [value],
+  );
+  if (!byName.rowCount) throw new DomainError('USER_NOT_FOUND', 404);
+  return byName.rows[0] as UserRow;
 }
 
 export async function listUsers(): Promise<UserRow[]> {

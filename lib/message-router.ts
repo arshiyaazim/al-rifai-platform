@@ -184,12 +184,16 @@ async function claimMessages(
               'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS source_timestamp, m.text_content,
               m.processing_status, m.retry_count, m.last_error
          FROM whatsapp_messages m
-        WHERE (m.processing_status = 'PENDING'
-               OR (m.processing_status = 'FAILED' AND m.retry_count < 10
-                   AND (m.last_processed_at IS NULL
-                        OR m.last_processed_at < now() - interval '10 minutes'))
-               OR (m.processing_status = 'PROCESSING'
-                   AND m.last_processed_at < now() - interval '30 minutes'))
+        WHERE (
+          (m.processing_status = 'PENDING'
+           AND (m.last_processed_at IS NULL
+                OR m.last_processed_at < now() - interval '1 minute'))
+          OR (m.processing_status = 'FAILED' AND m.retry_count < 10
+              AND (m.last_processed_at IS NULL
+                   OR m.last_processed_at < now() - interval '10 minutes'))
+          OR (m.processing_status = 'PROCESSING'
+              AND m.last_processed_at < now() - interval '30 minutes')
+        )
           -- Live Router eligibility: only messages above the account's own
           -- immutable cutover watermark. Historical rows stay untouched.
           AND m.source_rowid IS NOT NULL
