@@ -2,10 +2,11 @@
 
 **Recorded:** 2026-11-06
 **Branch:** `feature/phase3-router-cash-vessel`
-**Release candidate code commit:** `71a12e2`
-**Documentation tip:** this documentation commit (child of `71a12e2`)
+**Release candidate code commit:** `2c82936`
+**Documentation tip:** `0d1a55a`
+**Release tag:** `v1.4.0-phase3-rc2`
 **Schema:** `1.4.0`
-**Feature branch:** pushed to `origin/feature/phase3-router-cash-vessel`; code commit `06f7c66`, documentation tip `bd8f08b`
+**Feature branch:** pushed to `origin/feature/phase3-router-cash-vessel`; cutover-safety code commit `2c82936`
 **Production deployment:** NOT EXECUTED
 
 ## Image
