@@ -1,13 +1,14 @@
 # AL-RIFA'I — Standalone Business Management Application
 
-## 🚀 Current Release: v1.4.0-phase3-rc
+## 🚀 Current Release: v1.4.0-phase3-rc2
 
 - **Schema version:** 1.4.0
-- **Docker image:** `al-rifai-platform:phase3-rc-final4`
-- **Image digest:** `sha256:5ede13dfd0f452af5b41bd444321b03b151620844f5217958db71318c34ffaa2`
+- **Docker image:** `al-rifai-platform:phase3-rc-final5`
+- **Image digest:** `sha256:8681b8ab63deaeb6a9d31f38a52b96c6027db577ca6ac757b0996f34a47983ae`
 - **Release branch merged:** `feature/phase3-router-cash-vessel` → `main`
-- **Merge commit:** `2e2a274`
-- **Release tag:** `v1.4.0-phase3-rc`
+- **Merge commit:** `8cd9436` (cutover-safety fix)
+- **Release tag:** `v1.4.0-phase3-rc2` (the earlier `v1.4.0-phase3-rc` is retained)
+- **Cutover runbook:** See [`docs/PHASE3_CUTOVER_RUNBOOK.md`](./docs/PHASE3_CUTOVER_RUNBOOK.md)
 - **Deployment guide:** See [`DEVELOPER_START_HERE.md`](./DEVELOPER_START_HERE.md)
 - **Rollback:** See [`PHASE3_ROLLBACK_INSTRUCTIONS.md`](./PHASE3_ROLLBACK_INSTRUCTIONS.md)
 

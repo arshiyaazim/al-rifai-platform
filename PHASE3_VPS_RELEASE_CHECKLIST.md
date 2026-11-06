@@ -7,6 +7,8 @@
 > Do NOT migrate, rebuild, restart or deploy production from this checklist until
 > the Owner has approved the exact commit SHA, migration window and backup.
 
+**Canonical execution runbook:** [`docs/PHASE3_CUTOVER_RUNBOOK.md`](./docs/PHASE3_CUTOVER_RUNBOOK.md)
+
 ## 1. Pre-deployment evidence
 
 - [ ] Owner approval recorded with the exact commit SHA and change list.

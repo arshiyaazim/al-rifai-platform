@@ -2,7 +2,7 @@
 
 > **Canonical current-state developer map — not a changelog.** Read this first before modifying code, database, Docker, WhatsApp ingestion, or deployment.
 >
-> **Last reconciled:** 2026-11-06. **Source:** `main` at `2e2a274` (Phase 3 RC merged; tag `v1.4.0-phase3-rc`) (Live Router cutover gate, complete Cash lifecycle, capability enforcement, transaction-aware audit, incremental migration runner; **95/95 integration tests**, 69/69 unit tests); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
+> **Last reconciled:** 2026-11-06. **Source:** `main` at the Phase 3 cutover-safety merge (tag `v1.4.0-phase3-rc2`) (Live Router cutover gate, complete Cash lifecycle, capability enforcement, transaction-aware audit, incremental migration runner; **95/95 integration tests**, 69/69 unit tests); `main` remains at `e6becfc` (Phase 2). Repository source files, the isolated test database, and read-only production inspection. **Runtime facts below are agent-measured unless marked dated.**
 >
 > **Priority:** **BUILD → RUN → LIVE → IMPROVE**. Do not block releases on unrelated legacy data migration, historical Git branches, exhaustive tests, or non-blocking cleanup. Never claim a workflow is live solely because code exists.
 
@@ -103,15 +103,16 @@ See [`PHASE3_ROLLBACK_INSTRUCTIONS.md`](./PHASE3_ROLLBACK_INSTRUCTIONS.md).
 
 ### Deployment Checklist
 
-See [`PHASE3_VPS_RELEASE_CHECKLIST.md`](./PHASE3_VPS_RELEASE_CHECKLIST.md).
+See [`PHASE3_VPS_RELEASE_CHECKLIST.md`](./PHASE3_VPS_RELEASE_CHECKLIST.md) and the
+verified [`docs/PHASE3_CUTOVER_RUNBOOK.md`](./docs/PHASE3_CUTOVER_RUNBOOK.md).
 
 ## 1. Identity and authoritative locations
 
 | Item | Current value / source |
 |---|---|
 | Git repository | https://github.com/arshiyaazim/al-rifai-platform |
-| Git branch | `main` at `2e2a274` (Phase 3 RC merge; tag `v1.4.0-phase3-rc`); feature branch merged |
-| Verified baseline | Phase 2 `e6becfc`; Phase 3 merged into `main` at `2e2a274`. Production is still on Phase 2 until cutover. |
+| Git branch | `main` at the cutover-safety merge (tag `v1.4.0-phase3-rc2`); production still Phase 2 |
+| Verified baseline | Phase 2 `e6becfc`; Phase 3 merged into `main`; production is still on Phase 2 until cutover. |
 | Local Git checkout (VPS) | `/opt/al-rifai-platform` (`main` at `e6becfc`) |
 | Phase 3 test worktree (VPS) | `/opt/al-rifai-phase3-test` at the Task 5F.2B commit (separate worktree; production source unchanged) |
 | Standalone app source / root `.env` (VPS) | `/opt/vps/al-rifai-standalone/apps/al-rifai` |
