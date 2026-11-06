@@ -47,6 +47,7 @@
 | `scripts/standalone/manage-authorized-contact.mjs` | Registry update CLI |
 | `docs/ADAPTIVE_RULES.md` | Rule/identity/registry operating guide |
 | `scripts/standalone/backfill-cash-coverage.mjs` | Idempotent Cash coverage backfill; REVIEW only |
+| `scripts/standalone/repair-legacy-program-links.mjs` | Idempotent assignment/source/event repair for imported programs |
 | `tests/standalone/release-slip.test.mjs` | Release-slip parser tests |
 | `tests/standalone/history-extraction.test.mjs` | Cash payment-block parser tests |
 | `app/api/assistant/route.ts` | Admin assistant/draft/applicant/order API |

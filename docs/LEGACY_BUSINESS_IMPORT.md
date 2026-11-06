@@ -236,3 +236,20 @@ release-first router path now:
 Regression tests cover structured release, ambiguous match, unstructured
 release-group chatter and incomplete slips. Historical released programs (41)
 remain as imported; no historical attendance or pay is inferred from a release.
+
+---
+
+## 10. Program assignment, source-link and lifecycle repair
+
+The initial program import created `programs` and `program_pay` but not the
+integration rows. `scripts/standalone/repair-legacy-program-links.mjs`
+idempotently adds, for each imported program:
+
+- one `program_assignments` row (open for ASSIGNED, closed for RELEASED);
+- a primary source-message link and a confirmation link;
+- `CREATE_PROGRAM`, `ASSIGN_ESCORT` and, for released programs,
+  `RELEASE_PROGRAM` events.
+
+It does not change program dates, state, escort identity or amounts. Clone
+rehearsal: 94 assignments (53 open / 41 released), 188 source links, 229 events;
+repeat run inserts 0.
