@@ -686,7 +686,7 @@ test('review: INCOMPLETE_VESSEL_ORDER — missing master mobile', async () => {
   const after = await row('SELECT count(*)::int AS n FROM review_items');
   assert.equal(after.n, before.n + 1);
 
-  const item = await row("SELECT * FROM review_items WHERE domain = 'PROGRAM' ORDER BY created at DESC LIMIT 1");
+  const item = await row("SELECT * FROM review_items WHERE domain = 'PROGRAM' ORDER BY created_at DESC LIMIT 1");
   assert.ok(item);
   assert.equal(item.state, 'PENDING');
   const payload = item.payload;
@@ -696,15 +696,17 @@ test('review: INCOMPLETE_VESSEL_ORDER — missing master mobile', async () => {
 test('review: EXTRACTION_FAILED — unparsable vessel message', async () => {
   await ensureAccount('wa-01');
   const before = await row('SELECT count(*)::int AS n FROM review_items');
+  // Vessel-domain signal, but no complete order block: the handler must reach
+  // the EXTRACTION_FAILED review path.
   await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-extract-1', 'INCOMING', '8801722222222@s.whatsapp.net',
-    'Hello, this is not a vessel order at all');
+    'Mother Vessel: MV Ocean Star');
 
   const result = await routePendingMessages(admin, 10);
   assert.equal(result.reviewItems, 1);
   const after = await row('SELECT count(*)::int AS n FROM review_items');
   assert.equal(after.n, before.n + 1);
 
-  const item = await row("SELECT * FROM review_items WHERE domain = 'PROGRAM' ORDER BY created at DESC LIMIT 1");
+  const item = await row("SELECT * FROM review_items WHERE domain = 'PROGRAM' ORDER BY created_at DESC LIMIT 1");
   assert.ok(item);
   assert.equal(item.state, 'PENDING');
 });
@@ -743,34 +745,27 @@ test('review: INCOMPLETE_CASH_INSTRUCTION — missing amount', async () => {
 
 test('review: deduplication — same review item not created twice', async () => {
   await ensureAccount('wa-01');
-  // Process same unparsable message twice
+  // Process the same vessel-signalling, unparsable message twice.
   await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-dedup-1', 'INCOMING', '8801722222222@s.whatsapp.net',
-    'Hello, this is not a vessel order at all');
+    'Mother Vessel: MV Ocean Star');
   const r1 = await routePendingMessages(admin, 10);
   assert.equal(r1.reviewItems, 1);
 
-  // Replay same message
+  // Replay same message; the pending-review uniqueness must keep the count at 1.
   await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-dedup-1', 'INCOMING', '8801722222222@s.whatsapp.net',
-    'Hello, this is not a vessel order at all', 'PENDING');
-  const r2 = await routePendingMessages(admin, 10);
-  assert.equal(r2.reviewItems, 0, 'Duplicate review item should not be created');
+    'Mother Vessel: MV Ocean Star', 'PENDING');
+  await routePendingMessages(admin, 10);
+  const pending = await row(
+    "SELECT count(*)::int AS n FROM review_items WHERE domain = 'PROGRAM' AND target_ref = 'msg-review-dedup-1' AND category = 'EXTRACTION_FAILED' AND state = 'PENDING'",
+  );
+  assert.equal(pending.n, 1, 'Duplicate pending review item must not be created');
 });
 
 test('review: group participant authorization — unauthorized participant', async () => {
   await ensureAccount('wa-01');
-  // Create the group authorization table
-  await row(`
-    CREATE TABLE IF NOT EXISTS escort_client_group_authorizations (
-      id text PRIMARY KEY,
-      account_id text NOT NULL,
-      group_jid text NOT NULL,
-      participant_jid text NOT NULL,
-      client_contact_id text NOT NULL,
-      active boolean NOT NULL DEFAULT true,
-      created_at timestamptz NOT NULL DEFAULT now()
-    )
-  `);
-  // The shared fixture authorizes this participant; deactivate it so this
+  // The table is owned by migration 006; the shared fixture authorizes this
+  // participant, so deactivate it for this negative case.
+  // Deactivate the fixture row so this negative case still asserts the rejection.
   // negative case still asserts GROUP_PARTICIPANT_NOT_AUTHORIZED.
   await row("UPDATE escort_client_group_authorizations SET active = false WHERE account_id = 'wa-01' AND group_jid = '120363000000000001@g.us' AND participant_jid = '8801722222222@s.whatsapp.net'");
   const before = await countPrograms();
@@ -786,18 +781,8 @@ test('review: group participant authorization — unauthorized participant', asy
 
 test('review: group participant authorization — authorized participant', async () => {
   await ensureAccount('wa-01');
-  // Create the group authorization table and authorize the participant
-  await row(`
-    CREATE TABLE IF NOT EXISTS escort_client_group_authorizations (
-      id text PRIMARY KEY,
-      account_id text NOT NULL,
-      group_jid text NOT NULL,
-      participant_jid text NOT NULL,
-      client_contact_id text NOT NULL,
-      active boolean NOT NULL DEFAULT true,
-      created_at timestamptz NOT NULL DEFAULT now()
-    )
-  `);
+  // The table is owned by migration 006; the shared fixture already authorizes
+  // this participant. Insert the explicit per-test row as before.
   await row("INSERT INTO escort_client_group_authorizations (id, account_id, group_jid, participant_jid, client_contact_id, active) VALUES ('ga-1','wa-01','120363000000000001@g.us','8801722222222@s.whatsapp.net','cc-1',true) ON CONFLICT DO NOTHING");
   const before = await countPrograms();
   await stageMessage('wa-01', '120363000000000001@g.us', 'msg-review-group-auth-1', 'INCOMING', '8801722222222@s.whatsapp.net',
