@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import {countInstructions, countLedger, incomeExpense, listAccounts, listInstructions, listLedger, listReconciliations} from '@/lib/standalone/finance';
+import {countInstructions, countLedger, listAccounts, listInstructions, listLedger, listReconciliations} from '@/lib/standalone/finance';
+import {cashDashboardSummary} from '@/lib/standalone/cash-dashboard';
 import {listCashReviewCandidates} from '@/lib/standalone/review';
 import {rows} from '@/lib/standalone/db';
 import {money, pageUser, when} from '@/lib/standalone/session';
@@ -8,6 +9,26 @@ import {ActionForm} from '@/components/standalone/action-form';
 import {formatReviewAmount, formatReviewTimestamp, reviewCategoryLabel, reviewCategoryTone, reviewStateLabel, reviewStateTone} from '@/lib/review-ui';
 
 export const dynamic = 'force-dynamic';
+
+type SummaryCardProps = {
+  label: string;
+  value: string;
+  hint: string;
+  href?: string;
+};
+
+function SummaryCard({label, value, hint, href}: SummaryCardProps) {
+  const body = (
+    <>
+      <div className="label">{label}</div>
+      <div className="value">{value}</div>
+      <div className="hint">{hint}</div>
+    </>
+  );
+  return href
+    ? <Link href={href} className="cash-dashboard-card">{body}</Link>
+    : <div className="cash-dashboard-card">{body}</div>;
+}
 
 export default async function CashPage({searchParams}: {searchParams: Promise<{q?: string; state?: string; page?: string; ledgerPage?: string; from?: string; to?: string}>}) {
   const user = await pageUser();
@@ -24,13 +45,13 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{q
   const ledgerPage = Math.max(1, Number(filters.ledgerPage) || 1);
   const pageSize = 100;
   const ledgerSize = 50;
-  const [accounts, instructions, instructionTotal, ledger, ledgerTotal, report, submissions, cashCandidates, reconciliations] = await Promise.all([
+  const [accounts, instructions, instructionTotal, ledger, ledgerTotal, summary, submissions, cashCandidates, reconciliations] = await Promise.all([
     listAccounts(),
     listInstructions({q, state: state || undefined, limit: pageSize, offset: (page - 1) * pageSize}),
     countInstructions({q, state: state || undefined}),
     listLedger({from: from || undefined, to: to || undefined, limit: ledgerSize, offset: (ledgerPage - 1) * ledgerSize}),
     countLedger({from: from || undefined, to: to || undefined}),
-    incomeExpense(`${today.slice(0, 8)}01`, today),
+    cashDashboardSummary(),
     rows<{id: string; state: string; submitted_by: string; created_at: string; instruction_id: string | null; display_name: string | null}>(
       'SELECT s.id, s.state, s.submitted_by, s.created_at, s.instruction_id, u.display_name FROM cash_submissions s LEFT JOIN cash_portal_users u ON u.id = s.submitted_by ORDER BY s.created_at DESC LIMIT 30',
     ),
@@ -65,54 +86,55 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{q
         </div>
       </div>
 
-      <div className="grid-cards">
-        {accounts.map((account) => (
-          <div className="stat" key={account.id}>
-            <div className="label">{account.code} · {account.type}</div>
-            <div className="value">{money(account.balance_minor)}</div>
-            <div className="muted">{account.name}</div>
-          </div>
-        ))}
-        <div className="stat"><div className="label">Income ({report.from} → {report.to})</div><div className="value">{money(report.income)}</div></div>
-        <div className="stat"><div className="label">Expense</div><div className="value">{money(report.expense)}</div></div>
-        <div className="stat"><div className="label">Reversals</div><div className="value">{money(report.reversals)}</div></div>
-        <div className="stat"><div className="label">Net</div><div className="value">{money(report.net)}</div></div>
+      <div className="cash-dashboard-grid">
+        <SummaryCard label="Total Paid Amount" value={money(summary.totalPaidMinor)} hint="All posted payments" href="/cash/transactions?state=POSTED" />
+        <SummaryCard label="Current Month Paid" value={money(summary.currentMonthPaidMinor)} hint="Posted this month" />
+        <SummaryCard label="Today's Paid Amount" value={money(summary.todayPaidMinor)} hint="Posted today" />
+        <SummaryCard label="Yesterday Paid" value={money(summary.yesterdayPaidMinor)} hint="Posted yesterday" />
+        <SummaryCard label="Paid Via WA" value={money(summary.viaWhatsAppPaidMinor)} hint="Posted from WhatsApp source" />
+        <SummaryCard label="Paid By Office" value={money(summary.byOfficePaidMinor)} hint="Posted office payments" />
+        <SummaryCard label="Number of Employee" value={String(summary.employeeCount)} hint="Employees on record" href="/employees" />
+        <SummaryCard label="Last Month Paid" value={money(summary.lastMonthPaidMinor)} hint="Posted last month" />
       </div>
 
-      <div className="split">
-        <ActionForm
-          title="New payment instruction"
-          endpoint="/api/finance"
-          action="instruction.create"
-          submitLabel="Create (review)"
-          fields={[
-            {name: 'employeeName', label: 'Employee / payee name', required: true},
-            {name: 'employeeMobile', label: 'Employee mobile', placeholder: '01712345678'},
-            {name: 'payoutMobile', label: 'Payout number', placeholder: '017XXXXXXXX'},
-            {name: 'method', label: 'Method', type: 'select', options: [
-              {value: 'bkash', label: 'bKash'}, {value: 'nagad', label: 'Nagad'}, {value: 'rocket', label: 'Rocket'},
-              {value: 'bank', label: 'Bank'}, {value: 'cash', label: 'Cash'}]},
-            {name: 'amount', label: 'Amount (BDT)', required: true, placeholder: '1250.00'},
-            {name: 'accountId', label: 'Pay from', type: 'select', options: accounts.map((account) => ({value: account.id, label: `${account.code} — ${account.name}`}))},
-            {name: 'purpose', label: 'Purpose'},
-          ]}
-        />
-        <ActionForm
-          title="Record income / expense"
-          endpoint="/api/finance"
-          action="ledger.create"
-          submitLabel="Post entry"
-          fields={[
-            {name: 'accountId', label: 'Account', type: 'select', required: true,
-              options: accounts.map((account) => ({value: account.id, label: `${account.code} — ${account.name}`}))},
-            {name: 'entryDate', label: 'Date', type: 'date', required: true, defaultValue: today},
-            {name: 'direction', label: 'Direction', type: 'select', options: [
-              {value: 'CREDIT', label: 'Income (credit)'}, {value: 'DEBIT', label: 'Expense (debit)'}]},
-            {name: 'amount', label: 'Amount (BDT)', required: true},
-            {name: 'category', label: 'Category', required: true, placeholder: 'office / fuel / salary'},
-            {name: 'description', label: 'Description'},
-          ]}
-        />
+      <div className="cash-form-grid">
+        <details className="cash-form-panel">
+          <summary>New payment instruction</summary>
+          <ActionForm
+            endpoint="/api/finance"
+            action="instruction.create"
+            submitLabel="Create (review)"
+            fields={[
+              {name: 'employeeName', label: 'Employee / payee name', required: true},
+              {name: 'employeeMobile', label: 'Employee mobile', placeholder: '01712345678'},
+              {name: 'payoutMobile', label: 'Payout number', placeholder: '017XXXXXXXX'},
+              {name: 'method', label: 'Method', type: 'select', options: [
+                {value: 'bkash', label: 'bKash'}, {value: 'nagad', label: 'Nagad'}, {value: 'rocket', label: 'Rocket'},
+                {value: 'bank', label: 'Bank'}, {value: 'cash', label: 'Cash'}]},
+              {name: 'amount', label: 'Amount (BDT)', required: true, placeholder: '1250.00'},
+              {name: 'accountId', label: 'Pay from', type: 'select', options: accounts.map((account) => ({value: account.id, label: `${account.code} — ${account.name}`}))},
+              {name: 'purpose', label: 'Purpose'},
+            ]}
+          />
+        </details>
+        <details className="cash-form-panel">
+          <summary>Record income / expense</summary>
+          <ActionForm
+            endpoint="/api/finance"
+            action="ledger.create"
+            submitLabel="Post entry"
+            fields={[
+              {name: 'accountId', label: 'Account', type: 'select', required: true,
+                options: accounts.map((account) => ({value: account.id, label: `${account.code} — ${account.name}`}))},
+              {name: 'entryDate', label: 'Date', type: 'date', required: true, defaultValue: today},
+              {name: 'direction', label: 'Direction', type: 'select', options: [
+                {value: 'CREDIT', label: 'Income (credit)'}, {value: 'DEBIT', label: 'Expense (debit)'}]},
+              {name: 'amount', label: 'Amount (BDT)', required: true},
+              {name: 'category', label: 'Category', required: true, placeholder: 'office / fuel / salary'},
+              {name: 'description', label: 'Description'},
+            ]}
+          />
+        </details>
       </div>
 
       <section className="card" style={{marginBottom: 18}}>
