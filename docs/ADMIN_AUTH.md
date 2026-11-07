@@ -90,3 +90,57 @@ The production `.env` has no password and the configured username `owner` does
 not exist. Provide the intended Admin password through the root-only file above
 using username `Admin` (existing account), then request the check/apply step.
 No production password was changed or invented.
+
+---
+
+## 5. Production configuration state (2026-11-07)
+
+The production `.env` now contains the supported references:
+
+```dotenv
+ALRIFAI_BOOTSTRAP_ADMIN_USERNAME=Admin
+ALRIFAI_BOOTSTRAP_ADMIN_PASSWORD_FILE=/etc/vps/apps/al-rifai/admin-bootstrap-password
+ALRIFAI_BOOTSTRAP_ADMIN_NAME=Admin
+ALRIFAI_APP_USER_1_USERNAME=officeassistant
+ALRIFAI_APP_USER_1_PASSWORD_FILE=/etc/vps/apps/al-rifai/user-1-password
+ALRIFAI_APP_USER_2_USERNAME=officeazzistant2
+ALRIFAI_APP_USER_2_PASSWORD_FILE=/etc/vps/apps/al-rifai/user-2-password
+```
+
+The three password files exist with mode `400 root:root` and **zero bytes**.
+No password was invented or written. Provisioning checks report
+`password_configured: false`; the existing `Admin`, `officeassistant` and
+`officeazzistant2` accounts are active with the correct roles.
+
+### Secure interactive password entry (Owner runs on the VPS)
+
+```bash
+cd /opt/al-rifai-platform
+node --experimental-strip-types scripts/standalone/set-secret-password.mjs \
+  --file=/etc/vps/apps/al-rifai/admin-bootstrap-password
+node --experimental-strip-types scripts/standalone/set-secret-password.mjs \
+  --file=/etc/vps/apps/al-rifai/user-1-password
+node --experimental-strip-types scripts/standalone/set-secret-password.mjs \
+  --file=/etc/vps/apps/al-rifai/user-2-password
+```
+
+The prompt does not echo and the password is not passed as an argument.
+
+### Check / apply
+
+```bash
+PGHOST=172.18.0.2 node --env-file=/opt/vps/al-rifai-standalone/apps/al-rifai/.env \
+  --experimental-strip-types scripts/standalone/provision-admin.mjs
+PGHOST=172.18.0.2 node --env-file=/opt/vps/al-rifai-standalone/apps/al-rifai/.env \
+  --experimental-strip-types scripts/standalone/provision-users.mjs
+```
+
+- Admin `password_matches: true` → existing credential works; no reset.
+- Admin `password_matches: false` → Owner must explicitly authorize
+  `provision-admin.mjs --apply --reset-password`.
+- Users: existing accounts are reused; a mismatch requires
+  `provision-users.mjs --apply --reset-password`.
+
+The two users are role `USER`; they cannot access `/api/users` or Admin-only
+financial actions. Clone verification: both logged in, `/cash` 200,
+`/api/users` 403, wrong password 401.

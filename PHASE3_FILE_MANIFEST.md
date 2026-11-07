@@ -47,6 +47,13 @@
 | `scripts/standalone/manage-authorized-contact.mjs` | Registry update CLI |
 | `scripts/standalone/provision-admin.mjs` | Explicit `.env` Admin provisioning/check/reset CLI |
 | `docs/ADMIN_AUTH.md` | Admin authentication diagnosis and secure setup |
+| `docs/PRODUCTION_URLS.md` | Verified URLs and legacy compatibility matrix |
+| `docs/DNS_CLOUDFLARE_1014.md` | Cloudflare 1014 diagnosis and correction proposal |
+| `lib/legacy-redirects.ts` | Verified legacy browser redirects |
+| `app/(workspace)/assistant/page.tsx` | Admin Assistant page |
+| `components/standalone/assistant-console.tsx` | Assistant query UI |
+| `scripts/standalone/provision-users.mjs` | Two USER account provisioner |
+| `scripts/standalone/set-secret-password.mjs` | Secure interactive password-file writer |
 | `docs/ADAPTIVE_RULES.md` | Rule/identity/registry operating guide |
 | `scripts/standalone/backfill-cash-coverage.mjs` | Idempotent Cash coverage backfill; REVIEW only |
 | `scripts/standalone/repair-legacy-program-links.mjs` | Idempotent assignment/source/event repair for imported programs |

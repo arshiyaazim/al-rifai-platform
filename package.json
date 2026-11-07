@@ -28,7 +28,9 @@
     "test:review-ui": "node --experimental-strip-types --test tests/standalone/review-ui.test.mjs",
     "test:router": "node --experimental-strip-types --test --test-concurrency=1 tests/standalone/message-router.test.mjs tests/standalone/router-cutover.test.mjs",
     "test:cash": "node --experimental-strip-types --test --test-concurrency=1 tests/standalone/cash-lifecycle.test.mjs",
-    "admin:provision": "node --env-file=.env --experimental-strip-types scripts/standalone/provision-admin.mjs"
+    "admin:provision": "node --env-file=.env --experimental-strip-types scripts/standalone/provision-admin.mjs",
+    "admin:set-password": "node --experimental-strip-types scripts/standalone/set-secret-password.mjs",
+    "users:provision": "node --env-file=.env --experimental-strip-types scripts/standalone/provision-users.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -426,3 +426,56 @@ never point them at production.
 
 See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 `docs/STANDALONE-VERIFICATION.md` for the verification record.
+
+---
+
+## Production deployment — verified 2026-11-07
+
+- **Application:** AL-RIFA'I Phase 3 (Next.js 16, PostgreSQL 16)
+- **Source:** `/opt/al-rifai-platform`
+- **Deployment env:** `/opt/vps/al-rifai-standalone/apps/al-rifai/.env` (mode 600)
+- **Compose project:** `al-rifai-phase3`
+- **Compose files:** `compose.yaml`, `compose.phase3.yaml`
+- **Database:** `alrifai_v2_phase3` (schema 1.5.0)
+- **Runtime image:** `local/al-rifai-platform:phase3-ai-rc-86d659a`
+- **Digest:** `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
+- **GitHub:** `arshiyaazim/al-rifai-platform`, `main` at `3285f56` (auth provisioning), runtime release `86d659a`
+
+### Verified public URLs
+
+| URL | Status |
+|---|---|
+| `https://app.al-rifai.iamazim.com` | **CANONICAL — VERIFIED** (307 → `/dashboard`, `/login` 200) |
+| `https://alrifai.iamazim.com` | **LEGACY ALIAS — VERIFIED** |
+| `https://al-rifai.iamazim.com` | **BROKEN — Cloudflare 1014** (cross-account CNAME) |
+
+Login: `/login`. Health: `/api/health`. Admin Assistant: `/assistant`
+(prepared release; deployment pending). Cash: `/cash`. Vessel: `/vessel`.
+Employees: `/employees`. Attendance: `/attendance`. Reports: `/reports`.
+Review: `/review`. Messages: `/messages`.
+
+See `docs/PRODUCTION_URLS.md` for the full route and legacy compatibility
+matrix, and `docs/DNS_CLOUDFLARE_1014.md` for the DNS correction proposal.
+
+### Authentication and user provisioning
+
+Admin and two USER accounts are provisioned only through explicit CLIs; a
+restart never resets a password. The production `.env` references root-only
+password files that are intentionally empty until the Owner enters the intended
+credentials interactively. See `docs/ADMIN_AUTH.md`.
+
+### Configuration
+
+`/opt/vps/al-rifai-standalone/apps/al-rifai/.env` is the central configuration
+source. Keys are copied into app/sync containers via Compose `env_file`;
+metadata keys (`ALRIFAI_APP_NAME`, `ALRIFAI_PUBLIC_BASE_URL`, etc.) are
+informational and do not alter DNS or proxy routing. AI keys (`AI_LLM_*`) are
+disabled/unconfigured; WA-02 outbound and automatic replies remain off.
+
+### Backup and rollback
+
+Pre-import backup:
+`/var/lib/vps/al-rifai/backups/phase3-pre-import-20261106T224024Z.dump`
+(SHA-256 verified). Rollback image `phase3-ai-rc-e3b56c4` and
+`phase3-rc-final5` are present. Use the `--env-file` Compose command for the
+`al-rifai-phase3` project; never create a parallel stack.
