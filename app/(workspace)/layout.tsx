@@ -10,6 +10,7 @@ const NAV = [
   {href: '/dashboard', label: 'Dashboard'},
   {href: '/employees', label: 'Employees'},
   {href: '/vessel', label: 'Vessel Register'},
+  {href: '/vessel/drafts', label: 'Order Drafts'},
   {href: '/attendance', label: 'Attendance'},
   {href: '/cash', label: 'Cash & Accounts'},
   {href: '/payroll', label: 'Payroll'},
