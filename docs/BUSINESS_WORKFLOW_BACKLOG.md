@@ -85,7 +85,7 @@ the approved merge in `docs/MAIN_RECONCILIATION_PLAN.md`.
 | 8 | Missing employee / transaction UI | Legacy employee typeahead, add-transaction drawer and charts are not reproduced | Decide whether to reimplement; low priority | `app/(workspace)/employees/`, `app/(workspace)/transactions/` |
 | 9 | Historical release items | 7 items remain pending for human decision | Manual review in `/review`; do not auto-apply | `docs/HISTORICAL_RELEASE_REVIEW_20261107.md` |
 | 10 | `al-rifai.iamazim.com` | Cloudflare 1014 (HTTP 403 body) | Owner DNS decision | `docs/DNS_CLOUDFLARE_1014.md` |
-| 11 | Git sync / README reconciliation | `main` `0861e05` README still claims `v1.4.0-phase3-rc2` / schema 1.4.0 / `86d659a`; feature README corrected. 22 main-only / 19 feature-only commits, merge base `76d5d00` | Owner-approved PR or `--no-ff` merge (no force-push/reset/auto-merge); take feature versions for doc conflicts, keep all main-only commits | `docs/MAIN_RECONCILIATION_PLAN.md`, `README.md` |
+| 11 | Git sync / README reconciliation | `main` `0861e05` README still claims `v1.4.0-phase3-rc2` / schema 1.4.0 / `86d659a`; feature README corrected. 22 main-only commits; feature-only count advances with docs commits, merge base `76d5d00` | Owner-approved PR or `--no-ff` merge (no force-push/reset/auto-merge); take feature versions for doc conflicts, keep all main-only commits | `docs/MAIN_RECONCILIATION_PLAN.md`, `README.md` |
 
 ## 3a. Test results (current branch)
 

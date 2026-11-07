@@ -112,10 +112,11 @@ BLOCKED, not complete.** A README correction does not complete it.
   auth/provisioning paragraph. Marked the active goal **BLOCKED** with the
   specific Owner action.
 - **Git divergence (read-only):** `main` `0861e05`, merge base `76d5d00`;
-  feature head advances with documentation commits (see `git log`). At the
-  reconciliation snapshot it was **22 main-only / 17 feature-only** commits
-  (now 22 / 19 with two further docs commits). Criss-cross docs merges.
-  **No force-push, reset, rebase or auto-merge performed.**
+  feature head advances with documentation commits (see `git log`). **22
+  main-only** commits and a feature-only count that grows with each docs commit
+  (re-run `git rev-list --left-right --count main...HEAD` for the current value).
+  Criss-cross docs merges. **No force-push, reset, rebase or auto-merge
+  performed.**
 - **Merge plan:** `docs/MAIN_RECONCILIATION_PLAN.md` — GitHub PR (recommended)
   or a `--no-ff` local merge after Owner approval, taking feature-branch
   versions for documentation conflicts while keeping all 22 main-only commits.
@@ -182,8 +183,9 @@ BLOCKED, not complete.** A README correction does not complete it.
 - `main` `0861e05` clean, not merged; README **still stale** until the approved
   reconciliation in `docs/MAIN_RECONCILIATION_PLAN.md`.
 - `feature/phase3-router-cash-vessel` pushed and clean; README corrected this
-  session. Merge base `76d5d00`; 22 main-only / 19 feature-only commits at
-  current head (17 at the reconciliation snapshot).
+  session. Merge base `76d5d00`; 22 main-only commits and a feature-only
+  count that advances with documentation commits (see `git rev-list
+  --left-right --count main...HEAD`).
 - No force-push, no reset, no rebase, no auto-merge, no production image built.
 
 ## Exact next task and starting files

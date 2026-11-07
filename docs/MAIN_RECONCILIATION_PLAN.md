@@ -13,7 +13,7 @@ intact.
 | `main` | `0861e05` (clean, checked out in `/opt/al-rifai-platform`) |
 | Feature branch | `70fcebe` at the time of this snapshot; head has since advanced with documentation commits (`fd23fcf`, `2cc00fa` — see `git log`). Clean, checked out in `/opt/al-rifai-phase3-test`, pushed to `origin` |
 | Merge base | `76d5d00b86dfae3502ebeea9d7c91c98c9cf6ab7` |
-| `git rev-list --left-right --count main...HEAD` | **22 main-only / 17 feature-only** commits at snapshot (22 / 19 with the two later docs commits) |
+| `git rev-list --left-right --count main...HEAD` | **22 main-only / 17 feature-only** commits at this snapshot; the feature-only count grows with later documentation commits (re-run the command for the current value) |
 | Main-only commits | `0861e05`, `00455c0`, `9fcc2e7`, `21c7103`, `a0884e2`, `6771626`, `faeac2c`, `0f717f4`, `85206d0`, `efc0b07`, `3285f56`, `0223c91`, `72a7656`, `c322e63`, `408e358`, `3d9e9ef`, `2f504b2`, `326145f`, `474b148`, `a79c929`, plus earlier docs merges |
 | Feature-only commits (at snapshot) | `70fcebe`, `4d3ed07`, `c738721`, `3e0dd01`, `00e25a7`, `cfd3f99`, `62e6ff2`, `675a3ef`, `d533939`, `ed78ec2`, `9398fca`, `0000cf0`, `1f50321`, `e3e8537`, `7da17f1`, `ecdd186`, `8b9b779` — plus later docs commits `fd23fcf`, `2cc00fa` |
 
