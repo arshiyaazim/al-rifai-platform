@@ -403,7 +403,15 @@ export async function listPrograms(filters: {q?: string; state?: string; escort?
 }
 
 export async function getProgram(programIdValue: string) {
-  const program = await row<ProgramRow>('SELECT * FROM programs WHERE id = $1', [programIdValue]);
+  const program = await row<ProgramRow>(
+    `SELECT id, revision, mother_vessel, lighter_vessel, master_mobile, destination,
+            escort_name, escort_mobile, start_date::text AS start_date, start_shift,
+            end_date::text AS end_date, end_shift, state, source_channel,
+            source_message_id, source_chat_jid, confirmation_message_id, notes,
+            created_by, created_at, updated_at
+       FROM programs WHERE id = $1`,
+    [programIdValue],
+  );
   if (!program) throw new DomainError('PROGRAM_NOT_FOUND', 404);
   const pay = await row('SELECT * FROM program_pay WHERE program_id = $1', [programIdValue]);
   const assignments = await rows(
