@@ -1,9 +1,12 @@
 # Vessel Draft delivery — architecture, internal work and activation gate
 
-**Date:** 2026-11-07
-**Status:** Safe internal work **implemented and clone/unit-tested**. **No outbound
-transport is enabled, no WhatsApp message is sent, no migration is applied.**
-Migration status for this work: **NO MIGRATION**.
+**Date:** 2026-11-07 (updated after durable-infrastructure completion)
+**Status:** Safe internal work **implemented and clone/unit/integration-tested**.
+**No outbound transport is enabled and no WhatsApp message is sent.**
+**Production migration status: NO MIGRATION APPLIED.** Additive migration
+`010_vessel_draft_delivery.sql` is written and verified on a disposable clone of
+the exact production schema, but is **pending Owner approval** and is not
+applied to production. Until approval the platform stays `MANUAL_COPY_ONLY`.
 
 ---
 
@@ -89,82 +92,166 @@ This direction must be confirmed by the Owner before activation.
 shape, idempotency, dedup, gate, recipient mismatch, terminal states, bounded
 retries and the confirmation invariant. All pass.
 
-## 4. Durable records — design only, NOT applied
+## 4. Durable infrastructure — IMPLEMENTED and TESTED (production migration pending)
 
-A real deployment needs a WA-01-safe table. Proposed DDL (requires a separate
-Owner-approved migration; **not included in `7da17f1` and not applied**):
+`lib/standalone/vessel-draft-delivery-store.ts` is the Postgres implementation
+of the pure queue. It **never calls a WhatsApp transport**; the only path that
+could produce a sendable request is `buildOutboundRequest()`, gated by five
+independent blocks.
 
-```sql
-CREATE TABLE vessel_draft_deliveries (
-  id                text PRIMARY KEY,              -- the idempotency key
-  program_id        text NOT NULL REFERENCES programs(id),
-  source_message_id text,
-  account_id        text NOT NULL CHECK (account_id = 'wa-01'),
-  recipient_jid     text NOT NULL,
-  content           text NOT NULL,
-  state             text NOT NULL DEFAULT 'PREPARED'
-                    CHECK (state IN ('PREPARED','QUEUED','SENDING','SENT','FAILED',
-                                     'DELIVERY_UNKNOWN','DEAD','CANCELLED')),
-  attempts          integer NOT NULL DEFAULT 0,
-  next_attempt_at   timestamptz,
-  delivery_ref      text,
-  error             text,
-  created_at        timestamptz NOT NULL DEFAULT now(),
-  updated_at        timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE vessel_draft_delivery_attempts (
-  id           text PRIMARY KEY,
-  delivery_id  text NOT NULL REFERENCES vessel_draft_deliveries(id) ON DELETE CASCADE,
-  attempt_no   integer NOT NULL,
-  state        text NOT NULL,
-  response     jsonb NOT NULL DEFAULT '{}'::jsonb,
-  started_at   timestamptz NOT NULL DEFAULT now(),
-  finished_at  timestamptz
-);
+| Requirement | Implementation |
+|---|---|
+| Durable draft/outbound records | Migration `010_vessel_draft_delivery.sql`, table `vessel_draft_deliveries` |
+| Stable idempotency keys | `draftIdempotencyKey()` → `vdd_<sha256(programId + sha256(text) + recipientJid)>`; stored as the primary key |
+| One record per eligible draft/version | `UNIQUE (program_id, content_hash, recipient_jid)` + `INSERT ... ON CONFLICT (id) DO NOTHING`; a changed draft gets a new id |
+| Transaction-safe queue claiming | `claimDueDeliveries()` uses `FOR UPDATE SKIP LOCKED` inside `tx()`, increments `attempts` exactly once, sets a 60 s `lease_until` |
+| Retry and failure handling | `FAILED` → `next_attempt_at = now + 60s * 2^(attempts-1)`, max 3 attempts, then `DEAD`; only due FAILED rows are claimable |
+| Explicit `DELIVERY_UNKNOWN` | Timeout/dropped socket or abandoned lease → terminal `DELIVERY_UNKNOWN`, never retried (bridge may have delivered) |
+| Duplicate-send prevention | Idempotency key + `SENT`/`DELIVERY_UNKNOWN`/`DEAD` terminal states + `buildOutboundRequest()` terminal refusal |
+| Delivery audit trail | Reuses the existing append-only `audit_events` via `recordAudit()` (no second table); `VESSEL_DRAFT_DELIVERY_*` actions |
+| Admin-visible status | `/vessel/drafts` "Draft delivery status" panel (`deliveryStatusForPrograms()`), graceful when the table is absent |
+| Recovery after worker restart | `recoverStuckDeliveries()` converts expired `SENDING` leases to `DELIVERY_UNKNOWN` before every claim |
+| Incomplete draft fields | `enqueueDraftForProgram()` returns `BLOCKED` with the gaps and writes an audit event; no record is created |
+
+### Exact pending migration (`db/standalone/010_vessel_draft_delivery.sql`)
+
+One new table, **no legacy Cash/Vessel row rewritten**, schema version stays
+`1.5.0` (additive layer recorded in `schema_migrations` as version `010`).
+
+Columns: `id` (PK, `^vdd_[a-f0-9]{64}$`), `program_id` (FK → `programs.id`
+ON DELETE CASCADE), `source_message_id`, `account_id` (`CHECK = 'wa-01'`),
+`recipient_jid`, `content`, `content_hash` (sha256 hex), `state` (CHECK over
+`PREPARED/QUEUED/SENDING/SENT/FAILED/DELIVERY_UNKNOWN/DEAD/CANCELLED`),
+`attempts`, `next_attempt_at`, `lease_until`, `delivery_ref`, `error`,
+`created_at`, `updated_at`.
+
+Indexes: PK; unique `(program_id, content_hash, recipient_jid)`; partial
+`vessel_draft_deliveries_queue` on `(state, next_attempt_at, created_at)`
+WHERE state IN ('QUEUED','FAILED'); `vessel_draft_deliveries_program` on
+`(program_id, created_at DESC)`; partial `vessel_draft_deliveries_lease` on
+`(lease_until)` WHERE state='SENDING'.
+
+Tooling updated: `scripts/standalone/install.mjs` (fresh-install chain +
+`TARGET_TABLES`), `scripts/standalone/grants.mjs` (runtime `SELECT/INSERT/UPDATE`
+grant), `scripts/standalone/migrate.mjs` auto-discovers `010`, CI table-count
+expectation 46 → 47, test reset helpers include the new table.
+
+### Migration test evidence (disposable clone of production schema)
+
+- Restored `phase3-predeploy-7da17f1-20261107T124612Z.dump` into a fresh
+  disposable DB; pre-state: schema `1.5.0`, 46 tables, max migration `009`,
+  delivery table absent.
+- Applied `010` via `scripts/standalone/migrate.mjs`: post-state schema `1.5.0`,
+  47 tables, ledger version `010`, all 15 columns and 4 indexes present.
+- Legacy counts unchanged: 218 employees / 102 programs / 3,817 instructions /
+  1,586 postings / 13 review items.
+- Rollback simulation: `DROP TABLE vessel_draft_deliveries` + delete ledger row
+  `010` → back to 46 tables, `max_migration=009`, identical legacy counts;
+  preflight then reports `010` pending again (re-appliable). Disposable DB dropped.
+- Production table ownership is `alrifai_app`, so the established migration
+  procedure will apply cleanly (the restore needed extra test-only grants because
+  `pg_restore --no-owner` changed ownership).
+
+### Tests
+
+- `tests/standalone/vessel-draft-delivery.test.mjs` — 12 pure unit tests.
+- `tests/standalone/vessel-draft-delivery-store.test.mjs` — 8 integration tests:
+  table/gate, one QUEUED record + audit, dedup, incomplete-draft blocking,
+  transaction-safe claim, backoff + terminal `DELIVERY_UNKNOWN`, worker-restart
+  recovery, Admin status + denied outbound request.
+- Full suites: unit **133/133**, integration **133/133**, typecheck clean,
+  lint 0 errors. Admin UI verified on a local dev server against the clone DB
+  both with the table absent (graceful degradation) and with a synthetic QUEUED
+  record (status visible). Clone fixtures removed.
+
+## 5. Exact draft message example (for Owner approval)
+
+Rendered by the deployed template from a real production `DRAFT` program
+(`prog_df6a840cee55d392022df783`), read-only, no gaps:
+
+```text
+Mother Vessel: M.V. Beltokyo
+Importer
+Lighter Vessel:M.V. Banglar-Modhumoti-1
+Master mobile:-01720-614025
+Destination:
+Escort Name:
+Escort mobile:
+07/11/26 ((N))
+
+Al-Rifa'i Integrated Services
 ```
 
-`UNIQUE (id)` on the idempotency key is the database-level duplicate guard that
-backs `enqueueDraftDelivery()`.
+Escort Name and Escort mobile are intentionally blank: only the Admin's
+completed outgoing reply in the **same original order-giving chat** supplies
+them. The delivery notification is not confirmation and does not require any
+client acknowledgment or approval button.
 
-## 5. Smallest possible outbound transport change (prepared, not enabled)
+## 6. Smallest possible outbound transport change (prepared, NOT enabled)
 
 1. Add one narrow WA-01 consumer token with `messages.send` scoped to the single
    approved Admin JID. Do **not** widen the existing read token; do not touch
    WA-02.
-2. Add two kill switches: `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=1` and an
-   `app_settings` boolean `vessel_draft_outbound_enabled=true`, plus explicit
-   `ALRIFAI_VESSEL_DRAFT_SENDER_JID` / `ALRIFAI_VESSEL_DRAFT_RECIPIENT_JID`.
-3. One `send_message` socket call per QUEUED record, passing
-   `idempotencyKey` so the bridge can deduplicate; persist `SENDING` before the
-   call and record every attempt.
-4. The Admin UI shows `deliveryViewModel()`; no automatic confirmation, no
-   escort assignment, no program state change from delivery.
+2. Set `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=1`, an `app_settings` boolean
+   `vessel_draft_outbound_enabled=true`, and explicit
+   `ALRIFAI_VESSEL_DRAFT_SENDER_JID` / `ALRIFAI_VESSEL_DRAFT_RECIPIENT_JID` /
+   sender socket + token file. These five blocks are exactly what
+   `runtimeDeliveryGate()` checks; none is currently set.
+3. Apply migration `010` (Owner-approved) and grant runtime access.
+4. One `send_message` socket call per claimed record using the prepared
+   `OutboundRequest` (`accountId`, `recipientJid`, `text`, `idempotencyKey`),
+   persisting `SENDING` before the call and recording every outcome in
+   `audit_events`. **This call is not implemented anywhere in the codebase
+   today** — that is the smallest remaining change.
+5. `applyConfirmation()` and the Admin confirmation rule are untouched: delivery
+   never assigns an escort, never confirms and never updates a program.
 
-**Nothing above is enabled.** All `AI_*` flags remain `0`, no bridge policy was
-changed, no WhatsApp message was sent.
+### Controlled single-message verification procedure (for approval, not executed)
 
-## 6. Activation gate (Owner must approve explicitly)
+1. With all five gate blocks enabled for exactly one recipient, insert ONE
+   eligible draft and confirm the gate returns `OUTBOUND_APPROVED`.
+2. Call `claimDueDeliveries(1)`; verify exactly one row becomes `SENDING` with
+   `attempts=1`.
+3. Call `prepareDeliveryRequest(id)`; verify the prepared text equals §5 and the
+   idempotency key is stable.
+4. Perform **one** `send_message` call; verify the state becomes `SENT` with a
+   `delivery_ref`, one `VESSEL_DRAFT_DELIVERY_SENT` audit row, and zero duplicate
+   messages (re-enqueue returns `DUPLICATE`).
+5. Immediately disable the env kill switch; confirm no further request is
+   prepared and mode returns to `MANUAL_COPY_ONLY`.
+6. Rollback if any check fails: disable both kill switches, delete the single
+   delivery row, drop the table (or leave it empty); no legacy data is touched.
 
-Before any of §5 is enabled, the Owner must approve the exact:
+## 7. Activation gate — exact approvals still pending
 
-1. sender account and JID,
-2. recipient Admin JID,
-3. chat scope (one direct chat, never client/release groups),
-4. delivery behavior (one message per unchanged draft, retry policy, kill
-   switches, no automatic confirmation),
-5. the migration that creates the WA-01-safe durable tables.
+The Owner must explicitly approve all of:
 
-Until then: `MANUAL_COPY_ONLY`, `/vessel/drafts` copy button, and the existing
-Admin confirmation rule remain the supported workflow.
+1. **Sending account** — WA-01 `8801880446111@s.whatsapp.net` (WA-02 has no role).
+2. **Recipient JID** — exact Admin JID (not currently configured anywhere).
+3. **Authorized chat scope** — one direct Admin chat; never client/release groups.
+4. **Message template** — the exact ten-line Owner draft in §5.
+5. **Delivery trigger** — one record per eligible, complete, unchanged draft.
+6. **Retry behavior** — 3 attempts, exponential backoff, `DELIVERY_UNKNOWN`
+   terminal, worker-restart recovery, no automatic resend on ambiguity.
+7. **Database migration** — `010_vessel_draft_delivery.sql` (additive, tested,
+   rollback simulated); no legacy data rewritten.
+8. **Live activation and rollback plan** — two kill switches, single-message
+   verification in §6, and the ability to disable without a data restore.
 
-## 7. Files
+Until then: `MANUAL_COPY_ONLY`, `/vessel/drafts` copy button, no `messages.send`,
+no outbound message, no production migration.
+
+## 8. Files
 
 | File | Role |
 |---|---|
-| `lib/vessel-draft-delivery.ts` | Pure delivery state machine |
-| `tests/standalone/vessel-draft-delivery.test.mjs` | 12 isolated tests |
+| `lib/vessel-draft-delivery.ts` | Pure delivery state machine, idempotency, gate, prepared request |
+| `lib/standalone/vessel-draft-delivery-store.ts` | Durable Postgres store, claim, retry, recovery, status, audit |
+| `db/standalone/010_vessel_draft_delivery.sql` | **Pending** additive migration (NOT applied in production) |
+| `tests/standalone/vessel-draft-delivery.test.mjs` | 12 pure tests |
+| `tests/standalone/vessel-draft-delivery-store.test.mjs` | 8 integration tests |
+| `app/(workspace)/vessel/drafts/page.tsx` | Admin workspace + delivery status panel |
 | `lib/order-draft-from-record.ts` | `MANUAL_COPY_ONLY` Owner draft projection |
 | `lib/order-draft-template.ts` | Exact Owner draft layout |
-| `app/(workspace)/vessel/drafts/page.tsx` | Admin copy workspace |
 | `lib/standalone/whatsapp.ts` (`applyConfirmation`) | Unchanged confirmation rule |
 | `lib/ai/sender.ts` | Reference pattern (WA-02 only, disabled) |

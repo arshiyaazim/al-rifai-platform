@@ -466,6 +466,15 @@ Commit `675a3ef` adds employee-update `PATCH`, payroll capability gating and
 deployed**. Outbound WhatsApp draft delivery remains `MANUAL_COPY_ONLY`
 (`docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`).
 
+The production `.env` `ALRIFAI_TAG` was aligned to `phase3-ai-rc-7da17f1` with
+explicit Owner approval (one line, no restart, owner/mode preserved;
+`docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`). Authentication was diagnosed
+as healthy — the 0-byte bootstrap files are provisioning-only and the three DB
+accounts have valid hashes with historical successful logins; no credential was
+changed (`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`). Additive migration
+`010_vessel_draft_delivery.sql` is written and clone-tested but **NOT applied to
+production**; it needs 8 explicit Owner approvals before activation.
+
 ### Verified public URLs
 
 | URL | Status |
@@ -479,10 +488,14 @@ Cash: `/cash`. Vessel: `/vessel`. Vessel Order Drafts: `/vessel/drafts`
 (**deployed** on `7da17f1`). Employees: `/employees`. Attendance:
 `/attendance`. Reports: `/reports`. Review: `/review`. Messages: `/messages`.
 
-**Authenticated production UI verification is still blocked:** the three
-password files are 0 bytes, so login returns `400 CREDENTIALS_REQUIRED`.
-Unauthenticated health, login page and route protection were verified on both
-hosts. See `docs/PHASE3_GO_NO_GO_7da17f1.md` §4c.
+**Authenticated production UI verification is still NOT TESTED:** the auth
+pipeline is healthy, but the Agent has no plaintext password and no production
+session cookie (the earlier `400 CREDENTIALS_REQUIRED` was caused by an empty
+password, not a defect). The Owner selected a root-only VPS credentials file as
+the secure method; it does not exist yet. Unauthenticated health, login page,
+41 route protections and auth origin/validation were verified on both hosts.
+See `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md` and
+`docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`.
 
 See `docs/PRODUCTION_URLS.md` for the full route and legacy compatibility
 matrix, `docs/PROJECT_KNOWLEDGE.md` for the permanent project map,

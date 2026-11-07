@@ -5,12 +5,19 @@
 **Rollback image (available):** `phase3-ai-rc-86d659a` (`sha256:932ef856…`)
 **Superseded candidate:** `phase3-ai-rc-9e85e49` (`sha256:cb8de252…`)
 **Verification image (built, not deployed):** `phase3-ai-rc-675a3ef` — post-deployment workflow fixes
-**Database schema:** `1.5.0` (production and clone); **NO MIGRATION** in either image
-**Git `main`:** `0861e05` (docs merge); code fixes on `feature/phase3-router-cash-vessel` at `675a3ef`, pushed
+**Database schema:** `1.5.0` (production and clone); **NO MIGRATION APPLIED to
+production**. Additive migration `010_vessel_draft_delivery.sql` is written,
+clone-tested and **pending Owner approval**
+(`docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`).
+**Git `main`:** `0861e05` (docs merge); feature branch `feature/phase3-router-cash-vessel` pushed
+**`.env` ALRIFAI_TAG:** aligned to `phase3-ai-rc-7da17f1` with Owner approval
+(`docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`); previous `86d659a` preserved
+in a backup.
 
 Evidence labels used throughout: **implemented**, **clone-tested**,
 **production-deployed**, **live-verified**. Production UI login remains
-unverified (empty password files). Fresh pre-deploy backup:
+unverified — the auth pipeline is healthy but the Agent has no plaintext
+password (`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`). Fresh pre-deploy backup:
 `docs/PHASE3_PREDEPLOY_BACKUP_20261107.md`.
 
 This file is the permanent orientation map. It records where things live, what
@@ -46,6 +53,8 @@ Application structure inside the repo:
 | `lib/message-router.ts` | Single canonical WhatsApp → business-record router, including release-group evidence handling |
 | `lib/release-slip.ts` | Pure structured Escort Release parser + unstructured cancellation/transfer/replacement/food-bill evidence parser |
 | `lib/vessel-draft-delivery.ts` | Pure Vessel Draft delivery queue: idempotency, bounded retry, terminal states, activation gate, prepared (never executed) outbound request |
+| `lib/standalone/vessel-draft-delivery-store.ts` | Durable Postgres store, `FOR UPDATE SKIP LOCKED` claim, retry, `DELIVERY_UNKNOWN`, worker-restart recovery, Admin status, audit trail |
+| `db/standalone/010_vessel_draft_delivery.sql` | **Pending** additive migration (NOT applied in production) |
 | `lib/action-form-request.ts` | Pure ActionForm HTTP wiring (POST default, PATCH/DELETE), fixing the employee update form |
 | `lib/phase3-router-worker.ts` | Optional continuous router loop |
 | `lib/order-draft-template.ts` | Exact Owner draft layout (pure) |
@@ -76,7 +85,7 @@ Application structure inside the repo:
 | **Cash transactions/archive/submissions** | `components/standalone/cash-transactions-view.tsx`, `cash-submissions-view.tsx`, routes under `app/(workspace)/cash/…` | 200 on clone; role-checked |
 | **Vessel register/control** | `app/(workspace)/vessel/page.tsx`, `vessel/[id]/page.tsx`, `lib/standalone/programs.ts`, `app/api/programs/route.ts` | Working; date-rendering bug fixed in `9e85e49`; `assignEscort` resolves the directory name in `7da17f1`; list-page forms capability-gated |
 | **Vessel order draft** | `lib/order-draft-template.ts`, `lib/order-draft-from-record.ts`, `components/standalone/owner-draft-panel.tsx`, `app/(workspace)/vessel/drafts/page.tsx` | **Production-deployed in `7da17f1`**; copy-only, no outbound. Full intake → DRAFT → draft UI → Admin reply → CONFIRMED clone-verified; production has 8 live DRAFT programs |
-| **Vessel draft delivery** | `lib/vessel-draft-delivery.ts`, `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` | **Implemented, unit-tested, NOT deployed, NOT enabled.** `MANUAL_COPY_ONLY` remains; activation needs Owner approval |
+| **Vessel draft delivery** | `lib/vessel-draft-delivery.ts`, `lib/standalone/vessel-draft-delivery-store.ts`, `db/standalone/010_vessel_draft_delivery.sql`, `app/(workspace)/vessel/drafts/page.tsx`, `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` | **Implemented + unit/integration/clone-tested. NOT deployed, NOT enabled, migration NOT applied to production.** `MANUAL_COPY_ONLY` remains; activation needs 8 explicit Owner approvals |
 | **Vessel release** | `lib/release-slip.ts`, `lib/message-router.ts` (`handleReleaseSlip`, `matchUnstructuredReleaseCandidates`) | Structured slips apply to one match; unstructured release-group traffic parsed into pending review evidence with read-only candidate matching (`EMPTY`/`CANCELLATION`/`TRANSFER`/`REPLACEMENT`/`FOOD_BILL`) — never auto-releases |
 | **Employees** | `app/(workspace)/employees/…`, `employee/…`, `lib/standalone/employees.ts`, `app/api/employees/route.ts` | Working; `675a3ef` fixes the detail update form to use `PATCH` (not deployed) |
 | **Attendance** | `app/(workspace)/attendance/page.tsx`, `lib/standalone/attendance.ts`, `app/api/attendance/route.ts` | Working |
@@ -162,6 +171,23 @@ is active; the missing stage is transport, not parsing or persistence.
 6. The 7 existing production `RELEASE_UNSTRUCTURED` items are historical and are
    not retroactively rewritten.
 
+### Vessel Draft delivery (internal, NOT enabled)
+
+1. `ownerDraftFromProgram()` renders the exact Owner layout; incomplete fields
+   are `BLOCKED` (audit only, no record).
+2. `draftIdempotencyKey()` → one `vessel_draft_deliveries` row per eligible
+   complete draft version; duplicate enqueue is suppressed.
+3. `claimDueDeliveries()` (`FOR UPDATE SKIP LOCKED`) → `SENDING` with a 60 s
+   lease; `recoverStuckDeliveries()` turns abandoned leases into terminal
+   `DELIVERY_UNKNOWN` after a worker restart.
+4. `SENT`/`DELIVERY_UNKNOWN`/`DEAD` are terminal; `FAILED` retries only after
+   backoff (max 3). Every transition is recorded in `audit_events`.
+5. `runtimeDeliveryGate()` requires five approvals; `buildOutboundRequest()`
+   only prepares data. **No `send_message` call exists in the codebase.**
+6. `/vessel/drafts` shows mode, gate reasons, durable records and the
+   `CONFIRMATION_RULE`. Admin confirmation via `applyConfirmation()` is
+   unchanged; delivery never assigns an escort or confirms a program.
+
 ### Attendance / Payroll
 Attendance rows are recorded per employee/date/shift; payroll reads attendance and
 program pay. Neither is generated automatically from WhatsApp.
@@ -175,13 +201,15 @@ Owner authorization.
 
 ## 5. Database
 
-Phase 3 database: `alrifai_v2_phase3` (46 public base tables).
+Phase 3 database: `alrifai_v2_phase3` (**46** public base tables in production;
+**47** on a clone with pending migration `010` applied).
 
 | Group | Tables |
 |---|---|
 | Identity/auth | `cash_portal_users`, `cash_portal_sessions`, `cash_portal_audit`, `login_throttle_state`, `identity_aliases` |
 | Cash | `cash_accounts`, `cash_instructions`, `cash_postings`, `cash_reversals`, `cash_reconciliations`, `cash_submissions`, `cash_submission_reviews`, `ledger_entries` |
 | Vessel | `programs`, `program_assignments`, `program_pay`, `program_events`, `program_source_messages`, `rate_config`, `escort_client_group_authorizations` |
+| Vessel draft delivery (**pending migration 010, NOT in production**) | `vessel_draft_deliveries` |
 | Employee/attendance | `employees`, `attendance` |
 | Review/audit | `review_items`, `review_decisions`, `audit_events` |
 | WhatsApp | `whatsapp_accounts`, `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media`, `whatsapp_cursors`, `whatsapp_sync_state`, `whatsapp_import_runs` |
@@ -202,13 +230,16 @@ Phase 3 database: `alrifai_v2_phase3` (46 public base tables).
 Legacy database: `alrifai` (75 public base tables). Legacy mappings and unmapped
 tables are recorded in `docs/LEGACY_PHASE3_COMPARISON.md`.
 
-**Migration status:** schema `1.5.0` applied and verified in production; the
-clone also reports `1.5.0`. The `7da17f1` image and the post-deployment
-`675a3ef` work both add **NO MIGRATION** and no SQL/migration file change.
+**Migration ledger:** schema `1.5.0` applied and verified in production, max
+`schema_migrations.version = 009`. **NO MIGRATION APPLIED to production** in
+this session. Pending additive layer `010_vessel_draft_delivery.sql` creates one
+table (`vessel_draft_deliveries`) + 4 indexes, records version `010`, leaves
+schema version `1.5.0` and rewrites no legacy row. It was applied to a
+disposable clone restored from the pre-deploy backup (46→47 tables), verified,
+rolled back (47→46) and re-appliable. CI expectation updated 46→47.
 Migrations are applied only by an explicit CLI run, never at application
-startup. Proposed WA-01-safe durable delivery tables exist only as unapplied
-design DDL in `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` and require separate Owner
-approval.
+startup. Full ledger and pending list: `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`
+§4 and `docs/BUSINESS_WORKFLOW_BACKLOG.md`.
 
 ---
 
@@ -308,20 +339,31 @@ session, checkpoint or allowlist may be restarted, re-paired or reconfigured.
 - Release/cancel/food-bill/transfer evidence extraction + read-only candidate
   matching verified on the clone and in regression tests; matched programs
   stayed `CONFIRMED`.
-- Unit **133/133**, integration **125/125**, focused new tests **34/34**,
-  typecheck clean, lint 0 errors, both image builds passing. Clone fixtures
-  removed.
+- Unit **133/133**, integration **133/133**, focused new tests **8/8** store
+  integration, typecheck clean, lint 0 errors. Clone fixtures removed.
+- `.env` `ALRIFAI_TAG` aligned to `7da17f1` with Owner approval; containers
+  unchanged; compose config now resolves to the deployed image without an
+  override (`docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`).
+- **Authentication pipeline is HEALTHY** (`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`):
+  3 active accounts with valid PBKDF2 hashes, 6 historical successful `LOGIN`
+  events, 2 live sessions, correct form field names, origin/CSRF/cookie/
+  reverse-proxy behaviour, both hosts route auth correctly. Earlier 400s came
+  from an **empty password**, not a defect. **No credential was changed.**
+- Durable Vessel Draft delivery infrastructure implemented + integration-tested;
+  migration `010` verified on a disposable clone of the production schema and
+  **not applied to production**; Admin status UI verified on the clone.
 - **NOT TESTED:** authenticated production UI (login/logout/sessions/roles/
-  forms/CSV/approval workflows) — password files are 0 bytes and login returns
-  `400 CREDENTIALS_REQUIRED`. See `docs/PHASE3_GO_NO_GO_7da17f1.md` §4c.
+  forms/CSV/approval workflows) — the Agent has no plaintext password and no
+  production session cookie. Full matrix:
+  `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`.
 
 ### Active issues by priority
 
 | # | Severity | Issue | Next step |
 |---|---|---|---|
-| 1 | High | Production Admin/user logins unverified: password files are empty | Owner writes passwords, then check-only provisioners; never reset |
-| 2 | High | Vessel draft auto-delivery absent (`MANUAL_COPY_ONLY`) | Owner approves exact sender/recipient/account/chat scope/behavior before any outbound enablement |
-| 3 | Medium | `675a3ef` workflow fixes (employee PATCH, payroll gating, TRANSFER) implemented and unit-tested but **not deployed** | Fresh backup + new candidate + Owner approval |
+| 1 | High | Authenticated production UI NOT TESTED — Agent lacks plaintext passwords; Owner selected a root-only VPS credentials file that does not exist yet | Owner writes `/etc/vps/apps/al-rifai/verification-credentials.json` (`root:root`, 400) via a non-echoing method; Agent reads without printing, verifies, deletes. Never reset |
+| 2 | High | Vessel Draft outbound activation: 8 approvals pending (sender, recipient, chat scope, template, trigger, retry, migration 010, live/rollback plan) | Owner review of `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` §5–§7; until then `MANUAL_COPY_ONLY`, no `messages.send` |
+| 3 | Medium | `675a3ef` + Task 4 code (employee PATCH, payroll gating, TRANSFER, durable delivery store/UI) **not deployed** | Fresh backup + new candidate + Owner approval to build/deploy |
 | 4 | Medium | 7 existing `RELEASE_UNSTRUCTURED` production items need manual review | Human decision in `/review`; improved parser applies to future messages only |
 | 5 | Medium | Vessel release ↔ attendance linkage; program pay / payroll unresolved cases | Explicit design, no automation without approval |
 | 6 | Medium | Legacy Cashbook/archive, reconciliation and site settlements unmapped | Separate Owner-approved mapping |
@@ -353,6 +395,16 @@ session, checkpoint or allowlist may be restarted, re-paired or reconfigured.
   (`d533939`, not deployed).
 - Pure Vessel Draft delivery queue/idempotency/gate implemented and tested
   (`ed78ec2`, not deployed).
+- **Production `.env` `ALRIFAI_TAG` aligned** to `7da17f1` with Owner approval;
+  only one line changed, owner/mode preserved, containers untouched
+  (`00e25a7`).
+- **Authentication root cause identified:** no defect — 0-byte bootstrap files
+  are provisioning-only, DB hashes are valid, 6 successful logins exist. No
+  credential changed (`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`).
+- **Durable Vessel Draft delivery** implemented: Postgres store, transaction-safe
+  claim, retry, `DELIVERY_UNKNOWN`, worker-restart recovery, audit trail,
+  Admin status UI, pending migration `010` tested on a disposable clone with
+  rollback simulation (not deployed, not applied to production).
 
 ---
 
@@ -376,20 +428,23 @@ session, checkpoint or allowlist may be restarted, re-paired or reconfigured.
 | `ed78ec2` | Pure Vessel Draft delivery queue, idempotency, retry, gate + 12 tests (not deployed) |
 | `d533939` | TRANSFER classification + seven historical review regressions (not deployed) |
 | `675a3ef` | Employee update uses PATCH; payroll rate form capability-gated (not deployed) |
+| `62e6ff2`, `cfd3f99` | Post-deployment docs reconciliation and `.env` rollback-tag caveat |
+| `00e25a7` | Approved production `.env` `ALRIFAI_TAG` alignment record |
+| *(this session)* | Migration 010, durable delivery store, Admin status UI, auth diagnosis, UI matrix, delivery design update |
 
 ---
 
 ## 11. Exact next starting point
 
-1. Confirm the three password files are non-empty; run `provision-admin.mjs`
-   (check) and `provision-users.mjs` (check), then perform the full authenticated
-   production UI matrix on the **deployed** `7da17f1` (see
-   `docs/PHASE3_GO_NO_GO_7da17f1.md` §4c). Never reset credentials.
-2. Decide the vessel-draft transport: keep manual copy (current) or approve the
-   exact sender/recipient/account/chat scope/behavior. Start from
-   `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` and `lib/vessel-draft-delivery.ts`.
-3. If the Owner authorises a further release, build a fresh candidate from
-   `675a3ef` with a new backup and deploy it; rollback target becomes `7da17f1`.
+1. **Owner supplies credentials** via the approved root-only file
+   `/etc/vps/apps/al-rifai/verification-credentials.json` (`root:root`, 400),
+   then the Agent completes `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` on the
+   deployed `7da17f1`. Do not reset or recreate credentials.
+2. **Owner decides** on the 8 outbound activation approvals in
+   `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` §7 (including pending migration 010
+   and the exact example message in §5). Until then `MANUAL_COPY_ONLY`.
+3. If the Owner authorises a further release, build a fresh candidate containing
+   the `675a3ef` + Task 4 code with a new backup; rollback target `7da17f1`.
 4. Manually review the 7 legacy `RELEASE_UNSTRUCTURED` items; start from
    `docs/HISTORICAL_RELEASE_REVIEW_20261107.md`, `lib/release-slip.ts`
    (`parseUnstructuredRelease`) and `lib/message-router.ts`.

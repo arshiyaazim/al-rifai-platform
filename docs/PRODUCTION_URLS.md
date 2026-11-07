@@ -7,7 +7,11 @@
 **Rollback image:** `local/al-rifai-platform:phase3-ai-rc-86d659a` (`sha256:932ef856…`)
 **Superseded candidate (not deployed):** `local/al-rifai-platform:phase3-ai-rc-9e85e49`
 **Verification image (built, NOT deployed):** `local/al-rifai-platform:phase3-ai-rc-675a3ef`
-**Migration status:** **NO MIGRATION**; schema `1.5.0` unchanged
+**Migration status:** **NO MIGRATION APPLIED to production**; schema `1.5.0`,
+`schema_migrations` max `009`. Pending additive `010_vessel_draft_delivery.sql`
+(clone-tested, NOT applied).
+**`.env` ALRIFAI_TAG:** aligned to `phase3-ai-rc-7da17f1` with Owner approval
+(`docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`).
 
 ---
 
@@ -117,8 +121,11 @@ Admin provisioning and user provisioning are documented in
 `docs/ADMIN_AUTH.md` and the README.
 
 **Authenticated verification status (2026-11-07):** unauthenticated surfaces
-were live-verified on both working hosts (health 200, `/login` 200, protected
-pages 307→`/login` or 401, `/api/*` 401). Full authenticated UI verification is
-**NOT TESTED** because the three password files are 0 bytes and login returns
-`400 CREDENTIALS_REQUIRED`. No credential was reset. See
-`docs/PHASE3_GO_NO_GO_7da17f1.md` §4c for the per-feature matrix.
+were live-verified on both working hosts (health 200, `/login` 200, 41 protected
+pages 307→`/login` or 401, `/api/*` 401; auth origin/validation branches
+checked). Full authenticated UI verification is **NOT TESTED**: the auth
+pipeline is healthy (valid hashes, 6 historical logins, 2 live sessions) but the
+Agent has no plaintext password / production session cookie. The earlier
+`400 CREDENTIALS_REQUIRED` came from an empty password, not a defect. No
+credential was reset. See `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md` and
+`docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` for the per-feature matrix.

@@ -1,8 +1,11 @@
 # Phase 3 File Manifest
 
-**Branch:** `feature/phase3-router-cash-vessel` at `675a3ef` (pushed)
+**Branch:** `feature/phase3-router-cash-vessel` (pushed; see `git log` for this session's commits)
 **Baseline:** `e6becfc`
-**Schema:** `1.5.0` (production and clone); **NO MIGRATION**; migrations are explicit CLI only
+**Schema:** production `1.5.0`, `schema_migrations` max `009`; **NO MIGRATION APPLIED**.
+Pending additive `010_vessel_draft_delivery.sql` (clone-tested, rollback simulated,
+NOT applied to production).
+**`.env` ALRIFAI_TAG:** aligned to deployed `7da17f1` with Owner approval.
 **Production image (DEPLOYED 2026-11-07):** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
 (digest `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`)
 **Rollback image:** `phase3-ai-rc-86d659a` (`sha256:932ef856…`)
@@ -45,6 +48,12 @@
 | `app/(workspace)/vessel/[id]/page.tsx` | Program detail: edit, assign/replace escort, in-duty, release, complete, void, evidence and events |
 | `lib/release-slip.ts` | Pure structured Escort Release parser plus `parseUnstructuredRelease()` for cancellation, transfer, replacement, food-bill and empty release-group evidence |
 | `lib/vessel-draft-delivery.ts` | Pure Vessel Draft delivery queue: idempotency key, bounded retry, terminal states, five-block gate, prepared (never executed) outbound request |
+| `lib/standalone/vessel-draft-delivery-store.ts` | Durable Postgres store: SKIP LOCKED claim, retry, DELIVERY_UNKNOWN, restart recovery, audit, Admin status |
+| `db/standalone/010_vessel_draft_delivery.sql` | **PENDING** additive migration (NOT applied in production) |
+| `tests/standalone/vessel-draft-delivery-store.test.mjs` | 8 durable-store integration tests |
+| `docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md` | Approved `.env` tag alignment, backup, verification, rollback |
+| `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md` | Auth pipeline root cause; no defect; credentials preserved |
+| `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` | VERIFIED/PARTIAL/FAILED/NOT TESTED production UI matrix |
 | `lib/action-form-request.ts` | Pure ActionForm HTTP wiring (POST default, PATCH/DELETE) |
 | `tests/standalone/vessel-draft-delivery.test.mjs` | 12 isolated delivery state-machine tests |
 | `tests/standalone/historical-release-review.test.mjs` | Regression tests pinned to all seven exact historical production release texts |
@@ -126,7 +135,11 @@
 | `app/(workspace)/vessel/page.tsx` | Program register; assign/release/void forms capability-gated |
 | `app/(workspace)/employees/[mobile]/page.tsx` | Update employee form uses `method="PATCH"` (previously POST, never applied) |
 | `app/(workspace)/payroll/page.tsx` | Configure-rate form capability-gated with `payroll.manage` |
-| `scripts/standalone/install.mjs` | Additive `--force`, migration 008, shared grants |
+| `app/(workspace)/vessel/drafts/page.tsx` | Admin-visible draft delivery status panel (graceful when migration 010 absent) |
+| `scripts/standalone/install.mjs` | Additive `--force`, migrations 008/009/**010**, shared grants |
+| `scripts/standalone/grants.mjs` | Runtime grant for `vessel_draft_deliveries` |
+| `.github/workflows/ci.yml` | Base-table expectation 46 → 47 (additive layer 010) |
+| `tests/standalone/reset.mjs`, `message-router.test.mjs`, `router-cutover.test.mjs` | TRUNCATE lists include `vessel_draft_deliveries` (FK to `programs`) |
 | `.github/workflows/ci.yml` | Full suite, Cash/users job, schema `1.4.0` validation |
 | `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml` | Test commands, patched dependencies, audit overrides |
 | `README.md`, `DEVELOPER_START_HERE.md`, release/rollback docs | Current-state and release documentation |
@@ -135,12 +148,18 @@
 
 - Production **deploys `phase3-ai-rc-7da17f1`** with explicit Owner approval,
   a fresh verified backup, identical business counts and preserved checkpoints.
-- `phase3-ai-rc-675a3ef` is built and unit/clone-tested but **NOT deployed**;
-  it contains the employee PATCH, payroll gating and TRANSFER work.
-- **NO MIGRATION** in either image. No production business record, credential,
-  DNS, bridge session, checkpoint or permission was changed.
+- `.env` `ALRIFAI_TAG` aligned to `7da17f1` with Owner approval; containers
+  untouched; previous tag preserved in a backup.
+- Authentication pipeline diagnosed as **healthy**; 0-byte bootstrap files are
+  provisioning-only, DB hashes valid, 6 successful logins + 2 live sessions.
+  Authenticated UI remains NOT TESTED because the Agent has no plaintext
+  password / production session cookie. No credential was changed.
+- `phase3-ai-rc-675a3ef` plus this session's Task 4 code are built / implemented
+  but **NOT deployed** (employee PATCH, payroll gating, TRANSFER, durable
+  delivery store + UI).
+- **NO MIGRATION APPLIED to production.** Additive `010` written, tested on a
+  disposable clone, pending 8 Owner approvals.
 - Outbound WhatsApp delivery stays `MANUAL_COPY_ONLY`; no `messages.send` was
-  enabled and no message sent.
-- Authenticated production UI verification remains blocked by 0-byte password
-  files; no credential was reset.
-- Owner approval required before any further deploy, merge or migration.
+  enabled, no message sent, `applyConfirmation()` untouched.
+- Owner approval required before any further deploy, merge, migration or
+  outbound activation.

@@ -156,11 +156,13 @@ ALRIFAI_TAG=phase3-ai-rc-7da17f1 docker compose \
 
 Only `al-rifai-phase3-app-1` and `al-rifai-phase3-sync-1` were recreated.
 PostgreSQL, both WhatsApp bridge containers, bind-mounted stores, TLS files,
-networks and ports were untouched. The `.env` was not edited: it still records
-`ALRIFAI_TAG=phase3-ai-rc-86d659a`, which remains the rollback default. Any
-future bare `docker compose up -d` **must** set
-`ALRIFAI_TAG=phase3-ai-rc-7da17f1` explicitly or it will revert to the rollback
-image; aligning `.env` is an Owner decision that was not made here.
+networks and ports were untouched. The `.env` was not edited **during the
+deployment**. In a later, separately approved step the Owner authorised
+aligning `ALRIFAI_TAG` to `phase3-ai-rc-7da17f1` (one line, no restart,
+owner/mode preserved); see
+`docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`. A bare Compose command now
+keeps the deployed image. Rollback still uses the explicit
+`ALRIFAI_TAG=phase3-ai-rc-86d659a` override.
 
 | Post-deploy check | Result |
 |---|---|
@@ -188,14 +190,16 @@ backup restore was used to roll back code.
 
 ## 4c. Authenticated production UI test matrix (Task 3)
 
-**Exact authentication blocker:** the three configured password files are
-0 bytes (`/etc/vps/apps/al-rifai/{admin-bootstrap-password,user-1-password,
-user-2-password}`, mode `400`). Check-only provisioners reported
-`password_configured: false`, `password_source: missing`,
-`password_matches: null`, `apply: false`. Login attempts for `Admin`,
-`officeassistant` and `officeazzistant2` on both hosts returned
-`400 {"error":"CREDENTIALS_REQUIRED"}`; no login-throttle rows were created.
-No password was reset, no account created, no role changed.
+**Exact authentication blocker (refined 2026-11-07):** the three password files
+are 0 bytes but they are **provisioning-only** and do not invalidate the stored
+hashes. The earlier `400 CREDENTIALS_REQUIRED` came from an **empty password**
+submission (`lib/unified-auth.ts:118`), before any lookup. All three accounts
+have valid PBKDF2 hashes, correct roles/capabilities, 6 historical successful
+`LOGIN` events and 2 live production sessions — the pipeline is healthy. The
+Agent simply has no plaintext password and no production session cookie. No
+password was reset, no account created, no role changed. Full trace:
+`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`; full matrix:
+`docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`.
 
 Status legend: **VERIFIED** (read-only live check passed), **PARTIAL**,
 **FAILED**, **NOT TESTED** (blocked by credentials).
