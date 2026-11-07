@@ -1,6 +1,7 @@
 'use client';
 
 import {useState} from 'react';
+import {sanitizeReturnTo} from '@/lib/unified-auth-policy';
 
 export function LoginForm() {
   const [state, setState] = useState<{busy: boolean; error?: string}>({busy: false});
@@ -17,7 +18,8 @@ export function LoginForm() {
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
-      window.location.href = '/dashboard';
+      const next = new URLSearchParams(window.location.search).get('next');
+      window.location.assign(sanitizeReturnTo(next));
     } catch (error) {
       setState({busy: false, error: error instanceof Error ? error.message : 'LOGIN_FAILED'});
     }
