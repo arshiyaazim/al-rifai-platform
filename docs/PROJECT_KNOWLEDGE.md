@@ -4,7 +4,7 @@
 **Production runtime:** `local/al-rifai-platform:phase3-ai-rc-86d659a`
 **Candidate (not deployed):** `phase3-ai-rc-9e85e49`
 **Database schema:** `1.5.0`
-**Git `main`:** `21c7103`
+**Git `main`:** includes docs merge `9fcc2e7` (runtime release `86d659a`)
 
 This file is the permanent orientation map. It records where things live, what
 is verified, what is not, and where the next operator starts. It contains no
@@ -194,7 +194,8 @@ Key groups:
 - Router/sync: `PHASE3_ROUTER_WORKER_ENABLED`, `ALRIFAI_VESSEL_PROCESSING_ENABLED`, `ALRIFAI_LIVE_CASH_SYNC`, `SYNC_*`, `WA01_*`, `WA02_*`
 - AI (disabled): `AI_WA02_ENABLED`, `AI_OUTBOUND_ENABLED`, `AI_AUTO_REPLY_ENABLED`, `AI_LLM_*`
 
-**Credentials:** password files are root-only, mode `400`, currently **0 bytes**:
+**Credentials:** password files are root-only, mode `400`, currently **0 bytes**
+(re-checked 2026-11-07 after the docs update):
 - `/etc/vps/apps/al-rifai/admin-bootstrap-password`
 - `/etc/vps/apps/al-rifai/user-1-password`
 - `/etc/vps/apps/al-rifai/user-2-password`

@@ -448,7 +448,7 @@ See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 - **Database:** `alrifai_v2_phase3` (schema 1.5.0)
 - **Runtime image:** `local/al-rifai-platform:phase3-ai-rc-86d659a`
 - **Digest:** `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
-- **GitHub:** `arshiyaazim/al-rifai-platform`, `main` at `21c7103`; runtime release `86d659a`
+- **GitHub:** `arshiyaazim/al-rifai-platform`, `main` includes docs merge `9fcc2e7`; runtime release `86d659a`
 - **Candidate (built, tested, NOT deployed):** `phase3-ai-rc-9e85e49`, digest `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0`
 
 ### Verified public URLs
