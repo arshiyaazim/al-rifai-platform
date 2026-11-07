@@ -1,8 +1,12 @@
 # Vessel Order Draft — Root Cause and Corrected Stage
 
-**Date:** 2026-11-07
-**Status:** Draft rendering implemented and verified on the candidate. Automatic
-delivery is **not implemented** and is blocked on an Owner decision.
+**Date:** 2026-11-07 (updated after clone verification of `7da17f1`)
+**Status:** The full internal pipeline — intake → field extraction → DRAFT
+persistence → Owner draft presentation → Admin assignment → confirmation — is
+implemented and **clone-verified** on candidate `7da17f1`. Production has 8 live
+WA-01 `DRAFT` programs, so intake is active. Automatic WhatsApp delivery is
+**not implemented** and is blocked on an Owner decision; delivery remains
+`MANUAL_COPY_ONLY`. The candidate is **not deployed**.
 
 ---
 
@@ -25,9 +29,16 @@ Authorized WA-01 order message
 | Order message | Received and mirrored | `whatsapp_messages` rows above the WA-01 cutover `19634` |
 | Field extraction | Works for structured orders | `parseEscortOrder` in `lib/escort-intake-candidate.mjs` |
 | Draft creation | Creates a `programs` row in `DRAFT` | `handleVessel()` → `createProgram()` |
-| Admin draft template | **Never generated** | `renderOwnerDraft` / `composeAdminDraft` had no caller in Phase 3 |
+| Admin draft template | **Never generated in production `86d659a`**; implemented on the candidate | `renderOwnerDraft` / `composeAdminDraft` had no caller in Phase 3 |
 | Delivery to Admin WhatsApp | **Never attempted** | No outbound sender; bridge has no `messages.send` capability |
-| Assignment/confirmation | Works from the Admin's outgoing reply | `applyConfirmation()` |
+| Assignment/confirmation | Works from the Admin's outgoing reply | `applyConfirmation()` sets `CONFIRMED` (clone-verified) |
+
+**Update 2026-11-07:** live WA-01 order traffic above the cutover has since
+produced **8 `DRAFT` programs** in production (created 08:28–10:28 UTC, e.g.
+`Union-Odyssey / Khadija-Khatun`, `BELTOKYO / RIPA`, `Beltokyo /
+Banglar-Modhumoti-1`). This confirms stages 1–3 are live in `86d659a` and the
+missing stage is the draft UI/transport, not extraction or persistence. The
+`86d659a` image does not contain `/vessel/drafts`.
 
 ### Root causes
 
@@ -42,13 +53,15 @@ Authorized WA-01 order message
 3. **Historical backlog.** Messages at or below the cutover rowid stay
    `PENDING` by design. The structured orders seen on 2026-11-05/06
    (`rowid 19506–19627`) are historical and were never routed.
-4. **No live order in the observation window.** Above rowid `19634`, the live
-   traffic was Cash, release-group and ignored messages; no new vessel order
-   arrived, so no live draft event could occur.
+4. **No live order in the original observation window.** Above rowid `19634`,
+   the traffic first observed was Cash, release-group and ignored messages;
+   the structured orders seen on 2026-11-05/06 (`rowid 19506–19627`) were
+   historical and were never routed. Later on 2026-11-07 live orders did arrive
+   and produced the 8 DRAFT programs noted above.
 
 This is a **missing delivery stage**, not a parser failure for structured orders.
 
-## 3. Implemented correction (candidate `9e85e49`)
+## 3. Implemented correction (candidate `7da17f1`; first introduced in `9e85e49`)
 
 - `lib/order-draft-from-record.ts`
   - `ownerDraftFromProgram()` for DRAFT/CONFIRMED program rows.
@@ -68,9 +81,15 @@ This is a **missing delivery stage**, not a parser failure for structured orders
 - Fixed `getProgram()` returning `Date` objects (`SELECT *`) which made the
   program detail page fail with `[object Date]`.
 
-### Verified on the isolated clone
+### Verified on the isolated clone (`7da17f1`)
 
-- 32 authenticated routes return HTTP 200.
+- 29 Admin routes and 12 USER routes return HTTP 200.
+- Full WA-01 pipeline: an authorized order message produced a `DRAFT` program
+  with Mother Vessel `CLONE INTAKE`, Lighter Vessel `L-CLONE-01`, Master Mobile
+  `01711111111`, Destination `Chattogram`, start date `2026-11-07`, shift `D`.
+  It appeared on `/vessel` and `/vessel/drafts`; the draft rendered all fields
+  with blank escort lines. An Admin outgoing reply then set the state to
+  `CONFIRMED`, assigned the escort and recorded `confirmation_message_id`.
 - Draft output for a fixture program:
   ```
   Mother Vessel: M.V. Union-Odyssey
@@ -86,7 +105,8 @@ This is a **missing delivery stage**, not a parser failure for structured orders
   ```
 - A review fixture rendered `Destination: Landing Ghat` and `04/11/26 ((N))`.
 - Missing master mobile produced `MISSING_MASTER_MOBILE` and no text.
-- No outbound message, no assignment, no posting, no schema change.
+- No outbound message, no automatic assignment, no posting, no schema change.
+- All clone fixtures were removed after verification.
 
 ## 4. Bridge roles (read-only verification)
 
@@ -123,13 +143,20 @@ Admin confirmation reply remains the authorization.
 
 ## 6. Remaining blockers
 
-1. Owner decision on Option A vs B.
-2. Production credentials still unavailable (login verification blocked).
-3. Unstructured release/cancel messages still need a parser extension.
-4. Candidate `9e85e49` is not deployed.
+1. Owner decision on Option A vs B (delivery transport).
+2. Owner approval to deploy candidate `7da17f1`; production still runs `86d659a`.
+3. Production credentials still unavailable (login verification blocked).
+4. 7 existing `RELEASE_UNSTRUCTURED` production review items remain for manual
+   review. The `7da17f1` parser now extracts and matches evidence for **future**
+   messages, but no historical item or program was rewritten.
+5. `al-rifai.iamazim.com` Cloudflare 1014 requires an Owner DNS decision.
 
 ## 7. Rollback
 
 No schema change. Roll back to the previous image
 `local/al-rifai-platform:phase3-ai-rc-86d659a` (digest `932ef856…`) with the same
-Compose project; no data restore is required for the UI-only change.
+Compose project (`-p al-rifai-phase3`); no data restore is required for this
+UI/logic-only change. The pre-import backup
+`/var/lib/vps/al-rifai/backups/phase3-pre-import-20261106T224024Z.dump`
+(SHA-256 `83dfe6d0284a1f16d1109aee0cb0b29273bbc3a739955194bada2fd8c8daaad9`)
+remains verified but is not needed for a UI rollback.

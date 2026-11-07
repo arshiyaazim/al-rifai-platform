@@ -449,7 +449,14 @@ See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 - **Runtime image:** `local/al-rifai-platform:phase3-ai-rc-86d659a`
 - **Digest:** `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
 - **GitHub:** `arshiyaazim/al-rifai-platform`, `main` includes docs merge `9fcc2e7`; runtime release `86d659a`
-- **Candidate (built, tested, NOT deployed):** `phase3-ai-rc-9e85e49`, digest `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0`
+- **Superseded candidate (not deployed):** `phase3-ai-rc-9e85e49`, digest `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0`
+- **Current candidate (built, clone-tested, NOT deployed):** `phase3-ai-rc-7da17f1`, digest `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`
+
+The `7da17f1` candidate adds capability-gated Cash/Settings/Vessel forms,
+escort directory-name resolution, and unstructured release/cancel/food-bill
+evidence extraction with read-only candidate matching. It contains no schema
+change; schema remains `1.5.0`. Production business data was read only. Owner
+approval is required before deploying it — see `NEXT-HANDOFF.md`.
 
 ### Verified public URLs
 
@@ -460,7 +467,7 @@ See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 | `https://al-rifai.iamazim.com` | **BROKEN — Cloudflare 1014** (cross-account CNAME) |
 
 Login: `/login`. Health: `/api/health`. Admin Assistant: `/assistant`
-(deployed on candidate `9e85e49`, deployment pending). Cash: `/cash`.
+(deployed on candidate `7da17f1`, deployment pending). Cash: `/cash`.
 Vessel: `/vessel`. Vessel Order Drafts: `/vessel/drafts` (candidate only).
 Employees: `/employees`. Attendance: `/attendance`. Reports: `/reports`.
 Review: `/review`. Messages: `/messages`.
@@ -490,6 +497,8 @@ disabled/unconfigured; WA-02 outbound and automatic replies remain off.
 
 Pre-import backup:
 `/var/lib/vps/al-rifai/backups/phase3-pre-import-20261106T224024Z.dump`
-(SHA-256 verified). Rollback image `phase3-ai-rc-e3b56c4` and
-`phase3-rc-final5` are present. Use the `--env-file` Compose command for the
-`al-rifai-phase3` project; never create a parallel stack.
+(SHA-256 verified). The verified runtime rollback target is
+`phase3-ai-rc-86d659a` (`sha256:932ef856…`); images `phase3-ai-rc-e3b56c4` and
+`phase3-rc-final5` are also present. Use the `--env-file` Compose command for the
+`al-rifai-phase3` project; never create a parallel stack. No data restore is
+required for this UI/logic-only change.

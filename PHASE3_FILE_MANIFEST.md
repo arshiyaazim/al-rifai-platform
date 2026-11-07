@@ -1,8 +1,11 @@
 # Phase 3 File Manifest
 
-**Branch:** `feature/phase3-router-cash-vessel`
+**Branch:** `feature/phase3-router-cash-vessel` at `7da17f1` (pushed)
 **Baseline:** `e6becfc`
-**Schema:** `1.5.0` (production); migrations are explicit CLI only
+**Schema:** `1.5.0` (production and clone); migrations are explicit CLI only
+**Current candidate image:** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
+(digest `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`),
+built and clone-tested, **not deployed**. Production still runs `86d659a`.
 
 ## New files
 
@@ -39,7 +42,7 @@
 | `lib/ai/llm.ts` | Optional OpenAI-compatible rephrasing layer with numeric guard |
 | `scripts/standalone/wa01-activation.mjs` | Dry-run WA-01 activation applier from the protected artifact |
 | `app/(workspace)/vessel/[id]/page.tsx` | Program detail: edit, assign/replace escort, in-duty, release, complete, void, evidence and events |
-| `lib/release-slip.ts` | Pure escort release-slip parser |
+| `lib/release-slip.ts` | Pure structured Escort Release parser plus `parseUnstructuredRelease()` for cancellation, replacement, food-bill and empty release-group evidence |
 | `lib/business-rules.mjs` | Versioned phone/name/vessel normalization rules |
 | `lib/identity-resolution.mjs` | Identity decision levels |
 | `lib/employee-identity.ts` | DB-backed employee identity resolution |
@@ -78,15 +81,17 @@
 | `docs/ADAPTIVE_RULES.md` | Rule/identity/registry operating guide |
 | `scripts/standalone/backfill-cash-coverage.mjs` | Idempotent Cash coverage backfill; REVIEW only |
 | `scripts/standalone/repair-legacy-program-links.mjs` | Idempotent assignment/source/event repair for imported programs |
-| `tests/standalone/release-slip.test.mjs` | Release-slip parser tests |
+| `tests/standalone/release-slip.test.mjs` | Structured release-slip tests + 7 unstructured release-evidence tests (real production samples) |
+| `tests/standalone/message-router.test.mjs` | Router/Vessel/Cash integration tests incl. 3 new unstructured-release review tests |
+| `tests/standalone/domain.test.ts` | Domain lifecycle tests incl. escort directory-name resolution |
 | `lib/order-draft-from-record.ts` | Read-only projection: DRAFT/CONFIRMED program or PROGRAM review payload → exact Owner draft + blocking gaps; `MANUAL_COPY_ONLY` |
 | `components/standalone/owner-draft-panel.tsx` | Server-rendered Owner draft block with gap warnings and delivery note |
 | `components/standalone/copy-draft-button.tsx` | Clipboard-only copy button (no API, no send) |
 | `app/(workspace)/vessel/drafts/page.tsx` | Vessel Order Drafts workspace for Admin copy/assignment |
 | `tests/standalone/order-draft-record.test.mjs` | 7 pure tests: exact layout, dates/shifts, missing-field blocking, review mapping |
-| `docs/PROJECT_KNOWLEDGE.md` | Permanent project map: layout, feature-to-file, APIs, workflows, DB, env, issue queue |
-| `docs/VESSEL_ORDER_DRAFT.md` | Order-draft root cause, implemented stage, transport options and rollback |
-| `NEXT-HANDOFF.md` | Session handoff: versions, tests, blockers, exact next task |
+| `docs/PROJECT_KNOWLEDGE.md` | Permanent project map: layout, feature-to-file, APIs, workflows, DB, env, issue queue, resolved history |
+| `docs/VESSEL_ORDER_DRAFT.md` | Order-draft root cause, live production evidence, implemented stage, transport options and rollback |
+| `NEXT-HANDOFF.md` | Session handoff: image digests, clone/production/live evidence, tests, blockers, GO/NO-GO deployment command |
 | `tests/standalone/history-extraction.test.mjs` | Cash payment-block parser tests |
 | `app/api/assistant/route.ts` | Admin assistant/draft/applicant/order API |
 | `compose.phase3.yaml` | Production override for `alrifai_v2_phase3` and flags off |
@@ -97,14 +102,16 @@
 |---|---|
 | `lib/standalone/finance.ts` | Full lifecycle, reversal, reconciliation, candidate→instruction, audit atomicity |
 | `lib/standalone/review.ts` | Client-aware review application, transaction-aware audit |
-| `lib/standalone/programs.ts`, `employees.ts`, `attendance.ts` | Client-aware writers + capability enforcement; `getProgram()` returns `start_date`/`end_date` as ISO text (fixes `[object Date]` 500) |
+| `lib/standalone/programs.ts`, `employees.ts`, `attendance.ts` | Client-aware writers + capability enforcement; `getProgram()` returns `start_date`/`end_date` as ISO text (fixes `[object Date]` 500); `assignEscort` resolves the directory `preferred_name` when only a mobile is supplied |
 | `lib/standalone/audit.ts` | Transaction-aware `recordAudit` |
 | `lib/standalone/whatsapp.ts` | Correct conflict target, type narrowing, capability checks |
-| `lib/message-router.ts` | System actor for automated writes; capability-safe routing |
+| `lib/message-router.ts` | System actor for automated writes; capability-safe routing; `matchUnstructuredReleaseCandidates()` read-only program matching and enriched pending release-evidence payloads |
+| `lib/review-ui.ts` | Review field labels incl. cancel date/shift, total days, food bill (paisa); merges `payload.extractedFields` into the detail view |
 | `lib/unified-auth-policy.ts` | Explicit full-lifecycle capability matrix |
 | `app/api/*` | Capability enforcement, user admin, cash reversal/reconciliation |
-| `app/(workspace)/cash/page.tsx` | Candidate decisions, reversal, reconciliation, audit links |
-| `app/(workspace)/settings/page.tsx` | Super Admin user administration |
+| `app/(workspace)/cash/page.tsx` | Candidate decisions, reversal, reconciliation, audit links; all privileged forms capability-gated |
+| `app/(workspace)/settings/page.tsx` | Super Admin user administration; account/relay forms capability-gated |
+| `app/(workspace)/vessel/page.tsx` | Program register; assign/release/void forms capability-gated |
 | `scripts/standalone/install.mjs` | Additive `--force`, migration 008, shared grants |
 | `.github/workflows/ci.yml` | Full suite, Cash/users job, schema `1.4.0` validation |
 | `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml` | Test commands, patched dependencies, audit overrides |
@@ -112,6 +119,7 @@
 
 ## Delivery boundary
 
-- Code and integration tests complete on the feature branch.
+- Code and integration tests complete on the feature branch at `7da17f1`.
+- Candidate image `phase3-ai-rc-7da17f1` built and clone-tested; **not deployed**.
 - Production deployment, migration and live financial posting NOT executed.
 - Owner approval required before merge/deploy.

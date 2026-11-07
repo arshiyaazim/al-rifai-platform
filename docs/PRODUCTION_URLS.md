@@ -4,8 +4,9 @@
 **Canonical hostname:** `https://app.al-rifai.iamazim.com`
 **Runtime image (production):** `local/al-rifai-platform:phase3-ai-rc-86d659a`
 **Runtime digest:** `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
-**Candidate (built, tested, NOT deployed):** `local/al-rifai-platform:phase3-ai-rc-9e85e49`
-**Candidate digest:** `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0`
+**Superseded candidate (built, tested, NOT deployed):** `local/al-rifai-platform:phase3-ai-rc-9e85e49`
+**Current candidate (built, clone-tested, NOT deployed):** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
+**Current candidate digest:** `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`
 
 ---
 
@@ -15,7 +16,7 @@
 |---|---|---|---|---|
 | `app.al-rifai.iamazim.com` | A `5.189.131.48` | 307 → `/dashboard`; `/login` 200 | valid; SAN app + alrifai | **CANONICAL — VERIFIED** |
 | `alrifai.iamazim.com` | A `5.189.131.48` | 307 → `/dashboard`; `/login` 200; login API accepts origin | valid; SAN app + alrifai | **LEGACY ALIAS — VERIFIED** |
-| `al-rifai.iamazim.com` | CNAME `custom-domains.chatgpt.site` → Cloudflare 104.18.x | **Cloudflare 1014** | Cloudflare edge | **BROKEN — DNS REPAIR REQUIRED** |
+| `al-rifai.iamazim.com` | CNAME `custom-domains.chatgpt.site` → Cloudflare 104.18.x | **Cloudflare 1014** (observed HTTP 403, body `error code: 1014`) | Cloudflare edge | **BROKEN — DNS REPAIR REQUIRED** |
 
 The origin is this VPS at `5.189.131.48`. The Phase 3 container publishes
 `0.0.0.0:443` and `127.0.0.1:3001`.
@@ -43,7 +44,7 @@ redirected to `/login` or receive 401 depending on the request type.
 | `/cash` | Cash instructions, review, ledger, submissions | auth required |
 | `/cash/[id]` | Instruction detail | auth required |
 | `/vessel` | Vessel Register | auth required |
-| `/vessel/drafts` | Vessel Order Drafts — exact Owner draft, copy-only (candidate `9e85e49`) | auth required |
+| `/vessel/drafts` | Vessel Order Drafts — exact Owner draft, copy-only (candidate `7da17f1`) | auth required |
 | `/vessel/[id]` | Program detail/lifecycle, includes the Owner draft block | auth required |
 | `/employees` | Employee directory | auth required |
 | `/employees/[mobile]` | Employee profile | auth required |
