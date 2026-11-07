@@ -22,8 +22,8 @@
 | Git `main` | `0861e05` (clean; does **not** contain the code fixes) |
 | Working tree / branch | `/opt/al-rifai-phase3-test`, `feature/phase3-router-cash-vessel` at `675a3ef`, pushed, clean |
 | Database schema | `1.5.0`; **NO MIGRATION** in either image |
-| Compose project / env | `al-rifai-phase3`; `.env` still records `ALRIFAI_TAG=phase3-ai-rc-86d659a` (overridden by command line at deploy) |
-| Clone | `alrifai-ui-check` on `127.0.0.1:3007`, DB `alrifai_v2_import_test` |
+| Compose project / env | `al-rifai-phase3`; `.env` still records `ALRIFAI_TAG=phase3-ai-rc-86d659a` (overridden by command line at deploy). **Do not run a bare `docker compose up -d` without the explicit `ALRIFAI_TAG=phase3-ai-rc-7da17f1` override** — it would recreate the containers on the rollback image. Owner decision needed on whether to align `.env` |
+| Clone | `alrifai-ui-check` on `127.0.0.1:3007`, DB `alrifai_v2_import_test`, image `phase3-ai-rc-675a3ef` (verification only) |
 
 ## What changed this session
 

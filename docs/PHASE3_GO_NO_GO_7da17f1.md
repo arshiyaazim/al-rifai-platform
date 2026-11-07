@@ -156,7 +156,11 @@ ALRIFAI_TAG=phase3-ai-rc-7da17f1 docker compose \
 
 Only `al-rifai-phase3-app-1` and `al-rifai-phase3-sync-1` were recreated.
 PostgreSQL, both WhatsApp bridge containers, bind-mounted stores, TLS files,
-networks and ports were untouched. The `.env` was not edited.
+networks and ports were untouched. The `.env` was not edited: it still records
+`ALRIFAI_TAG=phase3-ai-rc-86d659a`, which remains the rollback default. Any
+future bare `docker compose up -d` **must** set
+`ALRIFAI_TAG=phase3-ai-rc-7da17f1` explicitly or it will revert to the rollback
+image; aligning `.env` is an Owner decision that was not made here.
 
 | Post-deploy check | Result |
 |---|---|
