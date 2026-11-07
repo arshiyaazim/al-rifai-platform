@@ -1086,6 +1086,75 @@ test('release: unstructured release-group message never becomes a vessel order',
   assert.equal(item.payload.releaseCategory, 'RELEASE_UNSTRUCTURED');
 });
 
+test('release: cancellation evidence is extracted, matched and kept pending', async () => {
+  await ensureAccount('wa-01');
+  await ensureReleaseGroup();
+  const created = await createProgram(admin, {
+    motherVessel: 'M.V. Poavosa-Wisdom', lighterVessel: 'Deowan-Jobayer',
+    masterMobile: '01711327593', escortMobile: '01871663045', escortName: 'Md.Samir',
+    startDate: '2026-10-25', startShift: 'N',
+  });
+  await stageMessage('wa-01', RELEASE_GROUP, 'msg-release-cancel-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    `===( Ship-Cancaled)===
+ Mather v.s. :-M.v. Poavosa-Wisdom
+Righter v.s. :- Deowan-Jobayer
+Master mobile:- 01711-327593
+Escort name:- Md.Samir
+Escort mobile:- 01871-663045
+Start date:- 25-10-2026-(N)
+Canceled date:- 07-11-2026-(D)
+( 13-day-1950/- food bill)`);
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.releases, 0);
+  assert.equal(result.reviewItems, 1);
+  const item = await row("SELECT category, payload FROM review_items WHERE domain='PROGRAM' ORDER BY created_at DESC LIMIT 1");
+  assert.equal(item.category, 'EXTRACTION_FAILED');
+  assert.equal(item.payload.releaseCategory, 'RELEASE_CANCELLATION_CANDIDATE');
+  assert.deepEqual(item.payload.candidateProgramIds, [created.program.id]);
+  assert.ok(item.payload.candidateMatchedBy.includes('ESCORT_MOBILE'));
+  assert.equal(item.payload.extractedFields.motherVessel, 'Poavosa-Wisdom');
+  assert.equal(item.payload.extractedFields.lighterVessel, 'Deowan-Jobayer');
+  assert.equal(item.payload.extractedFields.cancelDate, '2026-11-07');
+  assert.equal(item.payload.extractedFields.foodBillMinor, 195000);
+  assert.ok(item.payload.reasons.includes('CANCELLATION_NOT_AUTO_APPLIED'));
+  const program = await row('SELECT state FROM programs WHERE id = $1', [created.program.id]);
+  assert.equal(program.state, 'ASSIGNED', 'cancellation evidence never voids or releases a program');
+});
+
+test('release: food-bill evidence is extracted and never posts or releases', async () => {
+  await ensureAccount('wa-01');
+  await ensureReleaseGroup();
+  const created = await createProgram(admin, {
+    motherVessel: 'M.V. Food Bill', lighterVessel: 'L-Food',
+    escortMobile: '01871663045', escortName: 'Md.Samir',
+    startDate: '2026-10-26', startShift: 'D',
+  });
+  await stageMessage('wa-01', RELEASE_GROUP, 'msg-release-food-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'ID: 01871663045 Md.Samir 01717909181(B) 1950/-food bill dukani bkash no');
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.releases, 0);
+  assert.equal(result.reviewItems, 1);
+  const item = await row("SELECT payload FROM review_items WHERE domain='PROGRAM' ORDER BY created_at DESC LIMIT 1");
+  assert.equal(item.payload.releaseCategory, 'RELEASE_FOOD_BILL_CANDIDATE');
+  assert.equal(item.payload.extractedFields.foodBillMinor, 195000);
+  assert.equal(item.payload.extractedFields.escortMobile, '01871663045');
+  assert.deepEqual(item.payload.candidateProgramIds, [created.program.id]);
+  assert.ok(item.payload.reasons.includes('FOOD_BILL_NOT_AUTO_POSTED'));
+  const program = await row('SELECT state FROM programs WHERE id = $1', [created.program.id]);
+  assert.equal(program.state, 'ASSIGNED');
+});
+
+test('release: empty release-group message is preserved as review evidence', async () => {
+  await ensureAccount('wa-01');
+  await ensureReleaseGroup();
+  await stageMessage('wa-01', RELEASE_GROUP, 'msg-release-empty-1', 'INCOMING', '8801722222222@s.whatsapp.net', '');
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.reviewItems, 1);
+  const item = await row("SELECT payload FROM review_items WHERE domain='PROGRAM' ORDER BY created_at DESC LIMIT 1");
+  assert.equal(item.payload.releaseCategory, 'RELEASE_EMPTY_MESSAGE');
+  assert.ok(item.payload.reasons.includes('EMPTY_MESSAGE'));
+});
+
 test('release: incomplete slip is reviewed and never releases', async () => {
   await ensureAccount('wa-01');
   await ensureReleaseGroup();
