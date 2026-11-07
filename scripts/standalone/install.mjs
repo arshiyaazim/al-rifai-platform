@@ -37,6 +37,9 @@ const EXTRA_SCHEMA_FILES = [
   join(APP_ROOT, 'db', 'standalone', '007_phase3_review_queue_ui.sql'),
   join(APP_ROOT, 'db', 'standalone', '008_phase3_cash_lifecycle.sql'),
   join(APP_ROOT, 'db', 'standalone', '009_phase3_ai_assistant.sql'),
+  // 010 is additive and pending Owner approval for outbound activation. The
+  // table itself is inert: no WhatsApp capability and no message is created.
+  join(APP_ROOT, 'db', 'standalone', '010_vessel_draft_delivery.sql'),
 ];
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;
@@ -56,6 +59,8 @@ const TARGET_TABLES = [
   'ai_contacts', 'ai_admin_jids', 'ai_conversations', 'ai_messages',
   'ai_applicant_drafts', 'ai_job_catalog', 'ai_outbound_messages',
   'ai_tool_runs', 'ai_escalations', 'ai_order_drafts', 'ai_outbound_attempts', 'schema_migrations',
+  // Phase 3 WA-01 Vessel Draft delivery queue (additive, pending approval).
+  'vessel_draft_deliveries',
 ];
 
 class InstallError extends Error {

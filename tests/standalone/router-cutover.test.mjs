@@ -111,6 +111,7 @@ beforeEach(async () => {
       cash_submission_reviews, cash_submissions, review_decisions, review_items,
       attendance, identity_aliases, program_pay, program_source_messages,
       program_assignments, program_events, programs, employees,
+      vessel_draft_deliveries,
       whatsapp_media, whatsapp_messages, whatsapp_chats, whatsapp_sync_state,
       whatsapp_accounts, whatsapp_import_runs, escort_client_group_authorizations,
       app_settings

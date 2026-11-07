@@ -9,6 +9,11 @@ import {
   ownerDraftFromReviewPayload,
 } from '@/lib/order-draft-from-record';
 import {OwnerDraftPanel} from '@/components/standalone/owner-draft-panel';
+import {
+  deliveryStatusForPrograms,
+  runtimeDeliveryGate,
+} from '@/lib/standalone/vessel-draft-delivery-store';
+import {CONFIRMATION_RULE} from '@/lib/vessel-draft-delivery';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,14 +29,18 @@ export default async function VesselDraftsPage() {
   const user = await pageUser();
   const canRead = can(user as never, 'vessel.read');
 
-  const [draftPrograms, confirmedPrograms, programReviews] = await Promise.all([
+  const [draftPrograms, confirmedPrograms, programReviews, gate] = await Promise.all([
     listPrograms({state: 'DRAFT', limit: 200}),
     listPrograms({state: 'CONFIRMED', limit: 100}),
     listReviewQueue({domain: 'PROGRAM', state: 'PENDING', limit: 200}),
+    runtimeDeliveryGate(),
   ]);
 
   const programDrafts = [...draftPrograms, ...confirmedPrograms]
     .map((program) => ({program, draft: ownerDraftFromProgram(program)}));
+  const deliveryStatus = await deliveryStatusForPrograms(
+    programDrafts.map(({program}) => program.id),
+  );
   const reviewDrafts = programReviews
     .map((item) => ({item, draft: ownerDraftFromReviewPayload(item.payload)}))
     .filter(({draft}) => !(draft.gaps.includes('MISSING_MOTHER_VESSEL')
@@ -94,6 +103,42 @@ export default async function VesselDraftsPage() {
                 <tr><th>Confirmation</th><td>The Admin&apos;s outgoing reply (escort name/mobile/date/shift) is still applied by <code>applyConfirmation()</code>.</td></tr>
               </tbody>
             </table>
+          </section>
+
+          <section className="card" style={{marginTop: 18}}>
+            <h3>Draft delivery status</h3>
+            <table>
+              <tbody>
+                <tr><th style={{width: 260}}>Delivery mode</th><td><span className="pill">{gate.gate.mode}</span></td></tr>
+                <tr><th>Outbound gate</th><td>{gate.gate.enabled
+                  ? <span className="pill ok">enabled</span>
+                  : <span className="pill warn">disabled — {gate.gate.reasons.join(', ')}</span>}</td></tr>
+                <tr><th>Durable records</th><td>{deliveryStatus.length} for the programs above</td></tr>
+                <tr><th>Confirmation authority</th><td>{CONFIRMATION_RULE}</td></tr>
+              </tbody>
+            </table>
+            {deliveryStatus.length ? (
+              <table style={{marginTop: 12}}>
+                <thead><tr><th>Program</th><th>State</th><th>Attempts</th><th>Updated</th><th>Error</th></tr></thead>
+                <tbody>
+                  {deliveryStatus.map((item) => (
+                    <tr key={item.id}>
+                      <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.program_id.slice(0, 20)}</td>
+                      <td><span className={`pill ${item.state === 'SENT' ? 'ok' : item.state === 'DELIVERY_UNKNOWN' || item.state === 'DEAD' ? 'bad' : ''}`}>{item.state}</span></td>
+                      <td>{item.attempts}</td>
+                      <td>{item.updated_at}</td>
+                      <td>{item.error ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="muted" style={{marginTop: 10}}>
+                No delivery records exist. Migration 010 is pending Owner approval and the
+                outbound gate is disabled, so the platform stays <strong>MANUAL_COPY_ONLY</strong>
+                and sends nothing.
+              </p>
+            )}
           </section>
 
           <h2 style={{marginTop: 24}}>Draft programs ({programDrafts.length})</h2>

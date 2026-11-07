@@ -25,6 +25,8 @@ const READ_WRITE = [
   'ai_job_catalog', 'ai_outbound_messages', 'ai_escalations', 'ai_order_drafts',
   // Send attempts are written SENDING and closed to a terminal state.
   'ai_outbound_attempts',
+  // Phase 3 WA-01 Vessel Draft delivery queue (additive, pending approval).
+  'vessel_draft_deliveries',
 ];
 
 const APPEND_ONLY = [

@@ -16,6 +16,7 @@ export async function resetBusinessState(applicationName = 'alrifai-test-reset')
       cash_submission_reviews, cash_submissions, review_decisions, review_items,
       attendance, identity_aliases, program_pay, program_source_messages,
       program_assignments, program_events, programs, employees,
+      vessel_draft_deliveries,
       escort_client_group_authorizations, rate_config, app_settings
       RESTART IDENTITY`);
   } finally {

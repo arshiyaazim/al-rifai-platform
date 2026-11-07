@@ -37,3 +37,6 @@ Thumbs.db
 /.next/
 /node_modules/
 *.log
+
+# Next.js dev-server generated agent rules (build artifact)
+/AGENTS.md
