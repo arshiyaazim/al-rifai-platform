@@ -237,9 +237,13 @@ session, checkpoint or allowlist may be restarted, re-paired or reconfigured.
 ### Verified working
 - Health and schema `1.5.0`.
 - 218 employees, 94 programs, 439 attendance rows.
-- Cash: 1,586 POSTED (85,225,900 minor), 2,221 REVIEW, 1,586 postings.
-- 8 live Cash instructions created from 8 real Admin→Accountant messages (335,000 minor), zero postings.
-- Router processes above-watermark allowlisted messages.
+- Cash REVIEW count `2,228`; `1,586` legacy POSTED; **zero non-legacy postings**.
+- Live Cash: two authorized Admin→Accountant batches created 15 REVIEW instructions
+  with zero duplicates and zero postings — 8 at 06:05 (335,000 minor) and
+  7 at 06:32 (140,000 minor). The unique source identity
+  `(source_message_id, source_block_key)` prevents duplicate instructions.
+- Router processes above-watermark allowlisted messages; sync checkpoints
+  observed at WA-01 `19,686` and WA-02 `15,210`.
 - All 32 candidate routes return 200 with an authenticated clone Admin session.
 - Owner draft renders exactly and blocks on missing fields.
 

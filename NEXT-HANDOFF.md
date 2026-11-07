@@ -22,9 +22,9 @@
 
 - `https://app.al-rifai.iamazim.com/api/health` → `ok`, DB `ok`, schema `1.5.0`.
 - `https://alrifai.iamazim.com` reaches the origin (no `ORIGIN_DENIED`); login returns 401 until credentials exist.
-- Production data: 218 employees, 94 programs, 439 attendance, 1,586 POSTED cash (85,225,900 minor), 2,221 REVIEW, 1,586 postings.
-- Live Cash: 8 authorized Admin→Accountant messages produced 8 REVIEW instructions (335,000 minor), all sender-authorized, zero duplicates, zero postings.
-- Router: enabled, cuts over at `wa-01=19634`, `wa-02=15184`; 9 WA-01 business chats allowlisted; WA-02 none.
+- Production data: 218 employees, 94 programs, 439 attendance, 1,586 legacy POSTED cash (85,225,900 minor), 2,228 REVIEW, 1,586 legacy postings, zero non-legacy postings.
+- Live Cash: two authorized Admin→Accountant batches created 15 REVIEW instructions with zero duplicates and zero postings — 8 at 06:05 (335,000 minor) and 7 at 06:32 (140,000 minor).
+- Router: enabled, cuts over at `wa-01=19634`, `wa-02=15184`; 9 WA-01 business chats allowlisted; WA-02 none. Sync checkpoints observed at WA-01 `19,686`, WA-02 `15,210`.
 - Candidate UI: all 32 authenticated routes return 200 on the isolated clone, including `/vessel/drafts`, program detail and review detail.
 - Owner draft: exact layout, blanks preserved, missing-field blocking, copy-only.
 - Unit tests 104/104, integration 120/120, typecheck clean, lint 0 errors, production build passes.
