@@ -1,14 +1,17 @@
 # AL-RIFA'I Phase 3 — Project Knowledge Base
 
-**Last verified:** 2026-11-07
-**Production runtime (deployed):** `local/al-rifai-platform:phase3-ai-rc-86d659a` (`sha256:932ef856…`)
-**Superseded candidate (not deployed):** `phase3-ai-rc-9e85e49` (`sha256:cb8de252…`)
-**Current candidate (built, clone-tested, not deployed):** `phase3-ai-rc-7da17f1` (`sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`)
-**Database schema:** `1.5.0` (production and clone); no migration added
-**Git `main`:** `0861e05` (docs merge); code fixes live on `feature/phase3-router-cash-vessel` at `7da17f1`, pushed
+**Last verified:** 2026-11-07 (post-deployment)
+**Production runtime (DEPLOYED):** `local/al-rifai-platform:phase3-ai-rc-7da17f1` (`sha256:5f3de875…`)
+**Rollback image (available):** `phase3-ai-rc-86d659a` (`sha256:932ef856…`)
+**Superseded candidate:** `phase3-ai-rc-9e85e49` (`sha256:cb8de252…`)
+**Verification image (built, not deployed):** `phase3-ai-rc-675a3ef` — post-deployment workflow fixes
+**Database schema:** `1.5.0` (production and clone); **NO MIGRATION** in either image
+**Git `main`:** `0861e05` (docs merge); code fixes on `feature/phase3-router-cash-vessel` at `675a3ef`, pushed
 
-Evidence labels used throughout: **clone-tested**, **production-deployed**,
-**live-verified**. Production UI login remains unverified (empty password files).
+Evidence labels used throughout: **implemented**, **clone-tested**,
+**production-deployed**, **live-verified**. Production UI login remains
+unverified (empty password files). Fresh pre-deploy backup:
+`docs/PHASE3_PREDEPLOY_BACKUP_20261107.md`.
 
 This file is the permanent orientation map. It records where things live, what
 is verified, what is not, and where the next operator starts. It contains no
@@ -41,7 +44,9 @@ Application structure inside the repo:
 | `lib/standalone/…` | Business services and persistence (Cash, Vessel, Employees, Attendance, Review, Users, Audit) |
 | `lib/ai/…` | WA-02 AI engine, tools, sender, worker (default disabled) |
 | `lib/message-router.ts` | Single canonical WhatsApp → business-record router, including release-group evidence handling |
-| `lib/release-slip.ts` | Pure structured Escort Release parser + unstructured cancellation/replacement/food-bill evidence parser |
+| `lib/release-slip.ts` | Pure structured Escort Release parser + unstructured cancellation/transfer/replacement/food-bill evidence parser |
+| `lib/vessel-draft-delivery.ts` | Pure Vessel Draft delivery queue: idempotency, bounded retry, terminal states, activation gate, prepared (never executed) outbound request |
+| `lib/action-form-request.ts` | Pure ActionForm HTTP wiring (POST default, PATCH/DELETE), fixing the employee update form |
 | `lib/phase3-router-worker.ts` | Optional continuous router loop |
 | `lib/order-draft-template.ts` | Exact Owner draft layout (pure) |
 | `lib/order-draft-from-record.ts` | Program/review record → Owner draft projection (pure) |
@@ -70,11 +75,12 @@ Application structure inside the repo:
 | **Cash control** | `app/(workspace)/cash/page.tsx`, `cash/[id]/page.tsx`, `lib/standalone/finance.ts`, `app/api/finance/route.ts` | Working; REVIEW → APPROVED → POSTED → reversal; no new postings created in tests. Privileged forms are capability-gated in `7da17f1` |
 | **Cash transactions/archive/submissions** | `components/standalone/cash-transactions-view.tsx`, `cash-submissions-view.tsx`, routes under `app/(workspace)/cash/…` | 200 on clone; role-checked |
 | **Vessel register/control** | `app/(workspace)/vessel/page.tsx`, `vessel/[id]/page.tsx`, `lib/standalone/programs.ts`, `app/api/programs/route.ts` | Working; date-rendering bug fixed in `9e85e49`; `assignEscort` resolves the directory name in `7da17f1`; list-page forms capability-gated |
-| **Vessel order draft** | `lib/order-draft-template.ts`, `lib/order-draft-from-record.ts`, `components/standalone/owner-draft-panel.tsx`, `app/(workspace)/vessel/drafts/page.tsx` | Copy-only, no outbound. Full intake → DRAFT → draft UI → Admin reply → CONFIRMED verified on clone `7da17f1`; production has 8 live DRAFT programs |
-| **Vessel release** | `lib/release-slip.ts`, `lib/message-router.ts` (`handleReleaseSlip`, `matchUnstructuredReleaseCandidates`) | Structured slips apply to one match; unstructured release-group traffic is parsed into pending review evidence with read-only candidate matching (`7da17f1`) — never auto-releases |
-| **Employees** | `app/(workspace)/employees/…`, `employee/…`, `lib/standalone/employees.ts`, `app/api/employees/route.ts` | Working |
+| **Vessel order draft** | `lib/order-draft-template.ts`, `lib/order-draft-from-record.ts`, `components/standalone/owner-draft-panel.tsx`, `app/(workspace)/vessel/drafts/page.tsx` | **Production-deployed in `7da17f1`**; copy-only, no outbound. Full intake → DRAFT → draft UI → Admin reply → CONFIRMED clone-verified; production has 8 live DRAFT programs |
+| **Vessel draft delivery** | `lib/vessel-draft-delivery.ts`, `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` | **Implemented, unit-tested, NOT deployed, NOT enabled.** `MANUAL_COPY_ONLY` remains; activation needs Owner approval |
+| **Vessel release** | `lib/release-slip.ts`, `lib/message-router.ts` (`handleReleaseSlip`, `matchUnstructuredReleaseCandidates`) | Structured slips apply to one match; unstructured release-group traffic parsed into pending review evidence with read-only candidate matching (`EMPTY`/`CANCELLATION`/`TRANSFER`/`REPLACEMENT`/`FOOD_BILL`) — never auto-releases |
+| **Employees** | `app/(workspace)/employees/…`, `employee/…`, `lib/standalone/employees.ts`, `app/api/employees/route.ts` | Working; `675a3ef` fixes the detail update form to use `PATCH` (not deployed) |
 | **Attendance** | `app/(workspace)/attendance/page.tsx`, `lib/standalone/attendance.ts`, `app/api/attendance/route.ts` | Working |
-| **Payroll** | `app/(workspace)/payroll/page.tsx`, `lib/standalone/payroll.ts`, `app/api/payroll/route.ts` | Read/report working; generation remains explicit |
+| **Payroll** | `app/(workspace)/payroll/page.tsx`, `lib/standalone/payroll.ts`, `app/api/payroll/route.ts` | Read/report working; rate form capability-gated in `675a3ef` (not deployed) |
 | **Review Queue** | `app/(workspace)/review/…`, `lib/standalone/review.ts`, `lib/review-ui.ts`, `app/api/review/route.ts` | Working; PROGRAM items show the Owner draft; `7da17f1` adds cancel date/shift, total days and food-bill (paisa) evidence fields |
 | **WhatsApp inbox / mirror / conversations** | `app/(workspace)/messages`, `message-mirror`, `conversations`, `lib/standalone/messages.ts`, `app/api/messages/route.ts` | Read-only mirror working |
 | **AI Assistant (Admin)** | `app/(workspace)/assistant/page.tsx`, `components/standalone/assistant-console.tsx`, `app/api/assistant/route.ts` | Working, grounded read-only queries |
@@ -197,9 +203,12 @@ Legacy database: `alrifai` (75 public base tables). Legacy mappings and unmapped
 tables are recorded in `docs/LEGACY_PHASE3_COMPARISON.md`.
 
 **Migration status:** schema `1.5.0` applied and verified in production; the
-clone also reports `1.5.0`. The `7da17f1` candidate adds **no migration** and no
-SQL/migration file change (`git diff 9e85e49..HEAD` verified). Migrations are
-applied only by an explicit CLI run, never at application startup.
+clone also reports `1.5.0`. The `7da17f1` image and the post-deployment
+`675a3ef` work both add **NO MIGRATION** and no SQL/migration file change.
+Migrations are applied only by an explicit CLI run, never at application
+startup. Proposed WA-01-safe durable delivery tables exist only as unapplied
+design DDL in `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` and require separate Owner
+approval.
 
 ---
 
@@ -260,7 +269,7 @@ the repository or this document.
 | Send capability | **none** | **none** |
 | Phase 3 business chats | 9 allowlisted chats (orders, cash, release group) | `[]` |
 | Cutover rowid (immutable) | `19634` | `15184` |
-| Latest observed sync checkpoint (2026-11-07) | `19728` | `15238` |
+| Latest observed sync checkpoint (2026-11-07, post-deploy) | `19730` | `15243` |
 | Router | processes messages above watermark only | no business chats |
 | AI | not enabled | worker/sender disabled |
 
@@ -273,42 +282,53 @@ session, checkpoint or allowlist may be restarted, re-paired or reconfigured.
 
 ### Verified working
 
-- Health and schema `1.5.0` (production-deployed, live-verified).
-- Production (read-only, 2026-11-07): 218 employees, 439 attendance,
-  **102 programs** (94 imported + 8 live WHATSAPP `DRAFT` created 08:28–10:28 UTC),
-  2,231 Cash `REVIEW` instructions, 13 pending review items (7
-  `EXTRACTION_FAILED`, 6 `UNMATCHED_VESSEL_ASSIGNMENT`), 1,586 legacy postings,
-  **zero non-legacy postings**, zero outbound AI rows.
+- Health and schema `1.5.0` (production-deployed on `7da17f1`, live-verified on
+  both canonical and legacy hosts).
+- Production (read-only, 2026-11-07, after deployment): 218 employees,
+  439 attendance, **102 programs** (94 imported + 8 live WHATSAPP `DRAFT`),
+  3,817 cash instructions (2,231 `REVIEW`), 1,586 legacy postings,
+  13 pending review items, 34,595 WhatsApp messages, **zero non-legacy
+  postings**, zero outbound AI rows. Counts were identical before and after
+  deployment; checkpoints preserved `wa-01=19730`, `wa-02=15243`.
+- Fresh pre-deploy backup with full restore test:
+  `docs/PHASE3_PREDEPLOY_BACKUP_20261107.md`.
+- Owner approval + deployment of `7da17f1`: `docs/PHASE3_GO_NO_GO_7da17f1.md`.
 - Live Cash: two authorized Admin→Accountant batches created 15 REVIEW instructions
   with zero duplicates and zero postings — 8 at 06:05 (335,000 minor) and
   7 at 06:32 (140,000 minor). The unique source identity
   `(source_message_id, source_block_key)` prevents duplicate instructions.
-- Router processes above-watermark allowlisted messages; sync checkpoints
-  advanced to WA-01 `19728` and WA-02 `15238` during this session.
-- All **29** Admin routes and 12 USER routes return 200 with an authenticated
-  clone session on `7da17f1`; all 7 CSV exports return `text/csv`.
+- Router worker resumed after deployment with zero errors and no duplicate
+  processing; sync tailer continues from its DB-backed checkpoints.
+- All **29** Admin routes, 12 USER routes and 17 legacy routes return 200 with
+  an authenticated clone session; all 7 CSV exports return `text/csv`.
 - Owner draft renders exactly and blocks on missing fields; full WA-01 intake →
   DRAFT → draft UI → Admin reply → `CONFIRMED` verified on the clone.
 - Role boundaries: 11 privileged API actions return 403 for USER, legitimate
   staging still works, and the UI no longer offers forms that would 403.
-- Release/cancel/food-bill evidence extraction + read-only candidate matching
-  verified on the clone; matched programs stayed `CONFIRMED`.
-- Unit 110/110, integration 123/123, typecheck clean, lint 0 errors, image build
-  passing. Clone fixtures all removed.
+- Release/cancel/food-bill/transfer evidence extraction + read-only candidate
+  matching verified on the clone and in regression tests; matched programs
+  stayed `CONFIRMED`.
+- Unit **133/133**, integration **125/125**, focused new tests **34/34**,
+  typecheck clean, lint 0 errors, both image builds passing. Clone fixtures
+  removed.
+- **NOT TESTED:** authenticated production UI (login/logout/sessions/roles/
+  forms/CSV/approval workflows) — password files are 0 bytes and login returns
+  `400 CREDENTIALS_REQUIRED`. See `docs/PHASE3_GO_NO_GO_7da17f1.md` §4c.
 
 ### Active issues by priority
 
 | # | Severity | Issue | Next step |
 |---|---|---|---|
-| 1 | High | Candidate `7da17f1` not deployed; production still lacks `/vessel/drafts`, the date fix and the three 2026-11-07 corrections | Owner GO/NO-GO decision, then deploy/rollback |
-| 2 | High | Production Admin/user logins unverified: password files are empty | Owner writes passwords, then run check-only provisioners; never reset |
-| 3 | High | Vessel draft auto-delivery absent (`MANUAL_COPY_ONLY`) | Owner decision: approve an outbound sender/destination, or keep copy-only |
-| 4 | Medium | 7 existing `RELEASE_UNSTRUCTURED` production items need manual review | Human decision in `/review`; the improved parser applies to future messages only |
-| 5 | Medium | `al-rifai.iamazim.com` returns Cloudflare 1014 (HTTP 403 body) | Owner DNS/Cloudflare decision (`docs/DNS_CLOUDFLARE_1014.md`) |
-| 6 | Medium | `main` does not yet contain the `7da17f1` code fixes | Merge the feature branch after deployment |
-| 7 | Medium | Legacy tables not migrated (site settlements, reconciliation workspace, Excel cashbook, public site) | Separate Owner-approved mapping |
-| 8 | Low | Legacy employee typeahead and add-transaction drawer not reproduced | Decide whether to reimplement |
-| 9 | Low | Legacy insight/income charts replaced by tables | Accept or reimplement charts |
+| 1 | High | Production Admin/user logins unverified: password files are empty | Owner writes passwords, then check-only provisioners; never reset |
+| 2 | High | Vessel draft auto-delivery absent (`MANUAL_COPY_ONLY`) | Owner approves exact sender/recipient/account/chat scope/behavior before any outbound enablement |
+| 3 | Medium | `675a3ef` workflow fixes (employee PATCH, payroll gating, TRANSFER) implemented and unit-tested but **not deployed** | Fresh backup + new candidate + Owner approval |
+| 4 | Medium | 7 existing `RELEASE_UNSTRUCTURED` production items need manual review | Human decision in `/review`; improved parser applies to future messages only |
+| 5 | Medium | Vessel release ↔ attendance linkage; program pay / payroll unresolved cases | Explicit design, no automation without approval |
+| 6 | Medium | Legacy Cashbook/archive, reconciliation and site settlements unmapped | Separate Owner-approved mapping |
+| 7 | Medium | `al-rifai.iamazim.com` returns Cloudflare 1014 (HTTP 403 body) | Owner DNS/Cloudflare decision (`docs/DNS_CLOUDFLARE_1014.md`) |
+| 8 | Medium | `main` does not yet contain the code fixes | Merge the feature branch |
+| 9 | Low | Legacy employee typeahead and add-transaction drawer not reproduced | Decide whether to reimplement |
+| 10 | Low | Legacy insight/income charts replaced by tables | Accept or reimplement charts |
 
 ### Resolved (retained for history)
 
@@ -325,6 +345,14 @@ session, checkpoint or allowlist may be restarted, re-paired or reconfigured.
 - **Unstructured release/cancel/food-bill messages** are now parsed into
   structured review evidence with read-only candidate matching; ambiguous cases
   stay pending (`7da17f1`).
+- **Candidate `7da17f1` deployed** with Owner approval, fresh verified backup,
+  identical business counts and preserved checkpoints.
+- **Employee update form** now uses `PATCH` (previously POSTed and never
+  applied); payroll rate form capability-gated (`675a3ef`, not deployed).
+- **TRANSFER** classification and all seven historical review regression tests
+  (`d533939`, not deployed).
+- Pure Vessel Draft delivery queue/idempotency/gate implemented and tested
+  (`ed78ec2`, not deployed).
 
 ---
 
@@ -342,23 +370,28 @@ session, checkpoint or allowlist may be restarted, re-paired or reconfigured.
 | `81c376c`, `08b050e`, `76d5d00` | Permanent docs, live Cash evidence and URL matrix |
 | `8b9b779` | UI capability gating for Cash, Settings and Vessel forms |
 | `ecdd186` | `assignEscort` resolves the employee directory name |
-| `7da17f1` | Unstructured release/cancel/food-bill evidence + read-only matching + tests; new candidate image |
+| `7da17f1` | Unstructured release/cancel/food-bill evidence + read-only matching + tests; **deployed** |
+| `e3e8537`, `1f50321`, `0000cf0` | Handoff, knowledge base, URL/manifest/docs, GO/NO-GO record |
+| `9398fca` | Fresh verified pre-deploy production backup record |
+| `ed78ec2` | Pure Vessel Draft delivery queue, idempotency, retry, gate + 12 tests (not deployed) |
+| `d533939` | TRANSFER classification + seven historical review regressions (not deployed) |
+| `675a3ef` | Employee update uses PATCH; payroll rate form capability-gated (not deployed) |
 
 ---
 
 ## 11. Exact next starting point
 
-1. Present the GO/NO-GO report and obtain **explicit Owner approval** before
-   deploying `phase3-ai-rc-7da17f1` (see `NEXT-HANDOFF.md` for the exact
-   command, rollback target and post-deploy checks).
-2. Confirm the three password files are non-empty; run `provision-admin.mjs`
-   (check) and `provision-users.mjs` (check), then perform real login/session/
-   role checks and read-only authenticated verification of Cash, Vessel, Drafts,
-   Employee, Attendance and Reports.
-3. Decide the vessel-draft transport: keep manual copy (current) or approve a
-   narrow outbound sender.
+1. Confirm the three password files are non-empty; run `provision-admin.mjs`
+   (check) and `provision-users.mjs` (check), then perform the full authenticated
+   production UI matrix on the **deployed** `7da17f1` (see
+   `docs/PHASE3_GO_NO_GO_7da17f1.md` §4c). Never reset credentials.
+2. Decide the vessel-draft transport: keep manual copy (current) or approve the
+   exact sender/recipient/account/chat scope/behavior. Start from
+   `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` and `lib/vessel-draft-delivery.ts`.
+3. If the Owner authorises a further release, build a fresh candidate from
+   `675a3ef` with a new backup and deploy it; rollback target becomes `7da17f1`.
 4. Manually review the 7 legacy `RELEASE_UNSTRUCTURED` items; start from
-   `lib/release-slip.ts` (`parseUnstructuredRelease`) and
-   `lib/message-router.ts` (`handleVessel` release-group branch) if further
-   extraction rules are needed.
-5. Merge `feature/phase3-router-cash-vessel` into `main` after deployment.
+   `docs/HISTORICAL_RELEASE_REVIEW_20261107.md`, `lib/release-slip.ts`
+   (`parseUnstructuredRelease`) and `lib/message-router.ts`.
+5. Work the remaining backlog in `docs/BUSINESS_WORKFLOW_BACKLOG.md`.
+6. Merge `feature/phase3-router-cash-vessel` into `main`.

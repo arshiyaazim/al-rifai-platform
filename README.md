@@ -446,17 +446,25 @@ See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 - **Compose project:** `al-rifai-phase3`
 - **Compose files:** `compose.yaml`, `compose.phase3.yaml`
 - **Database:** `alrifai_v2_phase3` (schema 1.5.0)
-- **Runtime image:** `local/al-rifai-platform:phase3-ai-rc-86d659a`
-- **Digest:** `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
-- **GitHub:** `arshiyaazim/al-rifai-platform`, `main` includes docs merge `9fcc2e7`; runtime release `86d659a`
+- **Runtime image (DEPLOYED 2026-11-07):** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
+- **Digest:** `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`
+- **Rollback image:** `local/al-rifai-platform:phase3-ai-rc-86d659a`, digest `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
+- **GitHub:** `arshiyaazim/al-rifai-platform`, `main` `0861e05`; deployed release `7da17f1`; feature branch `675a3ef` pushed
 - **Superseded candidate (not deployed):** `phase3-ai-rc-9e85e49`, digest `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0`
-- **Current candidate (built, clone-tested, NOT deployed):** `phase3-ai-rc-7da17f1`, digest `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`
+- **Verification image (built, NOT deployed):** `phase3-ai-rc-675a3ef` — post-deployment workflow fixes
 
-The `7da17f1` candidate adds capability-gated Cash/Settings/Vessel forms,
-escort directory-name resolution, and unstructured release/cancel/food-bill
-evidence extraction with read-only candidate matching. It contains no schema
-change; schema remains `1.5.0`. Production business data was read only. Owner
-approval is required before deploying it — see `NEXT-HANDOFF.md`.
+`7da17f1` was deployed after explicit Owner approval and a fresh verified
+backup (`docs/PHASE3_PREDEPLOY_BACKUP_20261107.md`). It adds capability-gated
+Cash/Settings/Vessel forms, escort directory-name resolution, and unstructured
+release/cancel/food-bill evidence extraction with read-only candidate matching.
+It contains **no schema change**; schema remains `1.5.0`. Business counts were
+identical before/after deployment and WhatsApp checkpoints were preserved.
+See `docs/PHASE3_GO_NO_GO_7da17f1.md` and `NEXT-HANDOFF.md`.
+
+Commit `675a3ef` adds employee-update `PATCH`, payroll capability gating and
+`TRANSFER` classification; it is implemented and unit-tested but **not
+deployed**. Outbound WhatsApp draft delivery remains `MANUAL_COPY_ONLY`
+(`docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`).
 
 ### Verified public URLs
 
@@ -466,11 +474,15 @@ approval is required before deploying it — see `NEXT-HANDOFF.md`.
 | `https://alrifai.iamazim.com` | **LEGACY ALIAS — VERIFIED** |
 | `https://al-rifai.iamazim.com` | **BROKEN — Cloudflare 1014** (cross-account CNAME) |
 
-Login: `/login`. Health: `/api/health`. Admin Assistant: `/assistant`
-(deployed on candidate `7da17f1`, deployment pending). Cash: `/cash`.
-Vessel: `/vessel`. Vessel Order Drafts: `/vessel/drafts` (candidate only).
-Employees: `/employees`. Attendance: `/attendance`. Reports: `/reports`.
-Review: `/review`. Messages: `/messages`.
+Login: `/login`. Health: `/api/health`. Admin Assistant: `/assistant`.
+Cash: `/cash`. Vessel: `/vessel`. Vessel Order Drafts: `/vessel/drafts`
+(**deployed** on `7da17f1`). Employees: `/employees`. Attendance:
+`/attendance`. Reports: `/reports`. Review: `/review`. Messages: `/messages`.
+
+**Authenticated production UI verification is still blocked:** the three
+password files are 0 bytes, so login returns `400 CREDENTIALS_REQUIRED`.
+Unauthenticated health, login page and route protection were verified on both
+hosts. See `docs/PHASE3_GO_NO_GO_7da17f1.md` §4c.
 
 See `docs/PRODUCTION_URLS.md` for the full route and legacy compatibility
 matrix, `docs/PROJECT_KNOWLEDGE.md` for the permanent project map,
@@ -495,10 +507,13 @@ disabled/unconfigured; WA-02 outbound and automatic replies remain off.
 
 ### Backup and rollback
 
-Pre-import backup:
-`/var/lib/vps/al-rifai/backups/phase3-pre-import-20261106T224024Z.dump`
-(SHA-256 verified). The verified runtime rollback target is
-`phase3-ai-rc-86d659a` (`sha256:932ef856…`); images `phase3-ai-rc-e3b56c4` and
-`phase3-rc-final5` are also present. Use the `--env-file` Compose command for the
-`al-rifai-phase3` project; never create a parallel stack. No data restore is
-required for this UI/logic-only change.
+Fresh pre-deploy backup (verified by a full restore test):
+`/var/lib/vps/al-rifai/backups/phase3-predeploy-7da17f1-20261107T124612Z.dump`,
+SHA-256 `61c73a1a29e0f96b30dc62a0f45d778a19471a87f6d185984b3c4ca68ebb48aa`
+(`docs/PHASE3_PREDEPLOY_BACKUP_20261107.md`). Older pre-import backup
+`phase3-pre-import-20261106T224024Z.dump` is preserved. The verified runtime
+rollback target for the current deployment is `phase3-ai-rc-86d659a`
+(`sha256:932ef856…`); images `phase3-ai-rc-e3b56c4` and `phase3-rc-final5`
+are also present. Use the `--env-file` Compose command for the
+`al-rifai-phase3` project; never create a parallel stack. **Do not restore a
+database backup merely to roll back application code.**

@@ -2,11 +2,12 @@
 
 **Verified:** 2026-11-07, from outside the origin (public HTTPS).
 **Canonical hostname:** `https://app.al-rifai.iamazim.com`
-**Runtime image (production):** `local/al-rifai-platform:phase3-ai-rc-86d659a`
-**Runtime digest:** `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
-**Superseded candidate (built, tested, NOT deployed):** `local/al-rifai-platform:phase3-ai-rc-9e85e49`
-**Current candidate (built, clone-tested, NOT deployed):** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
-**Current candidate digest:** `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`
+**Runtime image (production, DEPLOYED 2026-11-07):** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
+**Runtime digest:** `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`
+**Rollback image:** `local/al-rifai-platform:phase3-ai-rc-86d659a` (`sha256:932ef856…`)
+**Superseded candidate (not deployed):** `local/al-rifai-platform:phase3-ai-rc-9e85e49`
+**Verification image (built, NOT deployed):** `local/al-rifai-platform:phase3-ai-rc-675a3ef`
+**Migration status:** **NO MIGRATION**; schema `1.5.0` unchanged
 
 ---
 
@@ -44,7 +45,7 @@ redirected to `/login` or receive 401 depending on the request type.
 | `/cash` | Cash instructions, review, ledger, submissions | auth required |
 | `/cash/[id]` | Instruction detail | auth required |
 | `/vessel` | Vessel Register | auth required |
-| `/vessel/drafts` | Vessel Order Drafts — exact Owner draft, copy-only (candidate `7da17f1`) | auth required |
+| `/vessel/drafts` | Vessel Order Drafts — exact Owner draft, copy-only (**deployed** on `7da17f1`) | auth required |
 | `/vessel/[id]` | Program detail/lifecycle, includes the Owner draft block | auth required |
 | `/employees` | Employee directory | auth required |
 | `/employees/[mobile]` | Employee profile | auth required |
@@ -114,3 +115,10 @@ No API endpoint is redirected. No state-changing route is redirected.
 
 Admin provisioning and user provisioning are documented in
 `docs/ADMIN_AUTH.md` and the README.
+
+**Authenticated verification status (2026-11-07):** unauthenticated surfaces
+were live-verified on both working hosts (health 200, `/login` 200, protected
+pages 307→`/login` or 401, `/api/*` 401). Full authenticated UI verification is
+**NOT TESTED** because the three password files are 0 bytes and login returns
+`400 CREDENTIALS_REQUIRED`. No credential was reset. See
+`docs/PHASE3_GO_NO_GO_7da17f1.md` §4c for the per-feature matrix.

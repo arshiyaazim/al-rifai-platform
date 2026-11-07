@@ -1,12 +1,14 @@
 # Vessel Order Draft — Root Cause and Corrected Stage
 
-**Date:** 2026-11-07 (updated after clone verification of `7da17f1`)
+**Date:** 2026-11-07 (updated after deployment of `7da17f1`)
 **Status:** The full internal pipeline — intake → field extraction → DRAFT
 persistence → Owner draft presentation → Admin assignment → confirmation — is
-implemented and **clone-verified** on candidate `7da17f1`. Production has 8 live
-WA-01 `DRAFT` programs, so intake is active. Automatic WhatsApp delivery is
-**not implemented** and is blocked on an Owner decision; delivery remains
-`MANUAL_COPY_ONLY`. The candidate is **not deployed**.
+implemented and **clone-verified**, and `/vessel/drafts` is **production-deployed**
+on `phase3-ai-rc-7da17f1` (Owner-approved deployment 2026-11-07). Production
+has 8 live WA-01 `DRAFT` programs, so intake is active. Automatic WhatsApp
+delivery is **not implemented** and is blocked on an Owner decision; delivery
+remains `MANUAL_COPY_ONLY`. The internal delivery queue exists in
+`lib/vessel-draft-delivery.ts` (unit-tested, **not deployed**, not enabled).
 
 ---
 
@@ -144,12 +146,13 @@ Admin confirmation reply remains the authorization.
 ## 6. Remaining blockers
 
 1. Owner decision on Option A vs B (delivery transport).
-2. Owner approval to deploy candidate `7da17f1`; production still runs `86d659a`.
-3. Production credentials still unavailable (login verification blocked).
-4. 7 existing `RELEASE_UNSTRUCTURED` production review items remain for manual
-   review. The `7da17f1` parser now extracts and matches evidence for **future**
+2. Production credentials still unavailable (login verification blocked).
+3. 7 existing `RELEASE_UNSTRUCTURED` production review items remain for manual
+   review. The improved parser now extracts and matches evidence for **future**
    messages, but no historical item or program was rewritten.
-5. `al-rifai.iamazim.com` Cloudflare 1014 requires an Owner DNS decision.
+4. `al-rifai.iamazim.com` Cloudflare 1014 requires an Owner DNS decision.
+5. The internal delivery queue (`675a3ef`) is implemented and tested but not
+   deployed; a further release requires a new candidate and Owner approval.
 
 ## 7. Rollback
 

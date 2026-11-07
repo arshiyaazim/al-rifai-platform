@@ -1,11 +1,12 @@
 # Phase 3 File Manifest
 
-**Branch:** `feature/phase3-router-cash-vessel` at `7da17f1` (pushed)
+**Branch:** `feature/phase3-router-cash-vessel` at `675a3ef` (pushed)
 **Baseline:** `e6becfc`
-**Schema:** `1.5.0` (production and clone); migrations are explicit CLI only
-**Current candidate image:** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
-(digest `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`),
-built and clone-tested, **not deployed**. Production still runs `86d659a`.
+**Schema:** `1.5.0` (production and clone); **NO MIGRATION**; migrations are explicit CLI only
+**Production image (DEPLOYED 2026-11-07):** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
+(digest `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`)
+**Rollback image:** `phase3-ai-rc-86d659a` (`sha256:932ef856…`)
+**Verification image (built, NOT deployed):** `local/al-rifai-platform:phase3-ai-rc-675a3ef` — post-deployment workflow fixes
 
 ## New files
 
@@ -42,7 +43,16 @@ built and clone-tested, **not deployed**. Production still runs `86d659a`.
 | `lib/ai/llm.ts` | Optional OpenAI-compatible rephrasing layer with numeric guard |
 | `scripts/standalone/wa01-activation.mjs` | Dry-run WA-01 activation applier from the protected artifact |
 | `app/(workspace)/vessel/[id]/page.tsx` | Program detail: edit, assign/replace escort, in-duty, release, complete, void, evidence and events |
-| `lib/release-slip.ts` | Pure structured Escort Release parser plus `parseUnstructuredRelease()` for cancellation, replacement, food-bill and empty release-group evidence |
+| `lib/release-slip.ts` | Pure structured Escort Release parser plus `parseUnstructuredRelease()` for cancellation, transfer, replacement, food-bill and empty release-group evidence |
+| `lib/vessel-draft-delivery.ts` | Pure Vessel Draft delivery queue: idempotency key, bounded retry, terminal states, five-block gate, prepared (never executed) outbound request |
+| `lib/action-form-request.ts` | Pure ActionForm HTTP wiring (POST default, PATCH/DELETE) |
+| `tests/standalone/vessel-draft-delivery.test.mjs` | 12 isolated delivery state-machine tests |
+| `tests/standalone/historical-release-review.test.mjs` | Regression tests pinned to all seven exact historical production release texts |
+| `tests/standalone/action-form-request.test.mjs` | ActionForm POST/PATCH/DELETE wiring tests |
+| `docs/PHASE3_PREDEPLOY_BACKUP_20261107.md` | Fresh verified pre-deploy backup: size, checksum, restore test, restoration procedure |
+| `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` | Bridge architecture, delivery direction, durable-record design, activation gate |
+| `docs/HISTORICAL_RELEASE_REVIEW_20261107.md` | Seven historical item classifications, candidate program matches, proposed (not applied) corrections |
+| `docs/BUSINESS_WORKFLOW_BACKLOG.md` | Resolved items, remaining gaps and priorities |
 | `lib/business-rules.mjs` | Versioned phone/name/vessel normalization rules |
 | `lib/identity-resolution.mjs` | Identity decision levels |
 | `lib/employee-identity.ts` | DB-backed employee identity resolution |
@@ -103,16 +113,19 @@ built and clone-tested, **not deployed**. Production still runs `86d659a`.
 |---|---|
 | `lib/standalone/finance.ts` | Full lifecycle, reversal, reconciliation, candidate→instruction, audit atomicity |
 | `lib/standalone/review.ts` | Client-aware review application, transaction-aware audit |
-| `lib/standalone/programs.ts`, `employees.ts`, `attendance.ts` | Client-aware writers + capability enforcement; `getProgram()` returns `start_date`/`end_date` as ISO text (fixes `[object Date]` 500); `assignEscort` resolves the directory `preferred_name` when only a mobile is supplied |
+| `lib/standalone/programs.ts`, `employees.ts`, `attendance.ts` | Client-aware writers + capability enforcement; `getProgram()` returns `start_date`/`end_date` as ISO text (fixes `[object Date]` 500); `assignEscort` resolves the directory `preferred_name`; `updateEmployee` patch verified |
 | `lib/standalone/audit.ts` | Transaction-aware `recordAudit` |
 | `lib/standalone/whatsapp.ts` | Correct conflict target, type narrowing, capability checks |
-| `lib/message-router.ts` | System actor for automated writes; capability-safe routing; `matchUnstructuredReleaseCandidates()` read-only program matching and enriched pending release-evidence payloads |
+| `lib/message-router.ts` | System actor for automated writes; capability-safe routing; `matchUnstructuredReleaseCandidates()` read-only program matching; enriched pending release-evidence payloads; TRANSFER review category |
 | `lib/review-ui.ts` | Review field labels incl. cancel date/shift, total days, food bill (paisa); merges `payload.extractedFields` into the detail view |
 | `lib/unified-auth-policy.ts` | Explicit full-lifecycle capability matrix |
 | `app/api/*` | Capability enforcement, user admin, cash reversal/reconciliation |
+| `components/standalone/action-form.tsx` | Optional `method` prop; uses pure `buildActionFormRequest()` |
 | `app/(workspace)/cash/page.tsx` | Candidate decisions, reversal, reconciliation, audit links; all privileged forms capability-gated |
 | `app/(workspace)/settings/page.tsx` | Super Admin user administration; account/relay forms capability-gated |
 | `app/(workspace)/vessel/page.tsx` | Program register; assign/release/void forms capability-gated |
+| `app/(workspace)/employees/[mobile]/page.tsx` | Update employee form uses `method="PATCH"` (previously POST, never applied) |
+| `app/(workspace)/payroll/page.tsx` | Configure-rate form capability-gated with `payroll.manage` |
 | `scripts/standalone/install.mjs` | Additive `--force`, migration 008, shared grants |
 | `.github/workflows/ci.yml` | Full suite, Cash/users job, schema `1.4.0` validation |
 | `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml` | Test commands, patched dependencies, audit overrides |
@@ -120,7 +133,14 @@ built and clone-tested, **not deployed**. Production still runs `86d659a`.
 
 ## Delivery boundary
 
-- Code and integration tests complete on the feature branch at `7da17f1`.
-- Candidate image `phase3-ai-rc-7da17f1` built and clone-tested; **not deployed**.
-- Production deployment, migration and live financial posting NOT executed.
-- Owner approval required before merge/deploy.
+- Production **deploys `phase3-ai-rc-7da17f1`** with explicit Owner approval,
+  a fresh verified backup, identical business counts and preserved checkpoints.
+- `phase3-ai-rc-675a3ef` is built and unit/clone-tested but **NOT deployed**;
+  it contains the employee PATCH, payroll gating and TRANSFER work.
+- **NO MIGRATION** in either image. No production business record, credential,
+  DNS, bridge session, checkpoint or permission was changed.
+- Outbound WhatsApp delivery stays `MANUAL_COPY_ONLY`; no `messages.send` was
+  enabled and no message sent.
+- Authenticated production UI verification remains blocked by 0-byte password
+  files; no credential was reset.
+- Owner approval required before any further deploy, merge or migration.

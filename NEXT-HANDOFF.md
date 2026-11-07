@@ -1,12 +1,13 @@
 # NEXT-HANDOFF
 
-**Session ended:** 2026-11-07
-**Read first:** `docs/PHASE3_GO_NO_GO_7da17f1.md`, `docs/PROJECT_KNOWLEDGE.md`,
-`docs/VESSEL_ORDER_DRAFT.md`, `docs/PRODUCTION_URLS.md`,
-`docs/LEGACY_PHASE3_COMPARISON.md`.
+**Session ended:** 2026-11-07 (second session — deployment + workflow completion)
+**Read first:** `docs/PHASE3_GO_NO_GO_7da17f1.md`,
+`docs/PHASE3_PREDEPLOY_BACKUP_20261107.md`, `docs/PROJECT_KNOWLEDGE.md`,
+`docs/BUSINESS_WORKFLOW_BACKLOG.md`, `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`,
+`docs/HISTORICAL_RELEASE_REVIEW_20261107.md`, `docs/PRODUCTION_URLS.md`.
 
 **Report language:** English only. Always state whether a finding is
-**clone-tested**, **production-deployed** or **live-verified**.
+**implemented**, **clone-tested**, **production-deployed** or **live-verified**.
 
 ---
 
@@ -14,190 +15,158 @@
 
 | Item | Value |
 |---|---|
-| Production runtime (**deployed**) | `local/al-rifai-platform:phase3-ai-rc-86d659a`, digest `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5` |
-| Superseded candidate (**not deployed**) | `local/al-rifai-platform:phase3-ai-rc-9e85e49`, digest `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0` |
-| **Current candidate (built, clone-tested, NOT deployed)** | `local/al-rifai-platform:phase3-ai-rc-7da17f1`, digest `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa` |
-| Git `main` | `0861e05` (docs merge; does **not** yet contain the three 2026-11-07 code fixes) |
-| Working tree / branch | `/opt/al-rifai-phase3-test`, `feature/phase3-router-cash-vessel` at `7da17f1`, pushed to `origin` |
-| Tags | `v2.6.0-vessel-drafts`, `v2.6.1-vessel-drafts` |
-| Database schema | `1.5.0` (production and clone); **no migration added** |
-| Compose project | `al-rifai-phase3`; `ALRIFAI_TAG=phase3-ai-rc-86d659a` in `/opt/vps/al-rifai-standalone/apps/al-rifai/.env` |
-| Clone | `alrifai-ui-check` on `127.0.0.1:3007`, DB `alrifai_v2_import_test`, image `7da17f1`, `ALRIFAI_VESSEL_PROCESSING_ENABLED=1`, `PHASE3_ROUTER_WORKER_ENABLED=0` |
+| **Production runtime (DEPLOYED)** | `local/al-rifai-platform:phase3-ai-rc-7da17f1`, digest `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa` |
+| Rollback image (available) | `local/al-rifai-platform:phase3-ai-rc-86d659a`, digest `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5` |
+| Superseded candidate | `phase3-ai-rc-9e85e49`, digest `sha256:cb8de252…` |
+| Verification image (built, **NOT deployed**) | `phase3-ai-rc-675a3ef` — contains the post-deployment workflow fixes |
+| Git `main` | `0861e05` (clean; does **not** contain the code fixes) |
+| Working tree / branch | `/opt/al-rifai-phase3-test`, `feature/phase3-router-cash-vessel` at `675a3ef`, pushed, clean |
+| Database schema | `1.5.0`; **NO MIGRATION** in either image |
+| Compose project / env | `al-rifai-phase3`; `.env` still records `ALRIFAI_TAG=phase3-ai-rc-86d659a` (overridden by command line at deploy) |
+| Clone | `alrifai-ui-check` on `127.0.0.1:3007`, DB `alrifai_v2_import_test` |
 
-## What works — evidence by environment
+## What changed this session
 
-### Production-deployed, live-verified (read-only, 2026-11-07)
+1. **Fresh production backup** (`docs/PHASE3_PREDEPLOY_BACKUP_20261107.md`):
+   `phase3-predeploy-7da17f1-20261107T124612Z.dump`, 8,864,137 bytes,
+   SHA-256 `61c73a1a29e0f96b30dc62a0f45d778a19471a87f6d185984b3c4ca68ebb48aa`.
+   `pg_restore -l` valid; **full restore into a disposable DB passed** with exact
+   schema/count/checkpoint match; scratch DB dropped; previous backups preserved.
+2. **GO/NO-GO safety report** (`docs/PHASE3_GO_NO_GO_7da17f1.md`), then
+   **explicit Owner approval ("Approve deployment (GO)")**.
+3. **Deployed `7da17f1`** by recreating only `app` + `sync`:
+   `ALRIFAI_TAG=phase3-ai-rc-7da17f1 docker compose ... up -d app sync`.
+   No migration, no import, no backup restore, no bridge/DNS/credential change.
+4. **Vessel Draft delivery internal work** (`ed78ec2`): pure
+   `lib/vessel-draft-delivery.ts` — idempotency, queue, bounded retry, terminal
+   states, five-block gate, prepared-but-never-executed outbound request,
+   confirmation invariant; 12 isolated tests + design/activation-gate doc.
+   **Outbound stays disabled.**
+5. **Historical release review** (`d533939`): added `TRANSFER` classification,
+   regression tests pinned to all seven exact production texts, a router
+   integration test, and a per-item analysis with read-only candidate program
+   matches. **No production program, release, payment or Cash change.**
+6. **Business workflow fixes** (`675a3ef`): employee "Update employee" now uses
+   `PATCH` (previously always POST, so the update never applied); payroll rate
+   form capability-gated; pure `buildActionFormRequest()` + tests; domain test
+   for `updateEmployee`; reprioritised backlog.
+7. Documentation, Git commits and pushes after each logical change.
 
-- `https://app.al-rifai.iamazim.com/api/health` →
-  `{"status":"ok","database":"ok","schemaVersion":"1.5.0"}`.
-- `https://alrifai.iamazim.com` legacy alias → health 200.
-- `https://al-rifai.iamazim.com` → HTTP 403 with body `error code: 1014`
-  (unchanged cross-account Cloudflare CNAME).
-- Production containers `app` and `sync` both run `86d659a`; flags are
-  `ALRIFAI_VESSEL_PROCESSING_ENABLED=1`, `PHASE3_ROUTER_WORKER_ENABLED=1`,
-  `ALRIFAI_LIVE_CASH_SYNC=0`, all `AI_*` flags `0`.
-- Production DB `alrifai_v2_phase3`: 218 employees, 439 attendance,
-  102 programs (94 imported + **8 live WHATSAPP DRAFT programs created
-  2026-11-07 08:28–10:28 UTC**), 2,231 Cash `REVIEW` instructions,
-  1,586 legacy postings, **zero non-legacy postings**, 13 pending review items
-  (7 `EXTRACTION_FAILED`, 6 `UNMATCHED_VESSEL_ASSIGNMENT`).
-- Router cutover watermarks `wa-01=19634`, `wa-02=15184`; sync checkpoints
-  advanced to `wa-01=19728`, `wa-02=15238` during this session — production is
-  actively processing above-watermark traffic.
-- `ai_outbound_messages`, `ai_outbound_attempts` and `ai_order_drafts` are all
-  empty: **no outbound WhatsApp activation**.
+## Deployment verification (live-verified, read-only)
 
-> **Live authenticated UI verification in production is still blocked.** The
-> three password files in `/etc/vps/apps/al-rifai/` are 0-byte, mode `400`.
-> Do not claim it was performed. No credentials were reset.
+- Both containers recreated on `7da17f1`; app `healthy`; image digest matches.
+- `/api/health` on `app.al-rifai.iamazim.com` and `alrifai.iamazim.com` →
+  `{"status":"ok","database":"ok","schemaVersion":"1.5.0"}`; `schema_meta` `1.5.0`.
+- Business counts **identical** before/after: 218 employees, 102 programs
+  (8 DRAFT), 439 attendance, 3,817 cash instructions (2,231 REVIEW),
+  1,586 cash postings, 13 review items (all pending), 34,595 WhatsApp messages,
+  83 COMPLETED / 0 PROCESSING / 0 FAILED.
+- Sync checkpoints preserved `wa-01=19730`, `wa-02=15243`; router worker
+  restarted (`interval=5000ms`) with no duplicate processing; no release-related
+  failure, so **rollback was not executed**.
+- `/vessel/drafts` route exists (401 unauthenticated); legacy routes still
+  present on the deployed image.
 
-### Clone-tested on candidate `7da17f1` (isolated DB, all fixtures removed)
+## Production authenticated UI — exact blocker
 
-- All **29** Admin workspace/legacy routes return HTTP 200 with distinct
-  headings and table columns; all 12 checked USER routes return 200.
-- Search (`ABM` → 1 row, `ZZZNOMATCH` → 0), state filters, pagination and
-  all 7 CSV exports (`text/csv`) work.
-- **Role enforcement:** USER gets 403 from `instruction.approve`, `instruction.post`,
-  `ledger.create`, `account.create`, `assign`, `release`, `void`, `configure`,
-  `route`, `/api/users`; USER still legitimately stages work (`instruction.create`
-  201, program `create` 202 pending review). All server-side checks are
-  capability-based and remain authoritative.
-- **UI gaps fixed:** USER no longer sees privileged Cash approve/reject/post/
-  ledger forms, Settings account/relay forms, or Vessel assign/release/void
-  forms; ADMIN still sees them.
-- **Vessel pipeline end to end:** WA-01 order message → `DRAFT` program with
-  Mother Vessel, Lighter Vessel, Master Mobile, Destination, date and shift →
-  appears on `/vessel` and `/vessel/drafts` with the exact Owner draft
-  (`MANUAL_COPY_ONLY`, blank escort fields) → Admin outgoing reply →
-  `applyConfirmation()` → state `CONFIRMED`, escort assigned,
-  `confirmation_message_id` recorded. No outbound message was sent.
-- **Release/cancel/food-bill evidence:** cancellation, food-bill and empty
-  release-group messages produce enriched pending review items
-  (`RELEASE_CANCELLATION_CANDIDATE`, `RELEASE_FOOD_BILL_CANDIDATE`,
-  `RELEASE_EMPTY_MESSAGE`) with `extractedFields`, `evidenceKinds`,
-  `matchedTokens`, `candidateProgramIds` and reasons. Candidate program matching
-  is read-only; the matched program stayed `CONFIRMED` — nothing was released,
-  voided or posted.
-- Review detail renders the new Cancel date/shift, Total days and Food bill
-  (paisa) fields.
-- All clone fixtures (messages, program, assignments, review items, employee,
-  audit rows) were deleted; clone returned to baseline 94 programs, 218
-  employees, 0 review items, 3,799 cash instructions.
+Task 3 could **not** be completed. The three production accounts exist with the
+correct roles (`Admin` ADMIN, `officeassistant` USER, `officeazzistant2` USER,
+all active), but:
 
-### Test suites (local, disposable DB `alrifai_v2_test`)
+- `/etc/vps/apps/al-rifai/{admin-bootstrap-password,user-1-password,user-2-password}`
+  are **0 bytes**, mode `400 root:root`.
+- Check-only `provision-admin.mjs` / `provision-users.mjs` report
+  `password_configured: false`, `password_source: missing`,
+  `password_matches: null`, `apply: false`. No account or password was changed.
+- Login attempts using those sources on both hosts returned
+  `400 {"error":"CREDENTIALS_REQUIRED"}` for all three usernames; no throttle
+  rows were created.
+- Therefore **login, logout, sessions, role permissions, every authenticated
+  page/form/table/CSV/approval workflow is NOT TESTED in production**.
+  Unauthenticated surfaces are VERIFIED (health 200, `/login` 200, protected
+  pages 307→/login or 401, `/vessel/drafts` route present).
+- Do not reset credentials, create replacement accounts or change roles.
 
-- Unit **110/110** pass (includes 7 new release-evidence tests).
-- Integration **123/123** pass (includes 3 new router release tests).
+Full per-feature matrix: `docs/PHASE3_GO_NO_GO_7da17f1.md` §"Authenticated UI".
+
+## Vessel Draft delivery — remaining authorization gate
+
+Implemented (clone/unit-tested): pure queue, idempotency key
+`vdd_<sha256(programId + sha256(draft text) + recipientJid)>`, dedup, 3-attempt
+backoff, `SENT`/`DELIVERY_UNKNOWN` terminal, no auto-retry on ambiguity,
+five-block gate, prepared outbound request, UI view model.
+
+**Not enabled:** no `messages.send` capability exists in either bridge policy;
+`AI_*` flags remain `0`; no WhatsApp message was sent; no migration applied;
+`MANUAL_COPY_ONLY` remains the delivery mode. WA-01 is the only viable sender,
+WA-02 is identity-read only and its outbound tables are WA-02-only.
+
+Owner must separately approve the exact sender, recipient, account, chat scope
+and delivery behavior, plus the WA-01-safe durable-table migration, before §5
+of `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` can be activated.
+
+## Seven historical review items
+
+All classified, all preserved `PENDING`, **no production changes**:
+
+| # | Kind | Candidate program |
+|---|---|---|
+| 1, 3, 6 | `EMPTY` | none — manual review |
+| 2 | `FOOD_BILL` (`195000` paisa) | `lgcy-prg-6460107a…` (`Poavosa-Wisdom / Deowan-Jobayer-1`) |
+| 4 | `REPLACEMENT` | same `lgcy-prg-6460107a…` |
+| 5 | `CANCELLATION` + `FOOD_BILL` | same; lighter name differs by `-1` → ambiguous |
+| 7 | `TRANSFER` + `CANCELLATION` | `lgcy-prg-b61591e0…` (`Union-Odyssey / Othoi-1`) |
+
+Details: `docs/HISTORICAL_RELEASE_REVIEW_20261107.md`.
+
+## Test evidence
+
+- Unit **133/133**, integration **125/125**, focused new tests **34/34**.
 - `tsc --noEmit` clean; lint 0 errors (3 pre-existing warnings).
-- Production Docker build passes (`pnpm typecheck && pnpm build` inside the
-  image); no schema/migration file changed since `9e85e49`.
-
-## What was changed this session (committed and pushed)
-
-1. `8b9b779` — **UI capability gating**: `app/(workspace)/cash/page.tsx`,
-   `settings/page.tsx`, `vessel/page.tsx`. Hides forms whose API would 403;
-   no functionality removed, `assertCapability` stays authoritative.
-2. `ecdd186` — **Escort name resolution**: `lib/standalone/programs.ts`
-   `assignEscortOn()` resolves the directory `preferred_name` when the operator
-   supplies only a mobile; explicit names still win. Domain regression added.
-3. `7da17f1` — **Unstructured release evidence**: `lib/release-slip.ts`
-   (`parseUnstructuredRelease`), `lib/message-router.ts`
-   (`matchUnstructuredReleaseCandidates` + enriched review payload),
-   `lib/review-ui.ts` (new field labels), plus parser and router regression
-   tests. Classifies empty/cancellation/replacement/food-bill traffic, extracts
-   vessel/escort/mobile/date/shift/total-day/cancel-date/food-bill evidence,
-   matches candidate programs read-only, and keeps every item **pending**.
-   It never auto-releases or updates a program.
-4. New candidate image `phase3-ai-rc-7da17f1` built and clone-tested.
-
-No production data, DNS, credentials, bridges, sessions, checkpoints,
-allowlists, permissions or migrations were changed. Production business data
-was read only. The 7 existing `RELEASE_UNSTRUCTURED` production review items
-were **preserved for manual review**; the new parser applies to future messages
-only and no program update was attempted.
-
-## What remains broken or unverified
-
-1. **Production logins unverified.** Password files still 0 bytes. Requires
-   Owner-supplied secrets; do not reset credentials.
-2. **Automatic Admin draft delivery.** Not implemented. Mode remains
-   `MANUAL_COPY_ONLY`. Needs explicit Owner approval plus a narrow WA-01
-   `messages.send` capability and a WA-01-safe durable draft record.
-3. **7 existing `RELEASE_UNSTRUCTURED` production items** (3 empty texts,
-   1 Ship-Cancaled block, 1 food-bill `1950/-`, 1 replacement/office-car-rent,
-   1 `Othoi-Cancaled` transfer). They stay pending for manual review; the
-   improved parser does not retroactively rewrite them.
-4. **`al-rifai.iamazim.com` 1014** (now surfaced as HTTP 403). Needs Owner
-   Cloudflare/DNS decision (Option A/B in `docs/DNS_CLOUDFLARE_1014.md`).
-5. **Candidate `7da17f1` not deployed.** Production still lacks
-   `/vessel/drafts`, the date fix and all three 2026-11-07 corrections.
-6. **Legacy-only features** unmapped: site settlements, reconciliation
-   workspace, Excel cashbook, public site/signup, platform release review.
-
-## Resolved issues removed from the active queue
-
-- Generic legacy redirects → 19 independent pages.
-- `created_at.slice` 500 on nested employee route.
-- `[object Date]` 500 on vessel program detail.
-- Legacy-host `403 ORIGIN_DENIED`.
-- Login lockout diagnostic rows for `Admin`/`owner`.
-- Admin/user provisioning now explicit CLI, not startup reset.
-- **UI role gaps** (Cash/Settings/Vessel privileged forms shown to USER).
-- **Escort name falling back to a mobile number** on assignment.
-- **Unstructured release parsing for future messages** (extraction + read-only
-  candidate matching + review evidence, with regression tests).
+- Production Docker build passes for `7da17f1` and `675a3ef`.
+- Backup restore test passed; production unchanged.
+- Clone role matrix and 17 legacy routes re-verified.
 
 ## Issue priority order
 
-1. Owner decision on deploying candidate `7da17f1` (GO/NO-GO report below).
-2. Production credentials + authenticated verification (Owner-supplied).
-3. Vessel draft transport decision (manual copy vs approved outbound).
-4. Manual review of the 7 legacy `RELEASE_UNSTRUCTURED` items.
-5. Cloudflare 1014 for `al-rifai.iamazim.com`.
-6. Merge `feature/phase3-router-cash-vessel` into `main` after deployment.
-7. Legacy table/feature migration decisions.
-8. Cosmetic/legacy UI parity (typeahead, charts).
+1. Owner-supplied production credentials → authenticated UI verification.
+2. Owner decision on Vessel Draft outbound transport (sender/recipient/scope).
+3. Manual review of the 7 historical items.
+4. Decide whether to build/deploy a candidate containing `675a3ef` fixes
+   (employee PATCH, payroll gating, TRANSFER classification) — **not deployed**.
+5. Vessel release ↔ attendance linkage; program pay / payroll unresolved cases.
+6. Legacy Cashbook/archive, reconciliation and site settlements mapping.
+7. `al-rifai.iamazim.com` Cloudflare 1014 (Owner DNS decision).
+8. Merge feature branch into `main`.
+9. Low-priority legacy UI parity (typeahead, charts).
 
-## Database migration status
+## Database / WhatsApp / credential safety
 
-- Production schema `1.5.0`; candidate `7da17f1` contains **no schema or
-  migration change**. Verified `git diff 9e85e49..HEAD` touches no SQL/migration
-  file; both production and clone report `schemaVersion 1.5.0`.
-- Do not run migrations without Owner approval.
-- Latest verified pre-import backup:
-  `/var/lib/vps/al-rifai/backups/phase3-pre-import-20261106T224024Z.dump`
-  SHA-256 `83dfe6d0284a1f16d1109aee0cb0b29273bbc3a739955194bada2fd8c8daaad9`.
-- Rollback target: `phase3-ai-rc-86d659a`
-  (`sha256:932ef856…`), no data restore required for this UI/logic-only change.
+- **NO MIGRATION** in `7da17f1` or `675a3ef`; production `schema_meta` `1.5.0`.
+- No production business record changed; counts identical before/after deploy.
+- No backup restore was used to roll back application code.
+- Bridge containers, sessions, checkpoints, allowlists, cutover watermarks,
+  processing state and DNS untouched.
+- No credential reset, no new production account, no role change, no secret in Git.
 
 ## Git / push status
 
-- `main` at `0861e05` pushed; it does **not** include the three code fixes.
-- `feature/phase3-router-cash-vessel` at `7da17f1` pushed to `origin`.
-- Tags `v2.6.0-vessel-drafts`, `v2.6.1-vessel-drafts` pushed.
-- Worktree clean. No force-push, no uncommitted deployment.
+- `main` `0861e05` clean, not merged.
+- `feature/phase3-router-cash-vessel` `675a3ef` pushed to `origin`; clean.
+- Image `7da17f1` built from commit `7da17f1`; image `675a3ef` built from
+  `675a3ef`. Neither branch state was force-pushed.
 
 ## Exact next task and starting files
 
-1. **Owner approval required** before any production deployment. Present the
-   GO/NO-GO report (tests, backup, rollback, schema compatibility, legacy
-   routes, permissions, deployment command).
-2. After approval only, deploy from `/opt/al-rifai-platform`:
-   ```bash
-   ALRIFAI_TAG=phase3-ai-rc-7da17f1 docker compose \
-     --env-file /opt/vps/al-rifai-standalone/apps/al-rifai/.env \
-     -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d app sync
-   ```
-   Rollback: repeat with `ALRIFAI_TAG=phase3-ai-rc-86d659a`.
-3. Post-deploy live checks (read-only): `/api/health`, schema `1.5.0`,
-   `/vessel/drafts`, a program detail, a review detail, USER form gating,
-   sync checkpoint advancement, and no outbound message rows.
-4. If credentials become available, verify real Admin/USER logins and the
-   authenticated production UI; otherwise keep that item open.
-5. Starting files for further work:
-   - `lib/release-slip.ts` (`parseUnstructuredRelease`)
-   - `lib/message-router.ts` (`handleVessel` release-group branch,
-     `matchUnstructuredReleaseCandidates`)
-   - `app/(workspace)/vessel/drafts/page.tsx` (delivery stage)
-   - `docs/VESSEL_ORDER_DRAFT.md` (transport options)
-   - `docs/PROJECT_KNOWLEDGE.md` (issue queue)
+1. If the Owner supplies credentials, run the check-only provisioners, then
+   perform the full authenticated production UI matrix on the **deployed**
+   `7da17f1` (login/logout/session/roles, Cash, Vessel, Drafts, program detail,
+   employees, attendance, reports, review, income/expenditure, CSV, filters,
+   approval workflows — read-only in production, state-changing tests on clone).
+   Start: `docs/ADMIN_AUTH.md`, `docs/PHASE3_GO_NO_GO_7da17f1.md` §"Authenticated UI".
+2. If the Owner approves a further release, build/deploy the `675a3ef` content
+   with a fresh backup and the same Compose command; rollback stays `7da17f1`.
+3. For outbound delivery: `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`,
+   `lib/vessel-draft-delivery.ts`, `lib/order-draft-from-record.ts`.
+4. For historical decisions: `/review` UI, `docs/HISTORICAL_RELEASE_REVIEW_20261107.md`.
+5. For workflow backlog: `docs/BUSINESS_WORKFLOW_BACKLOG.md`.

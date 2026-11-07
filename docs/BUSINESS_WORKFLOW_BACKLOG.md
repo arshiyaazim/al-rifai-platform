@@ -25,6 +25,21 @@ the deployed image `7da17f1`**; they are implemented and tested in isolation
 and require a new candidate + Owner approval before deployment. Fixes 1–4 are
 in `7da17f1` and are **production-deployed**.
 
+### Clone verification of fixes 5–7 (image `phase3-ai-rc-675a3ef`)
+
+- Payroll: ADMIN sees "Configure a rate" / "Save rate"; USER sees neither; both
+  pages return 200.
+- Employee detail: the RSC payload contains `method:"PATCH"` for the update
+  form. A real `PATCH /api/employees` on the clone changed
+  `preferred_name`/`designation`/`notes`/`state` and returned `revision: 2`;
+  the temporary employee and its audit rows were deleted afterwards.
+- `TRANSFER`: staging the exact item #7 text in the clone release group produced
+  `RELEASE_TRANSFER_CANDIDATE` with `evidenceKinds=["CANCELLATION","TRANSFER"]`,
+  `lighterVessel="Othoi"` and candidate program
+  `lgcy-prg-b61591e0…`, with no program change; fixture removed.
+- 19 Admin routes return 200 on the verification image.
+- Production was **not** changed by any of these tests.
+
 ## 2. Verified working (clone-tested on `7da17f1`)
 
 - Cash REVIEW → APPROVED → POSTED → reversal; reconciliation; ledger.

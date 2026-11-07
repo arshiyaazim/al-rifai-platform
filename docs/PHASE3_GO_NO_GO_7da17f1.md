@@ -1,9 +1,11 @@
 # Phase 3 — GO/NO-GO report for candidate `phase3-ai-rc-7da17f1`
 
 **Date:** 2026-11-07
-**Decision:** **TECHNICAL GO** — the candidate is safe to deploy.
-**Deployment status:** **NOT DEPLOYED.** Explicit Owner approval is required and
-has not been given. Production remains on `phase3-ai-rc-86d659a`.
+**Decision:** **TECHNICAL GO** — the candidate was safe to deploy.
+**Owner approval:** **GRANTED** — the Owner explicitly answered
+"Approve deployment (GO)" after the Task 1 safety report.
+**Deployment status:** **DEPLOYED 2026-11-07** — `app` and `sync` were recreated
+on `phase3-ai-rc-7da17f1`; no migration, import, data restore or rollback.
 
 This report intentionally separates three kinds of evidence:
 **clone-tested**, **production-deployed** and **live-verified**.
@@ -106,7 +108,7 @@ documentation-only (`git diff 7da17f1..HEAD` contains no non-Markdown file).
 
 ---
 
-## 4. Deployment and rollback (only after explicit Owner approval)
+## 4. Deployment (executed after approval) and rollback (available)
 
 ```bash
 cd /opt/al-rifai-platform
@@ -143,6 +145,87 @@ SHA-256 `83dfe6d0284a1f16d1109aee0cb0b29273bbc3a739955194bada2fd8c8daaad9`.
 
 ---
 
+## 4b. Deployment execution (performed after approval)
+
+```bash
+cd /opt/al-rifai-platform
+ALRIFAI_TAG=phase3-ai-rc-7da17f1 docker compose \
+  --env-file /opt/vps/al-rifai-standalone/apps/al-rifai/.env \
+  -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d app sync
+```
+
+Only `al-rifai-phase3-app-1` and `al-rifai-phase3-sync-1` were recreated.
+PostgreSQL, both WhatsApp bridge containers, bind-mounted stores, TLS files,
+networks and ports were untouched. The `.env` was not edited.
+
+| Post-deploy check | Result |
+|---|---|
+| Container images | both `local/al-rifai-platform:phase3-ai-rc-7da17f1`, digest `sha256:5f3de875…` |
+| App health | `Up (healthy)`; `✓ Ready`; `Phase 3 router worker started (interval=5000ms, limit=100)` |
+| `/api/health` (both hosts) | `200 {"status":"ok","database":"ok","schemaVersion":"1.5.0"}` |
+| `schema_meta` | `1.5.0` |
+| Business counts | **identical** to the pre-deploy snapshot (diff empty): 218 employees, 102 programs, 439 attendance, 3,817 instructions, 2,231 REVIEW, 1,586 postings, 13 review items, 34,595 messages, 83 COMPLETED / 0 PROCESSING / 0 FAILED |
+| Sync checkpoints | unchanged `wa-01=19730`, `wa-02=15243` |
+| Router | resumed with `processed=1` ticks, zero errors, no duplicate instructions or programs |
+| `/vessel/drafts` | route present (401 unauthenticated); legacy routes intact |
+| Rollback | **not executed** — no release-related failure |
+
+### Fresh backup used for this deployment
+
+`/var/lib/vps/al-rifai/backups/phase3-predeploy-7da17f1-20261107T124612Z.dump`
+— 8,864,137 bytes, SHA-256
+`61c73a1a29e0f96b30dc62a0f45d778a19471a87f6d185984b3c4ca68ebb48aa`,
+`pg_dump -Fc`, `pg_restore -l` valid, full restore into a disposable database
+verified. Details and restoration procedure:
+`docs/PHASE3_PREDEPLOY_BACKUP_20261107.md`. No backup was overwritten and no
+backup restore was used to roll back code.
+
+---
+
+## 4c. Authenticated production UI test matrix (Task 3)
+
+**Exact authentication blocker:** the three configured password files are
+0 bytes (`/etc/vps/apps/al-rifai/{admin-bootstrap-password,user-1-password,
+user-2-password}`, mode `400`). Check-only provisioners reported
+`password_configured: false`, `password_source: missing`,
+`password_matches: null`, `apply: false`. Login attempts for `Admin`,
+`officeassistant` and `officeazzistant2` on both hosts returned
+`400 {"error":"CREDENTIALS_REQUIRED"}`; no login-throttle rows were created.
+No password was reset, no account created, no role changed.
+
+Status legend: **VERIFIED** (read-only live check passed), **PARTIAL**,
+**FAILED**, **NOT TESTED** (blocked by credentials).
+
+| Feature | `app.al-rifai.iamazim.com` | `alrifai.iamazim.com` | Notes |
+|---|---|---|---|
+| Health `/api/health` | VERIFIED | VERIFIED | 200, DB ok, schema 1.5.0 |
+| Login page `/login` | VERIFIED | VERIFIED | 200 HTML, form renders |
+| Unauthenticated protection | VERIFIED | VERIFIED | `/cash` 307→/login; `/vessel`, `/employees`, `/attendance`, `/reports`, `/review`, `/income-expenditure`, `/vessel/drafts` 401; APIs 401 |
+| Login (existing accounts) | **NOT TESTED** | **NOT TESTED** | 400 `CREDENTIALS_REQUIRED`; empty password files |
+| Logout / session handling | **NOT TESTED** | **NOT TESTED** | no session obtainable |
+| Role permissions (production) | **NOT TESTED** | **NOT TESTED** | clone-tested only (see §2) |
+| Dashboard cards | **NOT TESTED** | **NOT TESTED** | auth required |
+| Cash / Transactions / Submissions / Archive | **NOT TESTED** | **NOT TESTED** | auth required |
+| Vessel / Vessel Register / Drafts / Program Details | **PARTIAL** | **PARTIAL** | `/vessel/drafts` route presence VERIFIED (401); rendered content NOT TESTED |
+| Employees / profiles / payment history | **NOT TESTED** | **NOT TESTED** | auth required |
+| Attendance / Reports / Review / Income & Expenditure | **NOT TESTED** | **NOT TESTED** | auth required |
+| Navigation, nested URLs, tables, search, filters, pagination | **NOT TESTED** | **NOT TESTED** | auth required; clone-tested |
+| CSV exports | **NOT TESTED** | **NOT TESTED** | 401 unauthenticated; clone-tested `text/csv` |
+| Add/Edit/View/Delete controls and approval workflows | **NOT TESTED** | **NOT TESTED** | production state-changing actions intentionally not attempted |
+
+`al-rifai.iamazim.com` was left unchanged (Cloudflare 1014 / HTTP 403 body
+`error code: 1014`); no DNS or proxy change was made.
+
+---
+
+## 4d. Sign-off resolution
+
+Owner approval was received and acted upon. No further deployment is authorised
+by this record: the post-deployment workflow fixes (`675a3ef`) are **not
+deployed** and require their own backup, candidate and approval.
+
+---
+
 ## 5. Open items (do not block a safe deployment, but stay open)
 
 1. Production credentials / authenticated UI verification (Owner-supplied).
@@ -153,9 +236,13 @@ SHA-256 `83dfe6d0284a1f16d1109aee0cb0b29273bbc3a739955194bada2fd8c8daaad9`.
 
 ---
 
-## 6. Sign-off request
+## 6. Sign-off resolution
 
-**Recommendation: GO**, subject to explicit Owner approval. No deployment has
-been performed. Nothing was changed in production business data, DNS,
-credentials, bridges, sessions, checkpoints, allowlists or permissions during
-this phase.
+**Recommendation GO, Owner approval GO, deployment COMPLETE.** No credentials,
+DNS, migrations, bridges, sessions, checkpoints, allowlists, permissions or
+production business data were changed. The backup exists for data recovery
+only; application rollback would use `ALRIFAI_TAG=phase3-ai-rc-86d659a`.
+
+A later commit `675a3ef` contains additional workflow fixes (employee PATCH,
+payroll gating, TRANSFER classification) that are implemented and tested but
+**not deployed**; they require a separate candidate build and Owner approval.
