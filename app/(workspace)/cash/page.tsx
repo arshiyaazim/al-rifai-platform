@@ -36,9 +36,13 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
   employeeName?: string; employeeMobile?: string; payoutMobile?: string; openPayment?: string;
 }>}) {
   const user = await pageUser();
+  const canSubmit = can(user as never, 'cash.submit');
   const canReview = can(user as never, 'cash.review');
+  const canPost = can(user as never, 'cash.post');
   const canReverse = can(user as never, 'cash.reverse');
+  const canLedger = can(user as never, 'cash.ledger');
   const canReconcile = can(user as never, 'cash.reconcile');
+  const canDecide = can(user as never, 'review.decide');
   const today = new Date().toISOString().slice(0, 10);
   const filters = await searchParams;
   const q = (filters.q ?? '').trim();
@@ -110,32 +114,36 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
       </div>
 
       <div className="cash-form-grid">
-        <details className="cash-form-panel" id="new-payment" open={paymentOpen}>
-          <summary>New payment instruction</summary>
-          <CashPaymentForm
-            key={`${employeeName}|${employeeMobile}|${payoutMobile}|${paymentOpen ? '1' : '0'}`}
-            accounts={accounts.map((account) => ({id: account.id, code: account.code, name: account.name}))}
-            defaults={{employeeName, employeeMobile, payoutMobile}}
-          />
-        </details>
-        <details className="cash-form-panel">
-          <summary>Record income / expense</summary>
-          <ActionForm
-            endpoint="/api/finance"
-            action="ledger.create"
-            submitLabel="Post entry"
-            fields={[
-              {name: 'accountId', label: 'Account', type: 'select', required: true,
-                options: accounts.map((account) => ({value: account.id, label: `${account.code} — ${account.name}`}))},
-              {name: 'entryDate', label: 'Date', type: 'date', required: true, defaultValue: today},
-              {name: 'direction', label: 'Direction', type: 'select', options: [
-                {value: 'CREDIT', label: 'Income (credit)'}, {value: 'DEBIT', label: 'Expense (debit)'}]},
-              {name: 'amount', label: 'Amount (BDT)', required: true},
-              {name: 'category', label: 'Category', required: true, placeholder: 'office / fuel / salary'},
-              {name: 'description', label: 'Description'},
-            ]}
-          />
-        </details>
+        {canSubmit ? (
+          <details className="cash-form-panel" id="new-payment" open={paymentOpen}>
+            <summary>New payment instruction</summary>
+            <CashPaymentForm
+              key={`${employeeName}|${employeeMobile}|${payoutMobile}|${paymentOpen ? '1' : '0'}`}
+              accounts={accounts.map((account) => ({id: account.id, code: account.code, name: account.name}))}
+              defaults={{employeeName, employeeMobile, payoutMobile}}
+            />
+          </details>
+        ) : null}
+        {canLedger ? (
+          <details className="cash-form-panel">
+            <summary>Record income / expense</summary>
+            <ActionForm
+              endpoint="/api/finance"
+              action="ledger.create"
+              submitLabel="Post entry"
+              fields={[
+                {name: 'accountId', label: 'Account', type: 'select', required: true,
+                  options: accounts.map((account) => ({value: account.id, label: `${account.code} — ${account.name}`}))},
+                {name: 'entryDate', label: 'Date', type: 'date', required: true, defaultValue: today},
+                {name: 'direction', label: 'Direction', type: 'select', options: [
+                  {value: 'CREDIT', label: 'Income (credit)'}, {value: 'DEBIT', label: 'Expense (debit)'}]},
+                {name: 'amount', label: 'Amount (BDT)', required: true},
+                {name: 'category', label: 'Category', required: true, placeholder: 'office / fuel / salary'},
+                {name: 'description', label: 'Description'},
+              ]}
+            />
+          </details>
+        ) : null}
       </div>
 
       <section className="card" style={{marginBottom: 18}}>
@@ -235,12 +243,12 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
                     {item.source_block_key ? <div className="muted" style={{fontSize: 10}}>block {item.source_block_key}</div> : null}
                   </td>
                   <td>
-                    {item.state === 'REVIEW' ? (
+                    {item.state === 'REVIEW' && canReview ? (
                       <div className="row-actions">
                         <ActionForm compact endpoint="/api/finance" action="instruction.approve" submitLabel="Approve" hidden={{id: item.id}} fields={[]} />
                         <ActionForm compact endpoint="/api/finance" action="instruction.reject" submitLabel="Reject" hidden={{id: item.id}} fields={[{name: 'reason', label: 'Reason', required: true}]} />
                       </div>
-                    ) : item.state === 'APPROVED' ? (
+                    ) : item.state === 'APPROVED' && canPost ? (
                       <ActionForm compact endpoint="/api/finance" action="instruction.post" submitLabel="Post" hidden={{id: item.id}} fields={[]} />
                     ) : item.state === 'POSTED' && canReverse ? (
                       <ActionForm compact endpoint="/api/finance" action="instruction.reverse" submitLabel="Reverse" hidden={{id: item.id}} fields={[{name: 'reason', label: 'Reversal reason', required: true}]} />
@@ -291,17 +299,19 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
 
         <section className="card">
           <h3>Staff submissions</h3>
-          <ActionForm
-            endpoint="/api/finance"
-            action="submission.submit"
-            submitLabel="Submit for approval"
-            fields={[
-              {name: 'employeeName', label: 'Payee', required: true},
-              {name: 'method', label: 'Method', type: 'select', options: [
-                {value: 'bkash', label: 'bKash'}, {value: 'nagad', label: 'Nagad'}, {value: 'bank', label: 'Bank'}, {value: 'cash', label: 'Cash'}]},
-              {name: 'amountMinor', label: 'Amount (paisa)', type: 'number', required: true},
-            ]}
-          />
+          {canSubmit ? (
+            <ActionForm
+              endpoint="/api/finance"
+              action="submission.submit"
+              submitLabel="Submit for approval"
+              fields={[
+                {name: 'employeeName', label: 'Payee', required: true},
+                {name: 'method', label: 'Method', type: 'select', options: [
+                  {value: 'bkash', label: 'bKash'}, {value: 'nagad', label: 'Nagad'}, {value: 'bank', label: 'Bank'}, {value: 'cash', label: 'Cash'}]},
+                {name: 'amountMinor', label: 'Amount (paisa)', type: 'number', required: true},
+              ]}
+            />
+          ) : null}
           <table>
             <thead><tr><th>Submitted by</th><th>State</th><th>Instruction</th><th>Decision</th></tr></thead>
             <tbody>
@@ -311,7 +321,7 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
                   <td><span className={`pill ${submission.state === 'APPROVED' ? 'ok' : submission.state === 'REJECTED' ? 'bad' : 'warn'}`}>{submission.state}</span></td>
                   <td>{submission.instruction_id ? <Link href={`/cash/${submission.instruction_id}`}>{submission.instruction_id}</Link> : <span className="muted">—</span>}</td>
                   <td>
-                    {submission.state === 'PENDING_REVIEW' && canReview ? (
+                    {submission.state === 'PENDING_REVIEW' && canDecide ? (
                       <div className="row-actions">
                         <ActionForm compact endpoint="/api/review" action="decide" submitLabel="Approve candidate" hidden={{id: submission.id, kind: 'cash_submission', decision: 'APPROVED'}} fields={[]} />
                         <ActionForm compact endpoint="/api/review" action="decide" submitLabel="Reject candidate" hidden={{id: submission.id, kind: 'cash_submission', decision: 'REJECTED'}} fields={[{name: 'reason', label: 'Reason', required: true}]} />

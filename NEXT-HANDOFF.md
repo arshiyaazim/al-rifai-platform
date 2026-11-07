@@ -1,9 +1,19 @@
 # NEXT-HANDOFF
 
 **Session ended:** 2026-11-07
+**ACTIVE GOAL (unchanged): Authenticated Production UI Verification — status
+BLOCKED, not complete.** A README or source change does not complete it.
 **Read first:** `AGENTS.md`, `docs/PROJECT_KNOWLEDGE.md`,
 `docs/VESSEL_ORDER_DRAFT.md`, `docs/LEGACY_PHASE3_COMPARISON.md`,
-`docs/PRODUCTION_URLS.md`.
+`docs/PRODUCTION_URLS.md`, `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`,
+`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`, `docs/MAIN_RECONCILIATION_PLAN.md`,
+`docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`,
+`docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`, `docs/BUSINESS_WORKFLOW_BACKLOG.md`,
+`docs/PHASE3_GO_NO_GO_7da17f1.md`.
+
+**Report language:** English only. Always state whether a finding is
+**implemented**, **clone-tested**, **production-deployed**, **live-verified**,
+**OWNER-CONFIRMED** or **BLOCKED**.
 
 ---
 
@@ -63,128 +73,192 @@ setting the flag to `0`.
 
 | Item | Value |
 |---|---|
-| Production runtime | `local/al-rifai-platform:phase3-ai-rc-86d659a` (digest `sha256:932ef856…`) |
-| Candidate (built, tested, **not deployed**) | `local/al-rifai-platform:phase3-ai-rc-9e85e49` (digest `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0`) |
-| Git `main` | includes docs merge `9fcc2e7`; runtime release `86d659a` |
-| Worktree / branch | `/opt/al-rifai-phase3-test`, `feature/phase3-router-cash-vessel` at `9e85e49` |
-| Tags | `v2.6.1-vessel-drafts` (also `v2.5.1-legacy-pages`, `v2.6.0-vessel-drafts`) |
-| Database schema | `1.5.0` |
-| Compose project | `al-rifai-phase3` |
+| **Production runtime (DEPLOYED)** | `local/al-rifai-platform:phase3-ai-rc-7da17f1`, digest `sha256:5f3de875…01fa` |
+| Rollback image (available) | `local/al-rifai-platform:phase3-ai-rc-86d659a`, digest `sha256:932ef856…a5` |
+| Superseded candidate | `phase3-ai-rc-9e85e49`, digest `sha256:cb8de252…` |
+| Verification image (built, **NOT deployed**) | `phase3-ai-rc-675a3ef` — post-deployment workflow fixes |
+| `.env` `ALRIFAI_TAG` | **aligned to `phase3-ai-rc-7da17f1`** with Owner approval; backup `/var/lib/vps/al-rifai/backups/al-rifai.env.pre-tag-align-20261107T144038Z` preserves previous `86d659a` |
+| Git `main` | `0861e05` (clean; does **not** contain the code fixes) |
+| Working tree / branch | `/opt/al-rifai-phase3-test`, `feature/phase3-router-cash-vessel`, pushed, clean |
+| Database schema | `1.5.0`; **NO MIGRATION APPLIED to production**; additive `010_vessel_draft_delivery.sql` written, clone-tested, **pending Owner approval** |
+| Compose project | `al-rifai-phase3`; a bare `docker compose up -d` now keeps `7da17f1` |
+| Clone | `alrifai-ui-check` on `127.0.0.1:3007`, DB `alrifai_v2_import_test` |
 
-## What works (verified)
+## What changed this session
 
-- `https://app.al-rifai.iamazim.com/api/health` → `ok`, DB `ok`, schema `1.5.0`.
-- `https://alrifai.iamazim.com` reaches the origin (no `ORIGIN_DENIED`); login returns 401 until credentials exist.
-- Production data: 218 employees, 94 programs, 439 attendance, 1,586 legacy POSTED cash (85,225,900 minor), 2,228 REVIEW, 1,586 legacy postings, zero non-legacy postings.
-- Live Cash: two authorized Admin→Accountant batches created 15 REVIEW instructions with zero duplicates and zero postings — 8 at 06:05 (335,000 minor) and 7 at 06:32 (140,000 minor).
-- Router: enabled, cuts over at `wa-01=19634`, `wa-02=15184`; 9 WA-01 business chats allowlisted; WA-02 none. Sync checkpoints observed at WA-01 `19,686`, WA-02 `15,210`.
-- Candidate UI: all 32 authenticated routes return 200 on the isolated clone, including `/vessel/drafts`, program detail and review detail.
-- Owner draft: exact layout, blanks preserved, missing-field blocking, copy-only.
-- Unit tests 104/104, integration 120/120, typecheck clean, lint 0 errors, production build passes.
+1. **Task 1 — `.env` tag alignment (Owner-approved).** Read-only verification
+   confirmed running containers on `7da17f1` while `.env` recorded `86d659a`,
+   and that a bare Compose command would have reverted to the rollback image.
+   After explicit approval, **only line 61** was changed to
+   `ALRIFAI_TAG=phase3-ai-rc-7da17f1`. Backup created; `root:root 600` and file
+   size preserved; raw `diff` shows exactly one line; `docker compose config`
+   now resolves both services to `7da17f1`; running container IDs/uptime
+   unchanged (no restart/recreate); health still OK.
+   Docs: `docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`, commit `00e25a7`.
+2. **Task 2 — authentication root cause (NO defect) + OWNER CONFIRMATION.**
+   Traced the full pipeline. The earlier `400 CREDENTIALS_REQUIRED` came from
+   requests with an **empty password**: `lib/unified-auth.ts:118` fires before
+   user lookup/verification. The 0-byte bootstrap files are read **only** by
+   provisioning CLIs, never by login. All three accounts have valid PBKDF2
+   hashes (118 chars, correct format), unchanged roles/capabilities (ADMIN 30,
+   USER 10/10), **8 successful `LOGIN` events + 4 live sessions**.
+   **The Owner explicitly confirms `Admin`, `officeassistant` and
+   `officeazzistant2` all log in with their current passwords — authentication
+   is operational, no reset/replacement/provisioning/hash/role change needed.**
+   Status distinction: **OWNER-CONFIRMED login** vs **AGENT-VERIFIED
+   authenticated UI (pending)**. 15 saved cookie jars remain clone-only (zero
+   production match). **No credential was changed.**
+   Docs: `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`.
+3. **Task 1 — authenticated UI still NOT TESTED (Agent).** The Owner selected
+   the **root-only session cookie jar** as the minimum secure access
+   (`/etc/vps/apps/al-rifai/verification-session.cookies`, `root:root`, `400`);
+   **it does not exist yet**, so no automated verification is claimed. Added
+   `scripts/owner-assisted-ui-verify.sh` — a read-only, `bash -n`-clean,
+   no-secret-output Owner-assisted procedure (27 routes × 2 hosts, nested URLs,
+   7 CSV exports, search/filters/pagination, role control counts). A full
+   VERIFIED/PARTIAL/FAILED/NOT TESTED matrix with 41 read-only route checks on
+   both hosts is in `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`. No 500s; all
+   protected routes 401/307. Never ask for passwords in chat/Git/docs.
+4. **Task 4 — durable Vessel Draft delivery infrastructure (implemented, NOT
+   deployed, NOT enabled).**
+   - Migration `db/standalone/010_vessel_draft_delivery.sql`: one new table
+     `vessel_draft_deliveries` + 4 indexes, `CHECK account_id='wa-01'`,
+     UNIQUE `(program_id, content_hash, recipient_jid)`. **Not applied to
+     production.**
+   - `lib/standalone/vessel-draft-delivery-store.ts`: Postgres store,
+     `FOR UPDATE SKIP LOCKED` claiming, bounded retry with backoff,
+     terminal `SENT`/`DELIVERY_UNKNOWN`/`DEAD`, worker-restart lease recovery,
+     audit trail via existing `audit_events`, Admin status projection,
+     five-block `runtimeDeliveryGate()`, prepared-but-never-executed request.
+   - `/vessel/drafts` shows delivery mode, gate reasons, records and
+     `CONFIRMATION_RULE`; degrades gracefully when the table is absent.
+   - Migration tested on a disposable clone restored from the pre-deploy backup
+     (46→47 tables, schema stays `1.5.0`, ledger `010`, all columns/indexes,
+     legacy counts unchanged), rollback simulated (47→46), re-appliable.
+   - Tooling: `install.mjs`, `grants.mjs`, CI table count 46→47, three test
+     reset helpers updated to truncate the new table.
+   - Integration tests: 8 store tests; Admin UI verified on a local dev server
+     against the clone both with the table absent and with a synthetic QUEUED
+     record; clone fixtures removed and the table dropped again.
+   - **No `messages.send` capability, no outbound message, no `AI_*` change.**
+     `MANUAL_COPY_ONLY` retained. `applyConfirmation()` untouched.
+5. Docs, Git commits and pushes after each logically complete change.
 
-## What was changed this session
+## README / Git reconciliation (this session, docs only)
 
-1. **Vessel order-draft stage implemented** (`1f73709`):
-   - new `lib/order-draft-from-record.ts`
-   - `renderOwnerDraftFields()` in `lib/order-draft-template.ts`
-   - new `/vessel/drafts` page, `OwnerDraftPanel`, `CopyDraftButton`
-   - draft shown on program detail and PROGRAM review detail
-   - nav entry “Order Drafts”
-   - unit tests `tests/standalone/order-draft-record.test.mjs`
-2. **Vessel program detail 500 fixed** (`9e85e49`): `getProgram()` now returns
-   `start_date`/`end_date` as ISO text instead of `Date` objects.
-3. **Permanent knowledge base created**: `docs/PROJECT_KNOWLEDGE.md`.
-4. **Root-cause document created**: `docs/VESSEL_ORDER_DRAFT.md`.
+- **Verified facts:** running image `phase3-ai-rc-7da17f1` (digest
+  `sha256:5f3de875…`), DB `alrifai_v2_phase3`, schema `1.5.0`,
+  `schema_migrations` **002–009** applied (no `010`), 46 tables, router flags
+  `PHASE3_ROUTER_WORKER_ENABLED=1` / `ALRIFAI_VESSEL_PROCESSING_ENABLED=1` /
+  `ALRIFAI_LIVE_CASH_SYNC=0`, all `AI_*` flags `0`, `.env` tag aligned.
+- **Found** both `main` and feature READMEs still opened with a
+  `v1.4.0-phase3-rc2` / schema 1.4.0 / `phase3-rc-final5` "Current Release"
+  block, plus stale schema/routing/AI/installer/test-count/deployment claims.
+  `main` additionally claimed runtime image `86d659a` and pending `9e85e49`.
+- **Corrected feature-branch README**: added a `Release status` table with the
+  four required categories (Current Production / Historical Release / Built but
+  Not Deployed / Pending Migration & Activation); preserved all historical tags,
+  rollback instructions and cutover history in a clearly-labelled
+  "Historical Release" section; corrected schema 1.4.0→1.5.0, migrations
+  002–008→002–009, feature-flags-OFF→production overrides, "AI not
+  deployed"→migration 009 applied with AI flags off, installer counts, test
+  counts (83/112→133/133), stale cutover-era validation claims, and the
+  auth/provisioning paragraph. Marked the active goal **BLOCKED** with the
+  specific Owner action.
+- **Git divergence (read-only):** `main` `0861e05`, merge base `76d5d00`;
+  feature head advances with documentation commits (see `git log`). **22
+  main-only** commits and a feature-only count that grows with each docs commit
+  (re-run `git rev-list --left-right --count main...HEAD` for the current value).
+  Criss-cross docs merges. **No force-push, reset, rebase or auto-merge
+  performed.**
+- **Merge plan:** `docs/MAIN_RECONCILIATION_PLAN.md` — GitHub PR (recommended)
+  or a `--no-ff` local merge after Owner approval, taking feature-branch
+  versions for documentation conflicts while keeping all 22 main-only commits.
+  `main` README remains stale until that approved merge.
+- **No production deployment, migration, credential, WhatsApp or DNS change.**
 
-No production data, DNS, credentials, bridges, checkpoints, allowlists or
-permissions were changed. No migration was added or applied.
+## Test evidence
 
-## What was tested
+- Unit **133/133**, integration **133/133**, focused store integration **8/8**,
+  focused Task-3 re-run **31/31**, `tsc --noEmit` clean, lint 0 errors.
+- Migration 010 checksum `fa299768329105611153b977a6f6c1400372d5651d77f7125bc1c5c69817e7c7`;
+  applied/rolled back/re-appliable on a disposable production-schema clone.
+- **Compatibility verified:** current branch code runs unmodified against the
+  deployed 46-table schema — `deliveryTableAvailable()=false`, gate fully
+  disabled (`MANUAL_COPY_ONLY`, 5 reasons), `deliveryStatusForPrograms()` returns
+  0 rows. `7da17f1` does not contain the delivery module (added later).
+- No production image was built or deployed this session.
 
-- Pure draft tests: exact layout, destination handling, blank escort fields,
-  missing required field, date/shift normalisation, review payload mapping,
-  timestamp-vs-record equivalence.
-- Clone fixture: one DRAFT program and one PROGRAM review item rendered the
-  expected template; both fixtures were deleted after verification.
-- Full authenticated route matrix: 32/32 HTTP 200 on image `9e85e49`.
-- Full unit + integration suites, typecheck, lint, build.
-- Production read-only snapshot and live Cash evidence.
+## Production safety evidence
 
-## What remains broken or unverified
-
-1. **Production logins unverified.** The three password files are still 0 bytes
-   (re-checked 2026-11-07). No authorized production session exists; do not
-   claim authenticated UI verification in production.
-2. **Vessel draft delivery.** The platform cannot send the draft to WhatsApp.
-   Current mode is `MANUAL_COPY_ONLY`. Automatic delivery needs Owner approval
-   and a narrow WA-01 send capability.
-3. **Unstructured release messages.** Six PROGRAM review items are
-   `EXTRACTION_FAILED` / `RELEASE_UNSTRUCTURED` (ship cancellation, food bills,
-   free text). They are not parsed and do not update programs.
-4. **`al-rifai.iamazim.com` 1014.** CNAME points to a foreign Cloudflare account.
-   Needs Owner DNS choice A or B; no change made.
-5. **Candidate not deployed.** Production lacks `/vessel/drafts` and the date fix.
-6. **Legacy-only features** remain unmapped: site settlements, reconciliation
-   workspace, Excel cashbook, public site/signup, platform release review.
-
-## Resolved issues removed from the active queue
-
-- Generic legacy redirects → 19 independent pages.
-- `created_at.slice` 500 on nested employee route.
-- `[object Date]` 500 on vessel program detail.
-- Legacy-host `403 ORIGIN_DENIED`.
-- Login lockout diagnostic rows for `Admin`/`owner`.
-- Admin/user provisioning now explicit CLI, not startup reset.
+- Production containers unchanged: `db7e0d888f28` / `e5fe4214d625`, image `7da17f1`.
+- `/api/health` on both hosts → `ok` / DB `ok` / schema `1.5.0`.
+- Business counts unchanged (218 / 102 / 439 / 3,817 / 1,586 / 13 review items);
+  0 outbound AI rows; 0 non-legacy postings.
+- Bridge containers, sessions, checkpoints, cutover watermarks, allowlists,
+  processing state and DNS untouched. `al-rifai.iamazim.com` still 1014.
+- No credential reset, no hash/role/capability change, no secret printed or
+  committed, no production migration, no WhatsApp message sent.
 
 ## Issue priority order
 
-1. Production credentials + authenticated verification.
-2. Vessel draft transport decision (manual vs approved outbound).
-3. Unstructured release/cancel parsing.
-4. Cloudflare 1014 for `al-rifai.iamazim.com`.
-5. Candidate deployment approval.
-6. Legacy table/feature migration decisions.
-7. Cosmetic/legacy UI parity (typeahead, charts).
+1. **ACTIVE GOAL — Authenticated Production UI Verification: BLOCKED.**
+   Login is OWNER-CONFIRMED for all 3 accounts, but AGENT-VERIFIED UI is NOT
+   TESTED. **Specific Owner action:** write one valid `__Host-alrifai_cash`
+   cookie into root-only `/etc/vps/apps/al-rifai/verification-session.cookies`
+   (`root:root`, `400`), or run `scripts/owner-assisted-ui-verify.sh` and share
+   only its non-secret output. Then complete
+   `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` with GET-only checks.
+   **Do not mark COMPLETE on a README correction or a merge.**
+2. Owner approves the 8 outbound activation items in
+   `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` §7 (including migration 010, exact
+   sender/recipient/scope/template/trigger/retry/live+rollback plan).
+3. Decide whether to build/deploy a candidate containing the feature-branch
+   code (fresh backup required; rollback `7da17f1`; compatible with 46-table
+   schema).
+4. Owner approves the `main` reconciliation in
+   `docs/MAIN_RECONCILIATION_PLAN.md` (PR or `--no-ff` merge); `main` README is
+   still stale until then. Do not auto-merge / force-push / reset.
+5. Manual review of the 7 historical `RELEASE_UNSTRUCTURED` items.
+6. Vessel release ↔ attendance linkage; program pay / payroll unresolved cases.
+7. Legacy Cashbook/archive, reconciliation and site settlements mapping.
+8. Cloudflare 1014 (Owner DNS decision).
+9. Low-priority legacy UI parity (typeahead, charts).
 
-## Database migration status
+## Database migration ledger
 
-- Production schema `1.5.0`; verified after the previous deploy.
-- This session added **no migration**.
-- Do not run migrations without Owner approval.
-- Latest verified pre-import backup:
-  `phase3-pre-import-20261106T224024Z.dump`
-  SHA-256 `83dfe6d0284a1f16d1109aee0cb0b29273bbc3a739955194bada2fd8c8daaad9`.
+- Production `schema_meta` `1.5.0`, `schema_migrations` max version `009`.
+- **NO MIGRATION APPLIED** this session.
+- Pending `010_vessel_draft_delivery.sql` (additive, clone-tested, rollback
+  simulated, needs 8 Owner approvals before application).
 
 ## Git / push status
 
-- `main` includes docs merge `9fcc2e7` (docs commit `81c376c`) pushed to `origin`.
-- `feature/phase3-router-cash-vessel` `9e85e49` pushed.
-- Tags `v2.6.0-vessel-drafts`, `v2.6.1-vessel-drafts` pushed.
-- No uncommitted deploy; no force-push.
+- `main` `0861e05` clean, not merged; README **still stale** until the approved
+  reconciliation in `docs/MAIN_RECONCILIATION_PLAN.md`.
+- `feature/phase3-router-cash-vessel` pushed and clean; README corrected this
+  session. Merge base `76d5d00`; 22 main-only commits and a feature-only
+  count that advances with documentation commits (see `git rev-list
+  --left-right --count main...HEAD`).
+- No force-push, no reset, no rebase, no auto-merge, no production image built.
 
 ## Exact next task and starting files
 
-1. Check `ls -l /etc/vps/apps/al-rifai/*-password`; if non-empty, run:
-   ```bash
-   cd /opt/al-rifai-platform
-   PGHOST=172.18.0.2 PGDATABASE=alrifai_v2_phase3 \
-     node --env-file=/opt/vps/al-rifai-standalone/apps/al-rifai/.env \
-     --experimental-strip-types scripts/standalone/provision-admin.mjs
-   PGHOST=172.18.0.2 PGDATABASE=alrifai_v2_phase3 \
-     node --env-file=/opt/vps/al-rifai-standalone/apps/al-rifai/.env \
-     --experimental-strip-types scripts/standalone/provision-users.mjs
-   ```
-   Do not reset passwords without explicit approval.
-2. If valid, verify real login, roles and read-only Cash/Vessel/Employee/
-   Attendance/Reports pages; then request approval to deploy `9e85e49`.
-3. Deployment command (only after approval):
-   ```bash
-   cd /opt/al-rifai-platform
-   ALRIFAI_TAG=phase3-ai-rc-9e85e49 docker compose \
-     --env-file /opt/vps/al-rifai-standalone/apps/al-rifai/.env \
-     -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d app sync
-   ```
-4. Then verify `/api/health`, schema `1.5.0`, `/vessel/drafts`, a program detail,
-   review detail, and checkpoint advancement.
-5. Start files for the next feature: `lib/release-slip.ts`,
-   `lib/message-router.ts` (`handleReleaseSlip`), `docs/VESSEL_ORDER_DRAFT.md`.
+1. **ACTIVE GOAL (BLOCKED) — Authenticated Production UI Verification.** Owner
+   writes the root-only session cookie jar
+   `/etc/vps/apps/al-rifai/verification-session.cookies` (`root:root`, `400`)
+   with one valid production session, or runs
+   `scripts/owner-assisted-ui-verify.sh` themselves and shares only its
+   non-secret output. Agent then re-runs
+   `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` with authenticated GET-only
+   requests and deletes the artifacts. Login is OWNER-CONFIRMED; never reset.
+   **This goal is not COMPLETE; do not close it on a README fix or a merge.**
+2. Owner reviews `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` §5 (exact draft example),
+   §6 (single-message verification procedure) and §7 (8 approvals).
+3. If a further release is approved: fresh backup, build/deploy the current
+   branch content, rollback `7da17f1`.
+4. Starting files for delivery work: `lib/standalone/vessel-draft-delivery-store.ts`,
+   `db/standalone/010_vessel_draft_delivery.sql`,
+   `app/(workspace)/vessel/drafts/page.tsx`, `lib/vessel-draft-delivery.ts`.
+5. Historical items: `docs/HISTORICAL_RELEASE_REVIEW_20261107.md`, `/review`.
+6. Backlog: `docs/BUSINESS_WORKFLOW_BACKLOG.md`.

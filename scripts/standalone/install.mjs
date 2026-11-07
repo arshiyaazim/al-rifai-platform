@@ -37,6 +37,8 @@ const EXTRA_SCHEMA_FILES = [
   join(APP_ROOT, 'db', 'standalone', '007_phase3_review_queue_ui.sql'),
   join(APP_ROOT, 'db', 'standalone', '008_phase3_cash_lifecycle.sql'),
   join(APP_ROOT, 'db', 'standalone', '009_phase3_ai_assistant.sql'),
+// 010 is additive and pending Owner approval for outbound activation. The
+  // table itself is inert: no WhatsApp capability and no message is created.
   join(APP_ROOT, 'db', 'standalone', '010_vessel_draft_delivery.sql'),
   join(APP_ROOT, 'db', 'standalone', '011_cash_payment_events.sql'),
 ];

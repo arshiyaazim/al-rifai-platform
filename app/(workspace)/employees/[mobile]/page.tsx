@@ -47,6 +47,7 @@ export default async function EmployeeDetailPage({params}: {params: Promise<{mob
           <ActionForm
             title="Update employee"
             endpoint="/api/employees"
+            method="PATCH"
             submitLabel="Save changes"
             hidden={{employeeMobile: employee.employee_mobile}}
             fields={[

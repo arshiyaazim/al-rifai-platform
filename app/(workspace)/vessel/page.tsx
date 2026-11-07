@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import {listPrograms} from '@/lib/standalone/programs';
 import {listProgramSourcesForPrograms, listReviewQueue} from '@/lib/standalone/review';
-import {money} from '@/lib/standalone/session';
+import {money, pageUser} from '@/lib/standalone/session';
+import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
 import {
   formatReviewTimestamp,
@@ -17,6 +18,9 @@ export const dynamic = 'force-dynamic';
 
 export default async function VesselPage({searchParams}: {searchParams: Promise<{q?: string; state?: string}>}) {
   const filters = await searchParams;
+  const user = await pageUser();
+  const canCommand = can(user as never, 'vessel.command');
+  const canRelease = can(user as never, 'vessel.release');
   const q = (filters.q ?? '').trim();
   const state = filters.state ?? '';
   const [programs, vesselReviews] = await Promise.all([
@@ -268,26 +272,32 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
       </div>
 
       <div className="split">
-        <ActionForm title="Assign / replace escort" endpoint="/api/programs" action="assign" submitLabel="Assign"
-          fields={[
-            {name: 'programId', label: 'Program id', required: true},
-            {name: 'employeeMobile', label: 'Escort mobile', required: true},
-            {name: 'employeeName', label: 'Escort name'},
-            {name: 'startDate', label: 'Start date', type: 'date'},
-            {name: 'startShift', label: 'Shift', type: 'select', options: [{value: 'D', label: 'Day'}, {value: 'N', label: 'Night'}]},
-          ]} />
-        <ActionForm title="Release" endpoint="/api/programs" action="release" submitLabel="Release"
-          fields={[
-            {name: 'programId', label: 'Program id', required: true},
-            {name: 'endDate', label: 'End date', type: 'date', required: true},
-            {name: 'endShift', label: 'End shift', type: 'select', options: [{value: 'D', label: 'Day'}, {value: 'N', label: 'Night'}]},
-            {name: 'note', label: 'Note'},
-          ]} />
-        <ActionForm title="Void" endpoint="/api/programs" action="void" submitLabel="Void program"
-          fields={[
-            {name: 'programId', label: 'Program id', required: true},
-            {name: 'reason', label: 'Reason', required: true},
-          ]} />
+        {canCommand ? (
+          <ActionForm title="Assign / replace escort" endpoint="/api/programs" action="assign" submitLabel="Assign"
+            fields={[
+              {name: 'programId', label: 'Program id', required: true},
+              {name: 'employeeMobile', label: 'Escort mobile', required: true},
+              {name: 'employeeName', label: 'Escort name'},
+              {name: 'startDate', label: 'Start date', type: 'date'},
+              {name: 'startShift', label: 'Shift', type: 'select', options: [{value: 'D', label: 'Day'}, {value: 'N', label: 'Night'}]},
+            ]} />
+        ) : null}
+        {canRelease ? (
+          <ActionForm title="Release" endpoint="/api/programs" action="release" submitLabel="Release"
+            fields={[
+              {name: 'programId', label: 'Program id', required: true},
+              {name: 'endDate', label: 'End date', type: 'date', required: true},
+              {name: 'endShift', label: 'End shift', type: 'select', options: [{value: 'D', label: 'Day'}, {value: 'N', label: 'Night'}]},
+              {name: 'note', label: 'Note'},
+            ]} />
+        ) : null}
+        {canCommand ? (
+          <ActionForm title="Void" endpoint="/api/programs" action="void" submitLabel="Void program"
+            fields={[
+              {name: 'programId', label: 'Program id', required: true},
+              {name: 'reason', label: 'Reason', required: true},
+            ]} />
+        ) : null}
       </div>
     </>
   );

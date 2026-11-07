@@ -585,6 +585,44 @@ async function isReleaseGroup(accountId: string, chatJid: string): Promise<boole
 }
 
 /**
+ * Read-only candidate matching for unstructured release evidence. Nothing is
+ * updated here: the router only records which programs the evidence could
+ * refer to so a reviewer can decide. Strongest available identity wins.
+ */
+async function matchUnstructuredReleaseCandidates(fields: {
+  motherVessel: string | null;
+  lighterVessel: string | null;
+  escortMobile: string | null;
+}): Promise<{ids: string[]; matchedBy: string[]}> {
+  const clauses: string[] = [];
+  const values: string[] = [];
+  const matchedBy: string[] = [];
+  if (fields.escortMobile && /^01[3-9][0-9]{8}$/.test(fields.escortMobile)) {
+    values.push(`+88${fields.escortMobile}`);
+    clauses.push(`escort_mobile = $${values.length}`);
+    matchedBy.push('ESCORT_MOBILE');
+  } else if (fields.lighterVessel) {
+    values.push(fields.lighterVessel);
+    clauses.push(`lower(btrim(lighter_vessel)) = lower(btrim($${values.length}))`);
+    matchedBy.push('LIGHTER_VESSEL');
+  } else if (fields.motherVessel) {
+    values.push(fields.motherVessel);
+    clauses.push(`lower(btrim(mother_vessel)) = lower(btrim($${values.length}))`);
+    matchedBy.push('MOTHER_VESSEL');
+  }
+  if (!clauses.length) return {ids: [], matchedBy: []};
+  const candidates = await rows<{id: string}>(
+    `SELECT id FROM programs
+      WHERE state NOT IN ('VOIDED','COMPLETED')
+        AND (${clauses.join(' OR ')})
+      ORDER BY start_date DESC
+      LIMIT 10`,
+    values,
+  );
+  return {ids: candidates.map((candidate) => candidate.id), matchedBy};
+}
+
+/**
  * Apply a structured Escort Release Slip to exactly one matching program.
  * Ambiguous or incomplete slips are sent to review and never release a program.
  */
@@ -712,11 +750,28 @@ async function handleVessel(
     return {created: false, reviewSubmitted: false, reasons: [groupAuth.reason as string]};
   }
 
-  const {parseReleaseSlips} = await import('./release-slip.ts');
+  const {parseReleaseSlips, parseUnstructuredRelease} = await import('./release-slip.ts');
   const releaseBlocks = parseReleaseSlips(text);
   const releaseGroup = await isReleaseGroup(message.account_id, message.chat_jid);
   if (releaseGroup) {
     if (!releaseBlocks.length) {
+      // Unstructured release-group traffic (cancellation, replacement, food
+      // bill, empty message) is evidence, not an instruction. Extract fields,
+      // match candidate programs read-only and keep the item pending for a
+      // human reviewer. It never releases or voids a program.
+      const evidence = parseUnstructuredRelease(text);
+      const candidates = await matchUnstructuredReleaseCandidates(evidence.fields);
+      const releaseCategory = evidence.kind === 'EMPTY'
+        ? 'RELEASE_EMPTY_MESSAGE'
+        : evidence.kind === 'TRANSFER'
+          ? 'RELEASE_TRANSFER_CANDIDATE'
+          : evidence.kind === 'CANCELLATION'
+            ? 'RELEASE_CANCELLATION_CANDIDATE'
+            : evidence.kind === 'REPLACEMENT'
+              ? 'RELEASE_REPLACEMENT_CANDIDATE'
+              : evidence.kind === 'FOOD_BILL'
+                ? 'RELEASE_FOOD_BILL_CANDIDATE'
+                : 'RELEASE_UNSTRUCTURED';
       const submitted = await submitReviewItem(actor, 'PROGRAM', 'UPDATE', message.message_id,
         'EXTRACTION_FAILED', {
           sourceMessageId: message.message_id,
@@ -725,11 +780,22 @@ async function handleVessel(
           sourceTimestamp: message.source_timestamp,
           senderJid: message.sender_jid,
           rawText: text,
-          reasons: ['NO_STRUCTURED_RELEASE_BLOCK'],
-          releaseCategory: 'RELEASE_UNSTRUCTURED',
-          parser: 'release-slip', ruleVersion: RULE_VERSION,
+          reasons: evidence.reasons.length ? evidence.reasons : ['NO_STRUCTURED_RELEASE_BLOCK'],
+          extractedFields: evidence.fields,
+          evidenceKinds: evidence.kinds,
+          matchedTokens: evidence.matchedTokens,
+          candidateProgramIds: candidates.ids,
+          candidateMatchedBy: candidates.matchedBy,
+          releaseCategory,
+          parser: 'release-evidence', ruleVersion: RULE_VERSION,
         });
-      return {created: false, reviewSubmitted: submitted.submitted, reasons: ['NO_STRUCTURED_RELEASE_BLOCK'], programsCreated: 0, releases: 0};
+      return {
+        created: false,
+        reviewSubmitted: submitted.submitted,
+        reasons: [releaseCategory],
+        programsCreated: 0,
+        releases: 0,
+      };
     }
     return handleReleaseSlip(actor, message, text, releaseBlocks);
   }

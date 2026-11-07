@@ -153,7 +153,17 @@ async function assignEscortOn(
     if (current.state === 'VOIDED') throw new DomainError('PROGRAM_VOIDED', 409);
     const startDate = input.startDate ? isoDate(input.startDate, 'startDate') : current.start_date;
     const startShift = input.startShift ? shift(input.startShift, 'startShift') : current.start_shift;
-    const name = optionalText(input.employeeName, 'employeeName', 150) ?? employeeMobile;
+    // Prefer an explicit operator-supplied name. Otherwise resolve the directory
+    // name for an existing employee before falling back to the mobile number, so
+    // the Vessel register keeps a human-readable escort name.
+    const suppliedName = optionalText(input.employeeName, 'employeeName', 150);
+    const existingEmployee = suppliedName
+      ? null
+      : await client.query<{preferred_name: string}>(
+          'SELECT preferred_name FROM employees WHERE employee_mobile = $1',
+          [employeeMobile],
+        );
+    const name = suppliedName ?? existingEmployee?.rows[0]?.preferred_name ?? employeeMobile;
     await client.query(
       `INSERT INTO employees (employee_mobile, preferred_name, duty_type, created_by)
        VALUES ($1,$2,'escort',$3) ON CONFLICT (employee_mobile) DO NOTHING`,

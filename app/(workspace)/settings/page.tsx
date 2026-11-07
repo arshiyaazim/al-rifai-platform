@@ -1,6 +1,7 @@
 import {listAccounts} from '@/lib/standalone/finance';
 import {integrationStatus, listChats} from '@/lib/standalone/whatsapp';
 import {money, pageUser, when} from '@/lib/standalone/session';
+import {can} from '@/lib/standalone/authz';
 import {listUsers} from '@/lib/standalone/users';
 import {ActionForm} from '@/components/standalone/action-form';
 
@@ -8,6 +9,9 @@ export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
   const user = await pageUser();
+  const canManageAccounts = can(user as never, 'cash.account.manage');
+  const canManageWhatsapp = can(user as never, 'whatsapp.manage');
+  const canRouteWhatsapp = can(user as never, 'whatsapp.route');
   const [accounts, status] = await Promise.all([listAccounts(), integrationStatus()]);
   const users = user.superAdmin ? await listUsers() : [];
   const chats = await Promise.all((status.accounts as Array<{id: string}>).map((account) => listChats(account.id)));
@@ -30,21 +34,23 @@ export default async function SettingsPage() {
               {!accounts.length ? <tr><td colSpan={4} className="muted">No accounts.</td></tr> : null}
             </tbody>
           </table>
-          <ActionForm
-            title="Add account"
-            endpoint="/api/finance"
-            action="account.create"
-            submitLabel="Create account"
-            fields={[
-              {name: 'code', label: 'Code', required: true, placeholder: 'BANK1'},
-              {name: 'name', label: 'Name', required: true},
-              {name: 'type', label: 'Type', type: 'select', options: [
-                {value: 'CASH', label: 'Cash'}, {value: 'BANK', label: 'Bank'},
-                {value: 'MOBILE', label: 'Mobile wallet'}, {value: 'OTHER', label: 'Other'}]},
-              {name: 'currency', label: 'Currency', defaultValue: 'BDT'},
-              {name: 'openingBalanceMinor', label: 'Opening balance (paisa)', type: 'number'},
-            ]}
-          />
+          {canManageAccounts ? (
+            <ActionForm
+              title="Add account"
+              endpoint="/api/finance"
+              action="account.create"
+              submitLabel="Create account"
+              fields={[
+                {name: 'code', label: 'Code', required: true, placeholder: 'BANK1'},
+                {name: 'name', label: 'Name', required: true},
+                {name: 'type', label: 'Type', type: 'select', options: [
+                  {value: 'CASH', label: 'Cash'}, {value: 'BANK', label: 'Bank'},
+                  {value: 'MOBILE', label: 'Mobile wallet'}, {value: 'OTHER', label: 'Other'}]},
+                {name: 'currency', label: 'Currency', defaultValue: 'BDT'},
+                {name: 'openingBalanceMinor', label: 'Opening balance (paisa)', type: 'number'},
+              ]}
+            />
+          ) : null}
         </section>
 
         <section className="card">
@@ -75,31 +81,41 @@ export default async function SettingsPage() {
             </div>
           ) : null}
 
-          <ActionForm
-            title="Configure relay account"
-            endpoint="/api/whatsapp"
-            action="configure"
-            submitLabel="Save relay"
-            fields={[
-              {name: 'id', label: 'Account id', required: true, placeholder: 'primary'},
-              {name: 'label', label: 'Label', required: true},
-              {name: 'socketPath', label: 'Socket path', placeholder: '/run/whatsapp/mcp.sock'},
-              {name: 'tokenFile', label: 'Reader token file', placeholder: '/run/secrets/wa-reader'},
-              {name: 'accountJid', label: 'Account JID'},
-              {name: 'adminJids', label: 'Admin JIDs (comma separated)'},
-              {name: 'chatJid', label: 'Authorized chat JID'},
-              {name: 'purpose', label: 'Chat purpose', type: 'select', options: [
-                {value: 'BOTH', label: 'Orders + cash'}, {value: 'ORDERS', label: 'Orders only'},
-                {value: 'CASH', label: 'Cash only'}]},
-            ]}
-          />
-          <div className="split">
-            <ActionForm compact endpoint="/api/whatsapp" action="health" submitLabel="Test connection"
-              fields={[{name: 'accountId', label: 'Account id', required: true}]} />
-            <ActionForm compact endpoint="/api/whatsapp" action="sync" submitLabel="Sync messages"
-              fields={[{name: 'accountId', label: 'Account id', required: true}]} />
-            <ActionForm compact endpoint="/api/whatsapp" action="process" submitLabel="Process staged" fields={[]} />
-          </div>
+          {canManageWhatsapp ? (
+            <ActionForm
+              title="Configure relay account"
+              endpoint="/api/whatsapp"
+              action="configure"
+              submitLabel="Save relay"
+              fields={[
+                {name: 'id', label: 'Account id', required: true, placeholder: 'primary'},
+                {name: 'label', label: 'Label', required: true},
+                {name: 'socketPath', label: 'Socket path', placeholder: '/run/whatsapp/mcp.sock'},
+                {name: 'tokenFile', label: 'Reader token file', placeholder: '/run/secrets/wa-reader'},
+                {name: 'accountJid', label: 'Account JID'},
+                {name: 'adminJids', label: 'Admin JIDs (comma separated)'},
+                {name: 'chatJid', label: 'Authorized chat JID'},
+                {name: 'purpose', label: 'Chat purpose', type: 'select', options: [
+                  {value: 'BOTH', label: 'Orders + cash'}, {value: 'ORDERS', label: 'Orders only'},
+                  {value: 'CASH', label: 'Cash only'}]},
+              ]}
+            />
+          ) : null}
+          {canManageWhatsapp || canRouteWhatsapp ? (
+            <div className="split">
+              {canManageWhatsapp ? (
+                <>
+                  <ActionForm compact endpoint="/api/whatsapp" action="health" submitLabel="Test connection"
+                    fields={[{name: 'accountId', label: 'Account id', required: true}]} />
+                  <ActionForm compact endpoint="/api/whatsapp" action="sync" submitLabel="Sync messages"
+                    fields={[{name: 'accountId', label: 'Account id', required: true}]} />
+                </>
+              ) : null}
+              {canRouteWhatsapp ? (
+                <ActionForm compact endpoint="/api/whatsapp" action="process" submitLabel="Process staged" fields={[]} />
+              ) : null}
+            </div>
+          ) : null}
         </section>
       </div>
 
