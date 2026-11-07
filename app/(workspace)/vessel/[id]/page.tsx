@@ -6,6 +6,8 @@ import {DomainError} from '@/lib/standalone/db';
 import {can} from '@/lib/standalone/authz';
 import {money, pageUser, when} from '@/lib/standalone/session';
 import {ActionForm} from '@/components/standalone/action-form';
+import {OwnerDraftPanel} from '@/components/standalone/owner-draft-panel';
+import {ownerDraftFromProgram} from '@/lib/order-draft-from-record';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,8 +40,16 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
             {program.end_date ? ` · release ${program.end_date} · ${program.end_shift}` : ''}
           </p>
         </div>
-        <div className="row-actions"><Link href="/vessel">← Vessel Register</Link></div>
+        <div className="row-actions"><Link href="/vessel">← Vessel Register</Link><Link href="/vessel/drafts">Order drafts →</Link></div>
       </div>
+
+      {['DRAFT', 'CONFIRMED'].includes(program.state) ? (
+        <OwnerDraftPanel
+          result={ownerDraftFromProgram(program)}
+          title="Owner order draft"
+          description="Draft prepared from this program. Copy it, add the escort reply, and send from WhatsApp; this page does not transmit."
+        />
+      ) : null}
 
       <div className="split">
         <section className="card">

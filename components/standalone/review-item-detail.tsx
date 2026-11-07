@@ -2,6 +2,8 @@ import Link from 'next/link';
 import {ReviewActionsPanel} from '@/components/standalone/review-actions';
 import {SourceEvidencePanel} from '@/components/standalone/source-evidence';
 import {AuditHistory} from '@/components/standalone/audit-history';
+import {OwnerDraftPanel} from '@/components/standalone/owner-draft-panel';
+import {ownerDraftFromReviewPayload} from '@/lib/order-draft-from-record';
 import type {ReviewDetail} from '@/lib/standalone/review';
 import {
   formatReviewAmount,
@@ -188,6 +190,14 @@ export function ReviewItemDetail({detail, actor}: Props) {
               </table>
             )}
           </section>
+
+          {item.domain === 'PROGRAM' ? (
+            <OwnerDraftPanel
+              result={ownerDraftFromReviewPayload(item.payload)}
+              title="Owner order draft"
+              description="Exact layout the Admin copies into the client reply. Blank escort fields are intentional."
+            />
+          ) : null}
 
           {item.domain === 'PROGRAM' && (names.original.length || names.normalized.length) ? (
             <section className="card">

@@ -66,21 +66,35 @@ export function draftDateDisplay(isoDate: string): string {
 
 const missing = (fields: string[]) => new Error(`DRAFT_FIELDS_REQUIRED:${fields.join('+')}`);
 
+/** Duty date/shift already resolved by the caller (program row or review item). */
+export type OwnerDraftFields = {
+  motherVessel: string;
+  lighterVessel: string;
+  masterMobile: string;
+  destination?: string | null;
+  /** ISO `YYYY-MM-DD` duty date. */
+  date: string;
+  shift: 'D' | 'N';
+};
+
 /**
- * Render the exact Owner draft for ONE Lighter.
- * @throws when a required field is missing or the timestamp cannot be verified.
+ * Render the exact Owner draft from already-resolved fields. Used by the Admin
+ * order-draft workspace, which reads the program/review record instead of a
+ * WhatsApp timestamp. Never invents a value: a missing required field throws.
  */
-export function renderOwnerDraft(input: OwnerDraftInput): string {
+export function renderOwnerDraftFields(input: OwnerDraftFields): string {
   const mother = vesselDisplayName(input.motherVessel);
   const lighter = vesselDisplayName(input.lighterVessel);
   const master = masterMobileDisplay(input.masterMobile);
-  const when = orderDraftDateAndShift(input.timestamp);
+  const date = draftDateDisplay(input.date);
+  const shift = input.shift === 'D' || input.shift === 'N' ? input.shift : '';
 
   const absent = [
     mother ? null : 'motherVessel',
     lighter ? null : 'lighterVessel',
     master ? null : 'masterMobile',
-    when ? null : 'timestamp',
+    date ? null : 'date',
+    shift ? null : 'shift',
   ].filter((field): field is string => field !== null);
   if (absent.length) throw missing(absent);
 
@@ -93,11 +107,28 @@ export function renderOwnerDraft(input: OwnerDraftInput): string {
     destination ? `Destination: ${destination}` : 'Destination:',
     'Escort Name:',
     'Escort mobile:',
-    `${draftDateDisplay(when!.date)} ((${when!.shift}))`,
+    `${date} ((${shift}))`,
     '',
     OWNER_DRAFT_FOOTER,
   ];
   return lines.join('\n');
+}
+
+/**
+ * Render the exact Owner draft for ONE Lighter.
+ * @throws when a required field is missing or the timestamp cannot be verified.
+ */
+export function renderOwnerDraft(input: OwnerDraftInput): string {
+  const when = orderDraftDateAndShift(input.timestamp);
+  if (!when) throw missing(['timestamp']);
+  return renderOwnerDraftFields({
+    motherVessel: input.motherVessel,
+    lighterVessel: input.lighterVessel,
+    masterMobile: input.masterMobile,
+    destination: input.destination,
+    date: when.date,
+    shift: when.shift,
+  });
 }
 
 /** True when a stored source text already has the Owner layout (idempotency aid). */
