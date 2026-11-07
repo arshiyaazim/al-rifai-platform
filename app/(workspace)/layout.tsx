@@ -14,6 +14,7 @@ const NAV = [
   {href: '/vessel/drafts', label: 'Order Drafts'},
   {href: '/attendance', label: 'Attendance'},
   {href: '/cash', label: 'Cash & Accounts'},
+  {href: '/cash/paid', label: 'Business Paid'},
   {href: '/payroll', label: 'Payroll'},
   {href: '/review', label: 'Review Queue'},
   {href: '/messages', label: 'WhatsApp Inbox'},

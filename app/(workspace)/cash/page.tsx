@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import {countInstructions, countLedger, listAccounts, listInstructions, listLedger, listReconciliations} from '@/lib/standalone/finance';
-import {cashDashboardSummary, currentMonthRange, previousMonthRange, shiftIsoDate} from '@/lib/standalone/cash-dashboard';
+import {cashDashboardSummary, currentMonthRange, previousMonthRange, shiftIsoDate, paidEventsReportingEnabled} from '@/lib/standalone/cash-dashboard';
 import {listCashReviewCandidates} from '@/lib/standalone/review';
 import {rows} from '@/lib/standalone/db';
 import {money, pageUser, when} from '@/lib/standalone/session';
@@ -43,6 +43,8 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
   const canLedger = can(user as never, 'cash.ledger');
   const canReconcile = can(user as never, 'cash.reconcile');
   const canDecide = can(user as never, 'review.decide');
+  const paidBasis = paidEventsReportingEnabled();
+  const cashDetailPath = paidBasis ? '/cash/paid' : '/cash/transactions';
   const today = new Date().toISOString().slice(0, 10);
   const filters = await searchParams;
   const q = (filters.q ?? '').trim();
@@ -75,8 +77,8 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
   const ledgerPages = Math.max(1, Math.ceil(ledgerTotal / ledgerSize));
   const monthRange = currentMonthRange(summary.asOfDate);
   const lastMonthRange = previousMonthRange(summary.asOfDate);
-  const rangeHref = (range: {from: string; to: string}) => `/cash/transactions?from=${range.from}&to=${range.to}`;
-  const dateHref = (date: string) => `/cash/transactions?date=${date}`;
+  const rangeHref = (range: {from: string; to: string}) => `${cashDetailPath}?from=${range.from}&to=${range.to}`;
+  const dateHref = (date: string) => `${cashDetailPath}?date=${date}`;
   const href = (overrides: Record<string, string | number>) => {
     const values: Record<string, string> = {};
     if (q) values.q = q;
@@ -99,18 +101,19 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
         <div><h1>Cash &amp; Accounts</h1><p className="muted">Instructions, approvals, postings and the ledger.</p></div>
         <div className="row-actions">
           <Link href="/review?domain=CASH">Open Cash review queue →</Link>
+          {paidBasis ? <Link href="/cash/transactions">Financial POSTED →</Link> : <Link href="/cash/paid">Business Paid →</Link>}
         </div>
       </div>
 
       <div className="cash-dashboard-grid">
-        <SummaryCard label="Total Paid Amount" value={money(summary.totalPaidMinor)} hint="All posted payments" href="/cash/transactions" />
-        <SummaryCard label="Current Month Paid" value={money(summary.currentMonthPaidMinor)} hint="Posted this month" href={rangeHref(monthRange)} />
-        <SummaryCard label="Today's Paid Amount" value={money(summary.todayPaidMinor)} hint="Posted today" href={dateHref(summary.asOfDate)} />
-        <SummaryCard label="Yesterday Paid" value={money(summary.yesterdayPaidMinor)} hint="Posted yesterday" href={dateHref(shiftIsoDate(summary.asOfDate, -1))} />
-        <SummaryCard label="Paid Via WA" value={money(summary.viaWhatsAppPaidMinor)} hint="Posted from WhatsApp source" href="/cash/transactions?source=WHATSAPP" />
-        <SummaryCard label="Paid By Office" value={money(summary.byOfficePaidMinor)} hint="Posted non-WhatsApp payments" href="/cash/transactions?source=OFFICE" />
+        <SummaryCard label="Total Paid Amount" value={money(summary.totalPaidMinor)} hint={paidBasis ? 'Business Paid Events' : 'Posted payments'} href={cashDetailPath} />
+        <SummaryCard label="Current Month Paid" value={money(summary.currentMonthPaidMinor)} hint={paidBasis ? 'Business paid this month' : 'Posted this month'} href={rangeHref(monthRange)} />
+        <SummaryCard label="Today's Paid Amount" value={money(summary.todayPaidMinor)} hint={paidBasis ? 'Business paid today' : 'Posted today'} href={dateHref(summary.asOfDate)} />
+        <SummaryCard label="Yesterday Paid" value={money(summary.yesterdayPaidMinor)} hint={paidBasis ? 'Business paid yesterday' : 'Posted yesterday'} href={dateHref(shiftIsoDate(summary.asOfDate, -1))} />
+        <SummaryCard label="Paid Via WA" value={money(summary.viaWhatsAppPaidMinor)} hint={paidBasis ? 'Business paid from WhatsApp' : 'Posted from WhatsApp source'} href={`${cashDetailPath}?source=WHATSAPP`} />
+        <SummaryCard label="Paid By Office" value={money(summary.byOfficePaidMinor)} hint={paidBasis ? 'Business paid via Office' : 'Posted non-WhatsApp payments'} href={`${cashDetailPath}?source=OFFICE`} />
         <SummaryCard label="Number of Employee" value={String(summary.employeeCount)} hint="Employees on record" href="/employees" />
-        <SummaryCard label="Last Month Paid" value={money(summary.lastMonthPaidMinor)} hint="Posted last month" href={rangeHref(lastMonthRange)} />
+        <SummaryCard label="Last Month Paid" value={money(summary.lastMonthPaidMinor)} hint={paidBasis ? 'Business paid last month' : 'Posted last month'} href={rangeHref(lastMonthRange)} />
       </div>
 
       <div className="cash-form-grid">

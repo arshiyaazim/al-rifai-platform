@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feature/phase3-router-cash-vessel]
+    branches: [main, feature/phase3-router-cash-vessel, feature/phase3-cash-paid-events, feature/phase3-integration]
   pull_request:
     branches: [main]
 
@@ -337,7 +337,7 @@ jobs:
           node --experimental-strip-types scripts/standalone/migrate.mjs
           node --experimental-strip-types scripts/standalone/migrate.mjs
 
-      - name: Verify schema version is 1.5.0
+      - name: Verify schema version is 1.6.0
         env:
           PGHOST: 127.0.0.1
           PGPORT: 5432
@@ -346,11 +346,11 @@ jobs:
           PGPASSWORD: owner-secret
         run: |
           VERSION=$(PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -t -A -c "SELECT value FROM schema_meta WHERE key = 'schema_version'")
-          test "$VERSION" = "1.5.0"
+          test "$VERSION" = "1.6.0"
           TABLES=$(PGPASSWORD=$PGPASSWORD psql -h $PGHOST -p $PGPORT -U $PGUSER -d $PGDATABASE -t -A -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'")
-          # 46 legacy/Phase 3 tables + additive migration 010 (vessel_draft_deliveries).
-          # The new table is inert until the Owner approves outbound activation.
-          test "$TABLES" = "47"
+          # 46 legacy/Phase 3 tables + migration 010 (vessel_draft_deliveries)
+          # + migration 011 (cash_payment_events, cash_payment_event_postings).
+          test "$TABLES" = "49"
 
   nextjs-build:
     name: Next.js Build

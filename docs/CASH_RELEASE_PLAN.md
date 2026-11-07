@@ -328,8 +328,41 @@ Rollback: set the flag to `0`. Do not drop or mutate existing
 ## Remaining limitations
 
 - No production migration or deployment was performed.
-- Business correction/reversal server functions exist and are tested, but have
-  no UI yet.
 - The real-message inspection was a bounded read-only sample, not a complete
   archive audit.
 - 11 sampled blocks remain incomplete by design and go to review.
+
+---
+
+# Phase 3 Integration — Admin Business Paid API/UI (2026-11-07, isolated)
+
+Status: `feature/phase3-integration` combines the router/vessel and cash/Paid
+branches and adds the missing Admin Paid API/UI. Not merged to `main`, not
+deployed and not applied to production.
+
+## Delivered routes
+
+| Route | Purpose |
+|---|---|
+| `GET /api/finance?resource=business-paid` | Filtered/paginated Business Paid list with totals |
+| `GET /api/finance?resource=business-paid-event&id=...` | Root event, employee, evidence, posting link, corrections, reversal, audit |
+| `POST /api/finance` `business-paid.correct` | Append a CORRECTION event; ADMIN + `cash.review`; reason required |
+| `POST /api/finance` `business-paid.reverse` | Append a REVERSAL event; ADMIN + `cash.review`; reason required |
+| `/cash/paid` | Business Paid list, filters, totals, evidence/detail links |
+| `/cash/paid/[id]` | Business Paid detail, employee/payout, WhatsApp/Office evidence, financial status, timeline, audit |
+
+## Reporting basis
+
+- Dashboard summary is both-basis: flag OFF → historical POSTED; flag ON →
+  Business Paid events + historical POSTED rows with no event.
+- `/cash/transactions` is explicitly labelled **Financial POSTED** and links to
+  `/cash/paid`; `/cash/paid` is explicitly labelled **Business Paid**.
+- Correction/reversal never writes `cash_postings`, `ledger_entries` or
+  `cash_reversals`.
+
+## Verification
+
+- Unit 147/147; integration 163/163; typecheck/lint/build pass.
+- Fresh install and incremental migration: schema `1.6.0`, 49 tables.
+- Runtime grants: vessel READ_WRITE; Paid tables append-only.
+- Production unchanged.

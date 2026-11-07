@@ -44,6 +44,30 @@ in `docs/` and the Phase 3 reports.
 - `PHASE3_PAID_EVENTS_ENABLED` defaults to `'0'`. It is separate from the
   Phase 3 router cutover setting.
 
+## Admin Paid Events API/UI
+
+- `GET /api/finance?resource=business-paid` is the list; filters and pagination
+  are server-side and totals must reconcile with `businessPaidSummary()`.
+- `GET /api/finance?resource=business-paid-event&id=...` returns the root
+  PAYMENT chain, employee, WhatsApp/Office evidence, instruction/posting link,
+  corrections, reversal and audit.
+- `business-paid.correct` and `business-paid.reverse` reuse the existing
+  `cash.review` + ADMIN services. They require a reason, use the normal CSRF
+  mutation path and remain append-only.
+- UI routes are `/cash/paid` and `/cash/paid/[id]`. Actions render only for
+  `cash.review` and only when the Paid flag is on.
+- Financial POSTED stays on `/cash/transactions`. The two bases must be labelled
+  explicitly; never present a Business Paid total as a ledger total.
+
+## Reporting basis
+
+- When `PHASE3_PAID_EVENTS_ENABLED=0`, dashboard and transaction reporting keep
+  the Phase 2 POSTED-only definition.
+- When enabled, summary and Business Paid detail use the business-event basis
+  plus historical POSTED rows with no event. A posting linked to a business
+  event is never counted twice.
+- All date boundaries use `Asia/Dhaka`.
+
 ## Database
 
 - Migrations run in numeric order. 010 (`vessel_draft_deliveries`) must precede

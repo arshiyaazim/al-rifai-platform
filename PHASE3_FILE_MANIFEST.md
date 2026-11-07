@@ -122,6 +122,10 @@
 | `tests/standalone/cash-paid-events.test.mjs` | 12 tests: single-mobile, WhatsApp automatic Paid, Office Paid, replay/concurrency, flag, reporting, append-only, no ledger |
 | `tests/standalone/migration-integrity.test.mjs` | 5 tests: 010→011 order/checksums, schema, indexes, constraints, idempotent re-apply |
 | `AGENTS.md` | Non-negotiable Cash/WhatsApp/Paid-vs-POSTED/migration invariants |
+| `app/(workspace)/cash/paid/page.tsx` | Business Paid list route |
+| `app/(workspace)/cash/paid/[id]/page.tsx` | Business Paid detail, evidence, posting status, correction/reversal history, audit |
+| `components/standalone/business-paid-view.tsx` | Server-rendered Paid list with filters, totals, source/evidence/detail links |
+| `tests/standalone/business-paid-api.test.mjs` | List/detail filters, event_id, totals, posting link, RBAC/flag gate |
 | `phase3-implementation-plan.md` | Corrected implementation record (was a proposal) |
 | `phase3-technical-decision-report.md` | Corrected final design and evidence |
 | `app/api/assistant/route.ts` | Admin assistant/draft/applicant/order API |
@@ -131,10 +135,11 @@
 
 | Path | Change |
 |---|---|
-| `lib/standalone/finance.ts` | Full lifecycle, reversal, reconciliation, candidate→instruction, audit atomicity; Phase 3 Business Paid Events, single-mobile payout, strict method/identity, posting link |
+| `lib/standalone/finance.ts` | Full lifecycle, reversal, reconciliation, candidate→instruction, audit atomicity; Phase 3 Business Paid Events, single-mobile payout, strict method/identity, posting link, Business Paid detail service |
 | `lib/history-extraction.mjs` | Cash parser: single-mobile rule, hyphenated numbers, multi-line blocks, `(C)/(R)/BANK`, amount variants, no fabricated method |
 | `lib/message-router.ts` | Processes all clean Cash blocks; WhatsApp automatic Business Paid at the authorized routing point |
-| `lib/standalone/cash-dashboard.ts` | Flag-gated Business Paid reporting union with legacy POSTED; business detail list; lazy timezone binding |
+| `lib/standalone/cash-dashboard.ts` | Flag-gated Business Paid reporting union with legacy POSTED; business detail list with event/posting/employee fields; Dhaka timestamp helper; lazy timezone binding |
+| `app/api/finance/route.ts` | Business Paid list/detail resources and correction/reversal actions |
 | `scripts/standalone/install.mjs` | Fresh install includes 010/011 and verifies the new tables |
 | `scripts/standalone/grants.mjs` | Append-only grants for Business Paid tables; read-write grant for the inert vessel queue |
 | `lib/standalone/review.ts` | Client-aware review application, transaction-aware audit |
@@ -163,10 +168,9 @@
 ## Delivery boundary
 
 - `feature/phase3-integration` contains both router/vessel and cash/Paid work;
-  code, migrations, tests and documentation remain isolated.
+  code, migrations, API/UI, tests and documentation remain isolated.
 - Production **runs `phase3-ai-rc-7da17f1`**; no production container, data,
-  permission or feature flag was changed by this integration branch.
-- `.env` `ALRIFAI_TAG` remains aligned to `7da17f1`; previous tag backup intact.
+  permission or feature flag was changed by this integration branch.- `.env` `ALRIFAI_TAG` remains aligned to `7da17f1`; previous tag backup intact.
 - Authentication pipeline diagnosed as **healthy**; authenticated production UI
   remains NOT TESTED because the Agent has no plaintext password/session cookie.
 - **NO MIGRATION APPLIED to production.** Additive `010` and `011` are tested on

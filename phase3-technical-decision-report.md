@@ -175,3 +175,21 @@ original POSTED-only query is used unchanged. Calendar comparisons use
   tests.
 - No production deployment, migration or flag activation is authorized by this
   report.
+
+## Admin Business Paid API/UI (integration branch)
+
+Added on `feature/phase3-integration`:
+
+- `GET /api/finance?resource=business-paid` — filtered/paginated list and totals.
+- `GET /api/finance?resource=business-paid-event&id=...` — root PAYMENT chain,
+  employee, WhatsApp/Office evidence, instruction/posting link, corrections,
+  reversal and audit.
+- `POST /api/finance` `business-paid.correct` and `business-paid.reverse` —
+  existing ADMIN + `cash.review` server functions, CSRF mutation path, reason
+  required, append-only.
+- `/cash/paid` and `/cash/paid/[id]` — business list/detail UI with employee,
+  payout, source evidence, financial status, timeline and audit.
+- Dashboard summary uses Business Paid basis when the flag is on; `/cash/transactions`
+  is explicitly Financial POSTED and links to the Business Paid view.
+- Business Paid corrections/reversals never write `cash_postings`,
+  `ledger_entries` or `cash_reversals`.

@@ -149,3 +149,26 @@ containers remain stopped and preserved for rollback.
 3. Production migration window and rollback image retention.
 4. Owner-supplied business chats, group participants and WA-01 Admin JIDs.
 5. Acceptance of local CI evidence while GitHub Actions remains billing-locked.
+
+---
+
+## 2026-11-07 — Isolated integration + Admin Business Paid API/UI
+
+**Branch:** `feature/phase3-integration` (from `a4aabb6`, merged router `4e2e3f4`).
+**Status:** isolated source implementation only; no production migration,
+deployment, flag activation, ledger posting or WhatsApp permission change.
+
+| Check | Result |
+|---|---|
+| Typecheck / lint | 0 errors |
+| Unit | 147/147 |
+| Integration | 163/163 |
+| Next.js build | pass, `/cash/paid` and `/cash/paid/[id]` emitted |
+| Fresh install | schema `1.6.0`, 49 tables, 10 migration-ledger rows |
+| Incremental 1.5.0 → 1.6.0 | migrations 010 then 011; repeat no-op |
+| Runtime grants | vessel READ_WRITE; Paid events/postings append-only |
+| Production | unchanged |
+
+Added API/UI: Business Paid list/detail, WhatsApp/Office evidence, financial
+posting status, correction/reversal actions, and explicit Business Paid vs
+Financial POSTED reporting basis.

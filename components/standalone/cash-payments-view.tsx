@@ -5,6 +5,7 @@ import {
   CASH_PAYMENT_TIME_ZONE, formatPayoutNumber, listCashPayments,
 } from '@/lib/standalone/cash-dashboard';
 import {CashRowActions} from '@/components/standalone/cash-row-actions';
+import {paidEventsReportingEnabled} from '@/lib/standalone/cash-dashboard';
 
 export type CashPaymentViewParams = {
   q?: string;
@@ -85,8 +86,18 @@ export async function CashPaymentsView({
         </div>
         <div className="row-actions">
           <Link href="/api/reports?type=cash">Export Cash CSV</Link>
-          <Link href="/cash">Cash control →</Link>
+          <Link href={paidEventsReportingEnabled() ? '/cash/paid' : '/cash'}>
+            {paidEventsReportingEnabled() ? 'Business Paid →' : 'Cash control →'}
+          </Link>
         </div>
+      </div>
+
+      <div className="card" style={{padding: 12, marginBottom: 12}}>
+        <strong>Basis: Financial POSTED.</strong>{' '}
+        <span className="muted">
+          This view counts immutable ledger postings only. Business Paid Events are a separate
+          business-layer view and are not added to these totals.
+        </span>
       </div>
 
       <form method="get" className="card form compact cash-payment-filters">

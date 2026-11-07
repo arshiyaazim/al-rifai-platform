@@ -153,3 +153,21 @@ Checksums:
 4. Deploy with `PHASE3_PAID_EVENTS_ENABLED=0` first; verify flag-OFF parity.
 5. Enable the flag only after Owner approval; keep `cash.post` separate.
 6. Roll back by setting the flag to `0`; existing events remain immutable.
+
+## Admin Business Paid API/UI (integration branch)
+
+Added on `feature/phase3-integration`:
+
+- `GET /api/finance?resource=business-paid` — filtered/paginated list and totals.
+- `GET /api/finance?resource=business-paid-event&id=...` — root PAYMENT chain,
+  employee, WhatsApp/Office evidence, instruction/posting link, corrections,
+  reversal and audit.
+- `POST /api/finance` `business-paid.correct` and `business-paid.reverse` —
+  existing ADMIN + `cash.review` server functions, CSRF mutation path, reason
+  required, append-only.
+- `/cash/paid` and `/cash/paid/[id]` — business list/detail UI with employee,
+  payout, source evidence, financial status, timeline and audit.
+- Dashboard summary uses Business Paid basis when the flag is on; `/cash/transactions`
+  is explicitly Financial POSTED and links to the Business Paid view.
+- Business Paid corrections/reversals never write `cash_postings`,
+  `ledger_entries` or `cash_reversals`.

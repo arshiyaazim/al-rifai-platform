@@ -17,6 +17,55 @@ BLOCKED, not complete.** A README or source change does not complete it.
 
 ---
 
+## 2026-11-07 — Phase 3 integration + Admin Business Paid API/UI (isolated)
+
+**Branch:** `feature/phase3-integration`
+**Base:** `a4aabb6` (cash Paid) + merged router `4e2e3f4`.
+**Status:** isolated integration implementation; **not merged to main, not
+deployed, not migrated in production.** `PHASE3_PAID_EVENTS_ENABLED` remains OFF.
+
+Delivered:
+
+- Merged router/vessel/release work with cash/Paid work; preserved cutover
+  watermark, business-chat allowlists, WA-01/WA-02 restrictions, Vessel draft
+  and release evidence.
+- Resolved the six known conflict files. `app/(workspace)/cash/page.tsx` keeps
+  the cash dashboard/CashPaymentForm and the router `canSubmit`, `canPost`,
+  `canLedger`, `canDecide` gates.
+- Fresh install and migration chain include 010 + 011; schema `1.6.0`, 49 tables.
+- `GET /api/finance?resource=business-paid` list with date/employee/source/search
+  filters and pagination.
+- `GET /api/finance?resource=business-paid-event&id=...` detail with root
+  PAYMENT chain, employee, WhatsApp/Office evidence, instruction/posting link,
+  correction/reversal history and audit.
+- `/cash/paid` list and `/cash/paid/[id]` detail, plus nav link.
+- `business-paid.correct` / `business-paid.reverse` API actions reusing existing
+  ADMIN + `cash.review` server functions, CSRF path and append-only design.
+- Dashboard summary and Business Paid views use the business basis when the flag
+  is on; `/cash/transactions` is explicitly labelled Financial POSTED and links
+  to the Business Paid view.
+- Fixed `event_id` propagation in the business paid list so detail links work.
+
+Evidence (isolated PostgreSQL 16 only):
+
+| Check | Result |
+|---|---|
+| Typecheck | 0 errors |
+| Lint | 0 errors |
+| Unit | 147/147 |
+| Integration | 163/163 |
+| Build | pass; `/cash/paid` and `/cash/paid/[id]` emitted |
+| Fresh install | schema 1.6.0, 49 tables, 10 ledger rows |
+| Incremental 1.5.0 → 1.6.0 | 010 then 011; repeat no-op |
+| Runtime grants | vessel READ_WRITE; Paid tables append-only |
+| Production | unchanged |
+
+Known limitations: no automatic retroactive Business Paid backfill, no historical
+multi-block recovery for messages already linked, and old pending Office
+candidates may need correction before strict approval.
+
+---
+
 ## 2026-11-07 — Phase 3 Cash Business Paid implementation (isolated)
 
 **Branch:** `feature/phase3-cash-paid-events` (worktree

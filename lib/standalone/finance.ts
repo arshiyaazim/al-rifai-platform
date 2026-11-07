@@ -451,6 +451,89 @@ export async function getInstructionDetail(id: string) {
   return {instruction, posting, reversal, ledger, audit, candidates};
 }
 
+export type BusinessPaidEventDetail = {
+  event: Record<string, unknown>;
+  rootEventId: string;
+  employee: Record<string, unknown> | null;
+  instruction: Record<string, unknown> | null;
+  submission: Record<string, unknown> | null;
+  corrections: Array<Record<string, unknown>>;
+  reversal: Record<string, unknown> | null;
+  postingLink: Record<string, unknown> | null;
+  audit: Array<Record<string, unknown>>;
+};
+
+/**
+ * Full, auditable view of one Business Paid Event chain. Read-only.
+ * A correction/reversal id resolves to its root PAYMENT event so the UI always
+ * shows the complete history.
+ */
+export async function getBusinessPaidEventDetail(eventId: string): Promise<BusinessPaidEventDetail> {
+  const id = text(eventId, 'eventId', {max: 80});
+  const requested = await row<Record<string, unknown>>(
+    'SELECT * FROM cash_payment_events WHERE id = $1', [id],
+  );
+  if (!requested) throw new DomainError('PAYMENT_EVENT_NOT_FOUND', 404);
+  let root = requested;
+  if (requested.event_type !== 'PAYMENT') {
+    const rootId = (requested.corrects_event_id ?? requested.reverses_event_id) as string | null;
+    if (!rootId) throw new DomainError('PAYMENT_EVENT_ROOT_NOT_FOUND', 409);
+    const foundRoot = await row<Record<string, unknown>>(
+      "SELECT * FROM cash_payment_events WHERE id = $1 AND event_type = 'PAYMENT'", [rootId],
+    );
+    if (!foundRoot) throw new DomainError('PAYMENT_EVENT_ROOT_NOT_FOUND', 409);
+    root = foundRoot;
+  }
+  const rootId = String(root.id);
+  const employee = await row<Record<string, unknown>>(
+    `SELECT employee_mobile, preferred_name, name_aliases, designation, state,
+            joined_on::text AS joined_on
+       FROM employees WHERE employee_mobile = $1`, [root.employee_mobile],
+  );
+  const instruction = root.instruction_id
+    ? await row<Record<string, unknown>>(
+      `SELECT i.*, a.code AS account_code, a.name AS account_name,
+              p.id AS posting_id, p.posted_at AS financial_posted_at, p.posted_by
+         FROM cash_instructions i
+         LEFT JOIN cash_accounts a ON a.id = i.account_id
+         LEFT JOIN cash_postings p ON p.instruction_id = i.id
+        WHERE i.id = $1`, [root.instruction_id],
+    )
+    : null;
+  const submission = root.source_submission_id
+    ? await row<Record<string, unknown>>(
+      `SELECT id, state, submitted_by, created_at, decided_at, decided_by, decision_reason,
+              source_message_id, source_chat_jid, source_account_id, category
+         FROM cash_submissions WHERE id = $1`, [root.source_submission_id],
+    )
+    : null;
+  const corrections = await rows<Record<string, unknown>>(
+    `SELECT * FROM cash_payment_events
+      WHERE event_type = 'CORRECTION' AND corrects_event_id = $1
+      ORDER BY created_at DESC, id DESC`, [rootId],
+  );
+  const reversal = await row<Record<string, unknown>>(
+    `SELECT * FROM cash_payment_events
+      WHERE event_type = 'REVERSAL' AND reverses_event_id = $1
+      ORDER BY created_at DESC, id DESC LIMIT 1`, [rootId],
+  );
+  const postingLink = await row<Record<string, unknown>>(
+    `SELECT l.*, p.posted_at AS financial_posted_at, p.posted_by, p.amount_minor::text AS posted_amount_minor
+       FROM cash_payment_event_postings l
+       JOIN cash_postings p ON p.id = l.posting_id
+      WHERE l.payment_event_id = $1`, [rootId],
+  );
+  const eventIds = [rootId, ...corrections.map((entry) => String(entry.id)), ...(reversal ? [String(reversal.id)] : [])];
+  const audit = await rows<Record<string, unknown>>(
+    `SELECT id::text, at, actor, actor_role, action, detail, source, source_ref
+       FROM audit_events
+      WHERE entity = 'cash_payment_events' AND entity_id = ANY($1::text[])
+      ORDER BY at, id`, [eventIds],
+  );
+  return {event: root, rootEventId: rootId, employee, instruction, submission,
+    corrections, reversal, postingLink, audit};
+}
+
 // ── manual ledger (income / expense / transfer) ────────────────────────────
 export type LedgerInput = {
   accountId: string;

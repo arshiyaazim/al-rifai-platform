@@ -100,6 +100,20 @@ function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
+/** Display a timestamp in the business timezone without server-local drift. */
+export function dhakaTimestamp(value: string | Date | null | undefined): string {
+  if (!value) return '—';
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return '—';
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: CASH_PAYMENT_TIME_ZONE,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(date);
+  const v = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${v.year}-${v.month}-${v.day} ${v.hour}:${v.minute} (Dhaka)`;
+}
+
 /** Business date in Asia/Dhaka as `YYYY-MM-DD`. */
 export function dhakaToday(now: Date = new Date()): string {
   const parts = new Intl.DateTimeFormat('en-GB', {
@@ -496,17 +510,23 @@ export type BusinessPaidEventRow = {
   event_id: string | null;
   posting_id: string | null;
   instruction_id: string | null;
+  source_submission_id: string | null;
   amount_minor: string;
   paid_at: string;
   source: string;
   employee_mobile: string;
   employee_name: string;
+  registered_name: string | null;
+  designation: string | null;
+  joined_on: string | null;
   payout_mobile: string;
   method: string;
   source_message_id: string | null;
   source_block_key: string | null;
   status: string;
   employee_link_status: string | null;
+  financial_posted_at: string | null;
+  financial_status: 'POSTED' | 'POSTED_LEGACY' | 'NOT_POSTED';
 };
 
 /**
@@ -556,20 +576,19 @@ export async function listBusinessPaidEvents(
   const offsetParam = `$${params.length + 2}`;
   const cte = `
     WITH effective AS (
-      SELECT NULL::text AS event_id, NULL::text AS posting_id,
-             e.instruction_id, coalesce(c.amount_minor, e.amount_minor) AS amount_minor,
+      SELECT e.id AS event_id, l.posting_id,
+             e.instruction_id, e.source_submission_id,
+             coalesce(c.amount_minor, e.amount_minor) AS amount_minor,
              e.paid_at, e.source_category::text AS source,
-             e.employee_mobile, e.employee_name, e.payout_mobile, e.method,
+             e.employee_mobile, coalesce(c.employee_name, e.employee_name) AS employee_name,
+             e.payout_mobile, coalesce(c.method, e.method) AS method,
              e.source_message_id, e.source_block_key,
-             CASE WHEN EXISTS (SELECT 1 FROM cash_payment_events r
-                                WHERE r.event_type='REVERSAL' AND r.reverses_event_id=e.id)
-                  THEN 'REVERSED'
-                  WHEN c.id IS NOT NULL THEN 'CORRECTED'
-                  ELSE 'PAID' END AS status,
-             e.employee_link_status
+             CASE WHEN c.id IS NOT NULL THEN 'CORRECTED' ELSE 'PAID' END AS status,
+             e.employee_link_status, l.posted_at AS financial_posted_at
         FROM cash_payment_events e
+        LEFT JOIN cash_payment_event_postings l ON l.payment_event_id = e.id
         LEFT JOIN LATERAL (
-          SELECT id, amount_minor FROM cash_payment_events c
+          SELECT id, amount_minor, employee_name, method FROM cash_payment_events c
            WHERE c.event_type='CORRECTION' AND c.corrects_event_id=e.id
            ORDER BY c.created_at DESC, c.id DESC LIMIT 1
         ) c ON true
@@ -578,11 +597,12 @@ export async function listBusinessPaidEvents(
                           WHERE r.event_type='REVERSAL' AND r.reverses_event_id=e.id)
     ), legacy AS (
       SELECT NULL::text AS event_id, p.id AS posting_id,
-             p.instruction_id, p.amount_minor, p.posted_at AS paid_at,
+             p.instruction_id, NULL::text AS source_submission_id,
+             p.amount_minor, p.posted_at AS paid_at,
              i.source_channel::text AS source, i.employee_mobile, i.employee_name,
              coalesce(i.payout_mobile, '') AS payout_mobile, i.method,
              i.source_message_id, i.source_block_key, 'POSTED'::text AS status,
-             NULL::text AS employee_link_status
+             NULL::text AS employee_link_status, p.posted_at AS financial_posted_at
         FROM cash_postings p
         JOIN cash_instructions i ON i.id=p.instruction_id
        WHERE i.state='POSTED'
@@ -593,11 +613,17 @@ export async function listBusinessPaidEvents(
     )`;
   const items = await rows<BusinessPaidEventRow>(
     `${cte}
-     SELECT p.event_id, p.posting_id, p.instruction_id, p.amount_minor::text,
+     SELECT p.event_id, p.posting_id, p.instruction_id, p.source_submission_id,
+            p.amount_minor::text,
             p.paid_at::text AS paid_at, p.source, p.employee_mobile, p.employee_name,
+            e.preferred_name AS registered_name, e.designation, e.joined_on::text AS joined_on,
             p.payout_mobile, p.method, p.source_message_id, p.source_block_key,
-            p.status, p.employee_link_status
+            p.status, p.employee_link_status, p.financial_posted_at::text AS financial_posted_at,
+            CASE WHEN p.posting_id IS NULL THEN 'NOT_POSTED'
+                 WHEN p.event_id IS NULL THEN 'POSTED_LEGACY'
+                 ELSE 'POSTED' END AS financial_status
        FROM paid p
+       LEFT JOIN employees e ON e.employee_mobile = p.employee_mobile
       WHERE ${clauses.join(' AND ')}
       ORDER BY p.paid_at DESC, p.event_id NULLS LAST, p.posting_id DESC
       LIMIT ${limitParam} OFFSET ${offsetParam}`,
