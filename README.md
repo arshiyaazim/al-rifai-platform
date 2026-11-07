@@ -48,7 +48,7 @@ its own administrator, accounts, rates, relay and authorized chats.
 |---|---|
 | Dashboard | KPIs, pending approvals, recent activity |
 | Employees | Profiles, aliases, status, assignment history, attendance history |
-| Vessel | Programs (one row per lighter), escort assignment/replacement, release, void, ±1-day duplicate warning |
+| Vessel | Programs (one row per lighter), escort assignment/replacement, release, void, ±1-day duplicate warning; Order Drafts page renders the exact Owner draft for Admin copy |
 | Attendance | Day/night records per employee, monthly summary |
 | Cash & Accounts | Accounts, payment instructions (`REVIEW → APPROVED → POSTED / REJECTED / VOID`), postings, immutable ledger, reversal (contra entry), account reconciliation, income/expense, balances, staff submissions and audit history |
 | Payroll | Configurable shift rates, derived program pay, monthly salary allocation by actual duty date |
@@ -423,6 +423,15 @@ never point them at production.
 * Message edits/deletions are captured in the raw store but an already-processed
   message is not automatically reprocessed. This avoids duplicate financial or
   vessel writes; a future edit-reconciliation workflow is a separate design.
+* Vessel order drafts are **copy-only** (`MANUAL_COPY_ONLY`). The platform
+  renders the exact Owner layout on `/vessel/drafts`, program detail and review
+  detail, but does not send it to WhatsApp: neither bridge has a `messages.send`
+  capability and no outbound sender is enabled. Automatic delivery requires an
+  explicit Owner decision. See `docs/VESSEL_ORDER_DRAFT.md`.
+* Unstructured release/cancel/food-bill messages are not parsed. They remain in
+  the Review Queue as `PROGRAM` / `EXTRACTION_FAILED` with
+  `payload.releaseCategory = RELEASE_UNSTRUCTURED` until a parser extension is
+  approved; no program is changed from them.
 
 See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 `docs/STANDALONE-VERIFICATION.md` for the verification record.
@@ -439,7 +448,8 @@ See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 - **Database:** `alrifai_v2_phase3` (schema 1.5.0)
 - **Runtime image:** `local/al-rifai-platform:phase3-ai-rc-86d659a`
 - **Digest:** `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
-- **GitHub:** `arshiyaazim/al-rifai-platform`, `main` at `3285f56` (auth provisioning), runtime release `86d659a`
+- **GitHub:** `arshiyaazim/al-rifai-platform`, `main` at `21c7103`; runtime release `86d659a`
+- **Candidate (built, tested, NOT deployed):** `phase3-ai-rc-9e85e49`, digest `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0`
 
 ### Verified public URLs
 
@@ -450,13 +460,16 @@ See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 | `https://al-rifai.iamazim.com` | **BROKEN — Cloudflare 1014** (cross-account CNAME) |
 
 Login: `/login`. Health: `/api/health`. Admin Assistant: `/assistant`
-(prepared release; deployment pending). Cash: `/cash`. Vessel: `/vessel`.
+(deployed on candidate `9e85e49`, deployment pending). Cash: `/cash`.
+Vessel: `/vessel`. Vessel Order Drafts: `/vessel/drafts` (candidate only).
 Employees: `/employees`. Attendance: `/attendance`. Reports: `/reports`.
 Review: `/review`. Messages: `/messages`.
 
 See `docs/PRODUCTION_URLS.md` for the full route and legacy compatibility
-matrix, `docs/LEGACY_PHASE3_COMPARISON.md` for the feature/database comparison,
-and `docs/DNS_CLOUDFLARE_1014.md` for the DNS correction proposal.
+matrix, `docs/PROJECT_KNOWLEDGE.md` for the permanent project map,
+`docs/VESSEL_ORDER_DRAFT.md` for the order-draft pipeline and transport
+decision, `docs/LEGACY_PHASE3_COMPARISON.md` for the feature/database
+comparison, and `docs/DNS_CLOUDFLARE_1014.md` for the DNS correction proposal.
 
 ### Authentication and user provisioning
 
