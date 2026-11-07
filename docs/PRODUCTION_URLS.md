@@ -61,30 +61,33 @@ It does not enable outbound messaging or automatic replies.
 
 ## 3. Legacy browser routes and compatibility
 
-Prepared in `lib/legacy-redirects.ts` / `next.config.ts`; **not yet deployed**
-to the running image. Deployment requires approval.
+Distinct legacy menu routes are now **independent Phase 3 pages**; no generic
+redirects are used. They require authentication and preserve the browser URL.
 
-| Legacy route | Original meaning | Compatibility | Status |
-|---|---|---|---|
-| `/transactions` | Transactions ledger | 307 → `/cash` | PREPARED |
-| `/cash/archive` | Cash archive | 307 → `/cash` | PREPARED |
-| `/cash/submissions` | Cash submissions | 307 → `/cash` | PREPARED |
-| `/register` | Vessel dashboard | 307 → `/vessel` | PREPARED |
-| `/vessel-register` | Vessel Register | 307 → `/vessel` | PREPARED |
-| `/sources-review` | Review queue | 307 → `/review` | PREPARED |
-| `/insights` | Operational insights | 307 → `/reports` | PREPARED |
-| `/income-expenditure` | Income/expenditure view | 307 → `/cash` | PREPARED |
-| `/archive` | Archive | 307 → `/reports` | PREPARED |
-| `/assistant` | AI Assistant | new `/assistant` Admin query page | PREPARED |
-| `/conversations` | Legacy conversations | no Phase 3 page; `/messages` is the source-message equivalent | LEGACY ONLY |
-| `/message-mirror` | Legacy mirror | no Phase 3 page | LEGACY ONLY |
-| `/submissions` | Legacy submissions | `/cash` submissions section | LEGACY ONLY / cash equivalent |
-| `/platform/*`, `/signup`, `/public-site` | legacy platform surfaces | no Phase 3 page | LEGACY ONLY |
+| Legacy/current route | Phase 3 page | Status |
+|---|---|---|
+| `/transactions` | Cash instructions + ledger with filters/pagination | ACTIVE |
+| `/cash/transactions` | Cash transactions view | ACTIVE |
+| `/cash/archive` | Posted Cash instructions + immutable ledger | ACTIVE |
+| `/cash/submissions` | Cash submissions/review candidates with decisions | ACTIVE |
+| `/submissions` | My Submissions | ACTIVE |
+| `/register` | Vessel order/register view | ACTIVE |
+| `/vessel-register` | Vessel Register | ACTIVE |
+| `/vessel/register` | Nested Vessel Register | ACTIVE |
+| `/vessel/vessel-register` | Nested legacy Vessel Register | ACTIVE |
+| `/sources-review` | Review queue + Cash candidates | ACTIVE |
+| `/insights` | Operational metrics | ACTIVE |
+| `/income-expenditure` | Posted-ledger income/expense report | ACTIVE |
+| `/archive` | Audit trail + ledger archive | ACTIVE |
+| `/conversations` | Chat list with message counts | ACTIVE |
+| `/message-mirror` | Read-only message mirror with search | ACTIVE |
+| `/assistant` | Admin AI query page | ACTIVE |
+| `/employee` | Employee directory alias | ACTIVE |
+| `/employee/[phone]` | Employee profile/payment history | ACTIVE |
+| `/transactions/employee/[phone]` | Employee transaction history | ACTIVE |
+| `/signup`, `/public-site`, `/platform/*` | no current Phase 3 business page | LEGACY ONLY — OWNER DECISION |
 
 No API endpoint is redirected. No state-changing route is redirected.
-
----
-
 ## 4. Internal services
 
 | Service | Address |

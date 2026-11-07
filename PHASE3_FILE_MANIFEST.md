@@ -49,8 +49,28 @@
 | `docs/ADMIN_AUTH.md` | Admin authentication diagnosis and secure setup |
 | `docs/PRODUCTION_URLS.md` | Verified URLs and legacy compatibility matrix |
 | `docs/DNS_CLOUDFLARE_1014.md` | Cloudflare 1014 diagnosis and correction proposal |
-| `lib/legacy-redirects.ts` | Verified legacy browser redirects |
 | `app/(workspace)/assistant/page.tsx` | Admin Assistant page |
+| `app/(workspace)/transactions/page.tsx` | Cash transactions/ledger page |
+| `app/(workspace)/cash/transactions/page.tsx` | Cash transactions route |
+| `app/(workspace)/cash/archive/page.tsx` | Posted Cash archive/ledger |
+| `app/(workspace)/cash/submissions/page.tsx` | Cash submissions/review |
+| `app/(workspace)/submissions/page.tsx` | My Submissions |
+| `app/(workspace)/register/page.tsx` | Vessel register (legacy URL) |
+| `app/(workspace)/vessel-register/page.tsx` | Vessel register (legacy URL) |
+| `app/(workspace)/vessel/register/page.tsx` | Nested vessel register |
+| `app/(workspace)/vessel/vessel-register/page.tsx` | Nested legacy vessel register |
+| `app/(workspace)/sources-review/page.tsx` | Review queue page |
+| `app/(workspace)/insights/page.tsx` | Operational insights |
+| `app/(workspace)/income-expenditure/page.tsx` | Income/expenditure report |
+| `app/(workspace)/archive/page.tsx` | Audit/ledger archive |
+| `app/(workspace)/conversations/page.tsx` | Conversation list |
+| `app/(workspace)/message-mirror/page.tsx` | Message mirror |
+| `app/(workspace)/employee/page.tsx` | Employee directory alias |
+| `app/(workspace)/employee/[phone]/page.tsx` | Employee profile alias |
+| `app/(workspace)/transactions/employee/[phone]/page.tsx` | Employee transaction history |
+| `components/standalone/cash-transactions-view.tsx` | Shared Cash table |
+| `components/standalone/cash-submissions-view.tsx` | Shared submissions table |
+| `components/standalone/vessel-register-view.tsx` | Shared vessel table |
 | `components/standalone/assistant-console.tsx` | Assistant query UI |
 | `scripts/standalone/provision-users.mjs` | Two USER account provisioner |
 | `scripts/standalone/set-secret-password.mjs` | Secure interactive password-file writer |
