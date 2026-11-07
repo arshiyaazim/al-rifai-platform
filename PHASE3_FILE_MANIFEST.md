@@ -45,6 +45,8 @@
 | `lib/employee-identity.ts` | DB-backed employee identity resolution |
 | `lib/authorized-contacts.ts` | Effective-dated Accountant/contact registry |
 | `scripts/standalone/manage-authorized-contact.mjs` | Registry update CLI |
+| `scripts/standalone/provision-admin.mjs` | Explicit `.env` Admin provisioning/check/reset CLI |
+| `docs/ADMIN_AUTH.md` | Admin authentication diagnosis and secure setup |
 | `docs/ADAPTIVE_RULES.md` | Rule/identity/registry operating guide |
 | `scripts/standalone/backfill-cash-coverage.mjs` | Idempotent Cash coverage backfill; REVIEW only |
 | `scripts/standalone/repair-legacy-program-links.mjs` | Idempotent assignment/source/event repair for imported programs |
