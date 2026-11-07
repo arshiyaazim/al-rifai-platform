@@ -42,7 +42,8 @@ runs the router and Vessel intake (see the status table above). Historical
 release tags, rollback instructions and prior cutover history are deliberately
 preserved. **Note:** the historical "branch merged → main" line refers only to
 that 2026-11-06 cutover; `main` (`0861e05`) has **not** been merged with the
-current feature branch (`70fcebe`) — see `docs/MAIN_RECONCILIATION_PLAN.md`.
+current feature branch (see `git log` for its head) — see
+`docs/MAIN_RECONCILIATION_PLAN.md`.
 
 ---
 
@@ -491,7 +492,7 @@ See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 - **Runtime image (DEPLOYED 2026-11-07):** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
 - **Digest:** `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`
 - **Rollback image:** `local/al-rifai-platform:phase3-ai-rc-86d659a`, digest `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
-- **GitHub:** `arshiyaazim/al-rifai-platform`, `main` `0861e05`; deployed release `7da17f1`; feature branch `feature/phase3-router-cash-vessel` pushed (head `70fcebe`, not merged into `main`)
+- **GitHub:** `arshiyaazim/al-rifai-platform`, `main` `0861e05`; deployed release `7da17f1`; feature branch `feature/phase3-router-cash-vessel` pushed (head advances with documentation commits — see `git log`; not merged into `main`)
 - **Superseded candidate (Built but Not Deployed):** `phase3-ai-rc-9e85e49`, digest `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0`
 - **Verification image (Built but Not Deployed):** `phase3-ai-rc-675a3ef` — post-deployment workflow fixes
 
@@ -503,7 +504,7 @@ It contains **no schema change**; schema remains `1.5.0`. Business counts were
 identical before/after deployment and WhatsApp checkpoints were preserved.
 See `docs/PHASE3_GO_NO_GO_7da17f1.md` and `NEXT-HANDOFF.md`.
 
-The feature branch beyond `7da17f1` (commits `8b9b779`…`70fcebe`) adds
+The feature branch beyond `7da17f1` (commits `8b9b779` onward — see `git log`) adds
 employee-update `PATCH`, payroll capability gating, `TRANSFER` classification,
 the pure + durable Vessel Draft delivery queue, Admin delivery status UI and the
 Owner-assisted verification script. All of it is implemented and tested
