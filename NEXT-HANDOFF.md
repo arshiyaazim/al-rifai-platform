@@ -39,26 +39,30 @@ durable Vessel Draft delivery)
    now resolves both services to `7da17f1`; running container IDs/uptime
    unchanged (no restart/recreate); health still OK.
    Docs: `docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`, commit `00e25a7`.
-2. **Task 2 — authentication root cause (NO defect).** Traced the full pipeline.
-   The earlier `400 CREDENTIALS_REQUIRED` came from requests with an **empty
-   password**: `lib/unified-auth.ts:118` fires before user lookup/verification.
-   The 0-byte bootstrap files are read **only** by provisioning CLIs, never by
-   login. All three accounts are active with valid PBKDF2 hashes (118 chars,
-   correct format), unchanged roles/capabilities (ADMIN 30, USER 10/10), and
-   **6 historical successful `LOGIN` events + 2 live production sessions** prove
-   end-to-end auth works. Both hosts accept the origin allowlist, enforce
-   `ORIGIN_DENIED`, and return `401` for `/api/auth/session` without a cookie;
-   reverse proxy forwards headers; cookie is `__Host-alrifai_cash`
-   `HttpOnly; Secure; SameSite=Strict`. All 14 saved cookie jars are clone-only
-   (zero match production). **No credential was reset, rehashed, recreated or
-   re-permissioned.** Docs: `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`.
-3. **Task 3 — authenticated UI still NOT TESTED.** The Owner selected a
-   root-only VPS credentials file
-   (`/etc/vps/apps/al-rifai/verification-credentials.json`, `root:root`, `400`)
-   as the secure method, but **the file does not exist yet**. A full
+2. **Task 2 — authentication root cause (NO defect) + OWNER CONFIRMATION.**
+   Traced the full pipeline. The earlier `400 CREDENTIALS_REQUIRED` came from
+   requests with an **empty password**: `lib/unified-auth.ts:118` fires before
+   user lookup/verification. The 0-byte bootstrap files are read **only** by
+   provisioning CLIs, never by login. All three accounts have valid PBKDF2
+   hashes (118 chars, correct format), unchanged roles/capabilities (ADMIN 30,
+   USER 10/10), **8 successful `LOGIN` events + 4 live sessions**.
+   **The Owner explicitly confirms `Admin`, `officeassistant` and
+   `officeazzistant2` all log in with their current passwords — authentication
+   is operational, no reset/replacement/provisioning/hash/role change needed.**
+   Status distinction: **OWNER-CONFIRMED login** vs **AGENT-VERIFIED
+   authenticated UI (pending)**. 15 saved cookie jars remain clone-only (zero
+   production match). **No credential was changed.**
+   Docs: `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`.
+3. **Task 1 — authenticated UI still NOT TESTED (Agent).** The Owner selected
+   the **root-only session cookie jar** as the minimum secure access
+   (`/etc/vps/apps/al-rifai/verification-session.cookies`, `root:root`, `400`);
+   **it does not exist yet**, so no automated verification is claimed. Added
+   `scripts/owner-assisted-ui-verify.sh` — a read-only, `bash -n`-clean,
+   no-secret-output Owner-assisted procedure (27 routes × 2 hosts, nested URLs,
+   7 CSV exports, search/filters/pagination, role control counts). A full
    VERIFIED/PARTIAL/FAILED/NOT TESTED matrix with 41 read-only route checks on
    both hosts is in `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`. No 500s; all
-   protected routes 401/307. Do not paste passwords in chat/Git/docs.
+   protected routes 401/307. Never ask for passwords in chat/Git/docs.
 4. **Task 4 — durable Vessel Draft delivery infrastructure (implemented, NOT
    deployed, NOT enabled).**
    - Migration `db/standalone/010_vessel_draft_delivery.sql`: one new table
@@ -86,11 +90,15 @@ durable Vessel Draft delivery)
 
 ## Test evidence
 
-- Unit **133/133**, integration **133/133**, focused store integration **8/8**.
-- `tsc --noEmit` clean; lint 0 errors (3 pre-existing warnings).
-- Migration 010 applied/rolled back/re-appliable on a disposable production-schema clone.
-- No production image was built or deployed this session (Owner did not
-  approve a new release); UI verified with a local `next dev` against the clone.
+- Unit **133/133**, integration **133/133**, focused store integration **8/8**,
+  focused Task-3 re-run **31/31**, `tsc --noEmit` clean, lint 0 errors.
+- Migration 010 checksum `fa299768329105611153b977a6f6c1400372d5651d77f7125bc1c5c69817e7c7`;
+  applied/rolled back/re-appliable on a disposable production-schema clone.
+- **Compatibility verified:** current branch code runs unmodified against the
+  deployed 46-table schema — `deliveryTableAvailable()=false`, gate fully
+  disabled (`MANUAL_COPY_ONLY`, 5 reasons), `deliveryStatusForPrograms()` returns
+  0 rows. `7da17f1` does not contain the delivery module (added later).
+- No production image was built or deployed this session.
 
 ## Production safety evidence
 
@@ -105,12 +113,16 @@ durable Vessel Draft delivery)
 
 ## Issue priority order
 
-1. Owner writes the root-only credentials file → complete authenticated UI matrix.
+1. Owner writes the root-only **session cookie jar**
+   `/etc/vps/apps/al-rifai/verification-session.cookies` (or runs
+   `scripts/owner-assisted-ui-verify.sh`) → complete AGENT-VERIFIED /
+   OWNER-ASSISTED authenticated UI matrix. Login is already OWNER-CONFIRMED.
 2. Owner approves the 8 outbound activation items in
    `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` §7 (including migration 010, exact
    sender/recipient/scope/template/trigger/retry/live+rollback plan).
-3. Decide whether to build/deploy a candidate containing `675a3ef` + Task 4 code
-   (fresh backup required; rollback `7da17f1`).
+3. Decide whether to build/deploy a candidate containing `675a3ef` + delivery
+   code (fresh backup required; rollback `7da17f1`; compatible with 46-table
+   schema).
 4. Manual review of the 7 historical `RELEASE_UNSTRUCTURED` items.
 5. Vessel release ↔ attendance linkage; program pay / payroll unresolved cases.
 6. Legacy Cashbook/archive, reconciliation and site settlements mapping.
@@ -133,10 +145,13 @@ durable Vessel Draft delivery)
 
 ## Exact next task and starting files
 
-1. Owner creates `/etc/vps/apps/al-rifai/verification-credentials.json` via a
-   non-echoing method (format in `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md` §6).
-   Agent then re-runs `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` with
-   authenticated read-only requests and deletes the file.
+1. Owner writes the root-only session cookie jar
+   `/etc/vps/apps/al-rifai/verification-session.cookies` (`root:root`, `400`)
+   with one valid production session, or runs
+   `scripts/owner-assisted-ui-verify.sh` themselves and shares only its
+   non-secret output. Agent then re-runs
+   `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` with authenticated GET-only
+   requests and deletes the artifacts. Login is OWNER-CONFIRMED; never reset.
 2. Owner reviews `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` §5 (exact draft example),
    §6 (single-message verification procedure) and §7 (8 approvals).
 3. If a further release is approved: fresh backup, build/deploy the current

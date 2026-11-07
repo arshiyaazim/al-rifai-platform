@@ -190,15 +190,17 @@ backup restore was used to roll back code.
 
 ## 4c. Authenticated production UI test matrix (Task 3)
 
-**Exact authentication blocker (refined 2026-11-07):** the three password files
-are 0 bytes but they are **provisioning-only** and do not invalidate the stored
+**Authentication status (refined 2026-11-07):** the three password files are
+0 bytes but they are **provisioning-only** and do not invalidate the stored
 hashes. The earlier `400 CREDENTIALS_REQUIRED` came from an **empty password**
 submission (`lib/unified-auth.ts:118`), before any lookup. All three accounts
-have valid PBKDF2 hashes, correct roles/capabilities, 6 historical successful
-`LOGIN` events and 2 live production sessions — the pipeline is healthy. The
-Agent simply has no plaintext password and no production session cookie. No
-password was reset, no account created, no role changed. Full trace:
-`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`; full matrix:
+have valid PBKDF2 hashes and correct roles/capabilities, **8 successful `LOGIN`
+events and 4 live sessions**. **OWNER-CONFIRMED:** the Owner confirms all three
+accounts log in with their current passwords — authentication is operational,
+not broken; no reset/replacement/hash/role change needed. **AGENT-VERIFIED
+authenticated UI remains NOT TESTED** only because the Agent has no production
+session cookie; minimum secure access (root-only session cookie jar) selected.
+Full trace: `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`; full matrix:
 `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`.
 
 Status legend: **VERIFIED** (read-only live check passed), **PARTIAL**,

@@ -5,6 +5,14 @@ recreated, rehashed or re-permissioned.** Root cause of the unverified
 authenticated UI: the Agent does not possess the plaintext passwords (or a
 production session cookie), **not** invalid stored hashes or a broken pipeline.
 
+**OWNER-CONFIRMED (2026-11-07):** the Owner confirms all three existing
+accounts — `Admin`, `officeassistant`, `officeazzistant2` — successfully log in
+with their **current** passwords. Authentication is operational from the
+Owner's perspective. No reset, replacement account, provisioning, hash/role or
+capability change is required. This is **OWNER-CONFIRMED**, distinct from
+**AGENT-VERIFIED** authenticated UI functionality, which remains pending until
+the Agent independently completes it with a session.
+
 **Migration status:** NO MIGRATION.
 
 ---
@@ -70,9 +78,11 @@ printed or logged**. Effective capabilities were computed with the pure
 `resolveCapabilities()` against the stored grants.
 
 **Historical successful logins (production `cash_portal_audit`, action `LOGIN`,
-surface `unified`):** 6 events, most recent **2026-11-07 13:40:16 UTC**;
-`cash_portal_sessions` currently holds **2 unexpired sessions**. This is
-definitive proof that the existing passwords work end-to-end on production.
+surface `unified`):** **8 events** — 6 earlier plus 2 new ones at
+**2026-11-07 15:21:51 UTC** and **15:24:28 UTC** matching the Owner's
+confirmation logins. `cash_portal_sessions` holds **4 unexpired sessions**.
+Together with the Owner's explicit confirmation this is definitive proof that
+the existing passwords work end-to-end on production.
 
 ## 4. Both hosts route authentication correctly
 
@@ -91,37 +101,50 @@ rows created — `login_throttle_state` remained 0 before and after):
 A 400 (rather than 403/404/500) confirms the origin was accepted and the login
 route was reached on both hosts.
 
-## 5. Why the Agent still cannot complete authenticated verification
+## 5. Why AGENT-VERIFIED authenticated UI is still pending
 
-All saved cookie jars in `/tmp` were checked by hashing their token and matching
-against `cash_portal_sessions.id`; **14 tokens were found but all 14 match only
-the isolated clone DB** (`alrifai_v2_import_test`), **zero** match production.
-No production session cookie is available to the Agent, and no plaintext
-password is available.
+**Authentication itself is NOT broken** — the Owner has confirmed all three
+accounts work and the audit evidence (§3) proves it. What is missing is only
+Agent-side access to an authenticated session:
 
-**Conclusion:** no fix is required; no candidate image is required. Preserve the
-existing passwords and hashes exactly.
+- All saved cookie jars in `/tmp` were checked by hashing their token and
+  matching against `cash_portal_sessions.id`; **15 tokens were found but all 15
+  match only the isolated clone DB** (`alrifai_v2_import_test`), **zero** match
+  production, even after the Owner's 2 new logins.
+- No plaintext password is available to the Agent, and no credentials file or
+  session cookie jar has been placed on the VPS.
 
-## 6. Approved secure method to supply access (Owner chose this)
+**Conclusion:** no fix, no reset, no candidate image is required. Preserve the
+existing passwords and hashes exactly. Keep the status distinction:
+**OWNER-CONFIRMED login** (done) vs **AGENT-VERIFIED authenticated UI**
+(pending).
 
-The Owner selected **root-only VPS credentials file**. The Agent does **not**
-create this file and does **not** know its contents. Expected contract:
+## 6. Minimum secure access requested (Owner chose this)
 
-- Path: `/etc/vps/apps/al-rifai/verification-credentials.json`
-- Owner / mode: `root:root`, `400`
-- Format (no secret values in this document):
-  ```json
-  {"Admin":"<password>","officeassistant":"<password>","officeazzistant2":"<password>"}
-  ```
-- Owner writes it with an interactive, non-echoing method (e.g.
-  `scripts/standalone/set-secret-password.mjs`-style prompt or a secure secret
-  manager). **Never** in Git, documentation or ordinary chat.
-- Agent reads it into memory only (never printed, never logged), performs the
-  login/read-only UI matrix, then deletes the file.
-- No reset, no hash change, no role/permission change, no new account.
+The Owner selected **root-only production session cookie jar** — least exposure,
+no password handling. The Agent does **not** create this file and never sees the
+cookie value in any output.
 
-As of this report the file does **not** exist; Task 3 therefore remains
-**NOT TESTED** for all authenticated features.
+- Path: `/etc/vps/apps/al-rifai/verification-session.cookies`
+- Owner / mode: `root:root`, `400`; Netscape cookie-jar format with ONE valid
+  `__Host-alrifai_cash` cookie for `app.al-rifai.iamazim.com`.
+- Owner writes it from their already-authenticated browser session; **never** in
+  Git, documentation or ordinary chat.
+- Agent uses `curl -b <jar>` for **GET-only** read-only checks, prints only
+  derived non-secret evidence (status codes, headings, table/input/button
+  counts, CSV content-type/size), then deletes the jar and all temp output.
+- No reset, no hash change, no role/permission change, no new account, no POST,
+  no logout (logout revokes a session and needs separate explicit authorisation).
+
+**Structured Owner-assisted alternative:** if the Owner prefers not to hand over
+even a cookie jar, they can run
+`scripts/owner-assisted-ui-verify.sh` themselves with their own cookie jar and
+share only its non-secret output. The script is `bash -n` clean and contains no
+secret values. Both paths are documented in
+`docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` §1.
+
+As of this report the jar does **not** exist; all authenticated features remain
+**NOT TESTED (Agent)** while login is **OWNER-CONFIRMED**.
 
 ## 7. Do-not-do list (all honoured)
 

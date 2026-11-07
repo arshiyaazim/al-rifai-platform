@@ -34,6 +34,15 @@ and require a new candidate + Owner approval before deployment. Fixes 1–4 are
 in `7da17f1` and are **production-deployed**. Fix 8 is a production config
 change (Owner-approved, no container change); fix 9 is diagnosis only.
 
+**Resolved history (retained):** generic legacy redirects → 19 pages; nested
+employee 500; `[object Date]` program-detail 500; legacy-host
+`ORIGIN_DENIED`; UI role gaps; escort-name fallback; unstructured release
+parsing; `7da17f1` deployment; verified pre-deploy backup; `.env` tag
+alignment; employee `PATCH`; payroll gating; TRANSFER classification; pure +
+durable delivery queue; **Owner-confirmed login for all 3 accounts (no defect,
+no reset)**; root-only session-cookie-jar access method + Owner-assisted
+verification script.
+
 ### Clone verification of fixes 5–7 (image `phase3-ai-rc-675a3ef`)
 
 - Payroll: ADMIN sees "Configure a rate" / "Save rate"; USER sees neither; both
@@ -62,7 +71,7 @@ change (Owner-approved, no container change); fix 9 is diagnosis only.
 
 | # | Area | Gap | Proposed next step | Starting files |
 |---|---|---|---|---|
-| 1 | Production authentication | Auth pipeline is healthy but the Agent has no plaintext password / production session cookie; authenticated UI NOT TESTED | Owner writes root-only `/etc/vps/apps/al-rifai/verification-credentials.json`; Agent reads without printing, verifies, deletes. **Never reset** | `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`, `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` |
+| 1 | Production authentication | **OWNER-CONFIRMED** login for all 3 accounts (not broken, no reset needed). AGENT-VERIFIED authenticated UI still pending: no production session cookie | Owner writes root-only `/etc/vps/apps/al-rifai/verification-session.cookies` (`root:root`, 400) or runs `scripts/owner-assisted-ui-verify.sh`; Agent performs GET-only checks, deletes artifacts | `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`, `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`, `scripts/owner-assisted-ui-verify.sh` |
 | 2 | Vessel Draft delivery | Outbound transport not enabled (correctly gated); 8 approvals pending including migration 010 | Owner approves exact sender/recipient/account/chat scope/template/trigger/retry/migration/live+rollback plan | `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` §5–§7, `lib/standalone/vessel-draft-delivery-store.ts` |
 | 3 | Deploy current branch code | `675a3ef` + Task 4 code (employee PATCH, payroll gating, TRANSFER, durable delivery UI) not deployed | Fresh backup + new candidate + Owner approval; rollback `7da17f1` | `NEXT-HANDOFF.md` |
 | 4 | Vessel release + attendance workflow | Attendance is recorded manually; there is no automatic link between a released program and duty attendance | Define the explicit link (no automation without approval); keep both workflows readable/auditable | `lib/standalone/attendance.ts`, `lib/standalone/programs.ts` |
@@ -73,6 +82,26 @@ change (Owner-approved, no container change); fix 9 is diagnosis only.
 | 9 | Historical release items | 7 items remain pending for human decision | Manual review in `/review`; do not auto-apply | `docs/HISTORICAL_RELEASE_REVIEW_20261107.md` |
 | 10 | `al-rifai.iamazim.com` | Cloudflare 1014 (HTTP 403 body) | Owner DNS decision | `docs/DNS_CLOUDFLARE_1014.md` |
 | 11 | Git sync | `main` `0861e05` does not contain the code fixes | Merge `feature/phase3-router-cash-vessel` after deployment | — |
+
+## 3a. Test results (current branch)
+
+- Unit **133/133**, integration **133/133**, focused delivery/auth re-run
+  **31/31**, `tsc --noEmit` clean, lint 0 errors (3 pre-existing warnings).
+- Migration 010 SHA-256 `fa299768…8e7c7`; apply/verify/rollback/re-apply on a
+  disposable clone of the production schema; legacy counts unchanged.
+- Compatibility: current branch code runs unmodified on the deployed 46-table
+  schema (`deliveryTableAvailable()=false`, gate disabled with 5 reasons,
+  `MANUAL_COPY_ONLY`, 0 delivery rows).
+- `scripts/owner-assisted-ui-verify.sh` `bash -n` clean; prints no cookie,
+  session body, CSRF value or secret; EXIT trap removes temp files.
+- No production image built/deployed, no migration applied, no outbound message.
+
+## 3b. Exact next starting files
+
+1. `scripts/owner-assisted-ui-verify.sh` + `/etc/vps/apps/al-rifai/verification-session.cookies` → complete `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`.
+2. `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` §9 (release/activation plan) and §7 (8 approvals).
+3. `db/standalone/010_vessel_draft_delivery.sql`, `lib/standalone/vessel-draft-delivery-store.ts`, `app/(workspace)/vessel/drafts/page.tsx`.
+4. `docs/HISTORICAL_RELEASE_REVIEW_20261107.md` for the 7 manual review items.
 
 ## 4. Explicitly out of scope
 

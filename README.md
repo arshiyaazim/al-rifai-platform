@@ -488,13 +488,17 @@ Cash: `/cash`. Vessel: `/vessel`. Vessel Order Drafts: `/vessel/drafts`
 (**deployed** on `7da17f1`). Employees: `/employees`. Attendance:
 `/attendance`. Reports: `/reports`. Review: `/review`. Messages: `/messages`.
 
-**Authenticated production UI verification is still NOT TESTED:** the auth
-pipeline is healthy, but the Agent has no plaintext password and no production
-session cookie (the earlier `400 CREDENTIALS_REQUIRED` was caused by an empty
-password, not a defect). The Owner selected a root-only VPS credentials file as
-the secure method; it does not exist yet. Unauthenticated health, login page,
-41 route protections and auth origin/validation were verified on both hosts.
-See `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md` and
+**OWNER-CONFIRMED login:** the Owner confirms `Admin`, `officeassistant` and
+`officeazzistant2` all log in with their current passwords — authentication is
+operational, not broken (8 `LOGIN` events, 4 live sessions); no reset,
+replacement account, hash, role or capability change was made.
+**AGENT-VERIFIED authenticated UI is still NOT TESTED:** no production session
+cookie is available to the Agent. Minimum secure access selected: root-only
+session cookie jar `/etc/vps/apps/al-rifai/verification-session.cookies` (not
+yet provided), or the read-only `scripts/owner-assisted-ui-verify.sh` run by the
+Owner. Unauthenticated health, login page, 41 route protections and auth
+origin/validation were verified on both hosts. See
+`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md` and
 `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`.
 
 See `docs/PRODUCTION_URLS.md` for the full route and legacy compatibility

@@ -255,3 +255,99 @@ no outbound message, no production migration.
 | `lib/order-draft-template.ts` | Exact Owner draft layout |
 | `lib/standalone/whatsapp.ts` (`applyConfirmation`) | Unchanged confirmation rule |
 | `lib/ai/sender.ts` | Reference pattern (WA-02 only, disabled) |
+
+---
+
+## 9. Next Vessel Draft delivery release — review and activation plan
+
+**Status:** PREPARED ONLY. No migration applied, no image built/deployed, no
+outbound enabled. Production remains `phase3-ai-rc-7da17f1` / schema `1.5.0` /
+`schema_migrations` max `009` / 46 tables.
+
+### 9.1 Feature-branch review (commits after deployed `7da17f1`)
+
+Code commits: `ed78ec2` (pure delivery state machine + 12 tests), `d533939`
+(TRANSFER classification + 7 historical regressions), `675a3ef` (employee
+update `PATCH`, payroll rate gating), `3e0dd01` (migration 010, durable store,
+Admin status UI, tooling, 8 integration tests). Remaining commits are docs.
+Changed code paths: `lib/vessel-draft-delivery.ts`,
+`lib/standalone/vessel-draft-delivery-store.ts`,
+`db/standalone/010_vessel_draft_delivery.sql`,
+`lib/release-slip.ts`, `lib/message-router.ts`, `lib/review-ui.ts`,
+`lib/action-form-request.ts`, `components/standalone/action-form.tsx`,
+`app/(workspace)/{cash,settings,vessel,payroll,employees/[mobile],vessel/drafts}/page.tsx`,
+`scripts/standalone/{install,grants}.mjs`, `.github/workflows/ci.yml`, three
+test reset helpers, `package.json`.
+
+### 9.2 Delivery store and migration 010 verified
+
+- `lib/standalone/vessel-draft-delivery-store.ts`: idempotent enqueue,
+  `FOR UPDATE SKIP LOCKED` claim, bounded retry/backoff, terminal
+  `DELIVERY_UNKNOWN`, worker-restart lease recovery, audit trail via
+  `audit_events`, Admin status, five-block `runtimeDeliveryGate()`,
+  prepared-but-never-executed request. **No `send_message` call.**
+- Migration `010` SHA-256
+  `fa299768329105611153b977a6f6c1400372d5651d77f7125bc1c5c69817e7c7`; applied,
+  verified and rolled back on a disposable clone of the exact production
+  schema; legacy counts unchanged; re-appliable.
+- Tests: 12 pure + 8 durable-store integration; focused re-run **31/31**;
+  full unit **133/133**, integration **133/133**, typecheck clean, lint 0 errors.
+
+### 9.3 Compatibility with the currently deployed release
+
+- `7da17f1` does **not** contain the delivery module (added later). A new image
+  built from the current branch is additive: no column, enum or table change is
+  required at deploy time.
+- Verified against the deployed **46-table** schema: `deliveryTableAvailable()`
+  → `false`, `runtimeDeliveryGate()` → disabled with 5 reasons and
+  `MANUAL_COPY_ONLY`, `deliveryStatusForPrograms()` → 0 rows. The
+  `/vessel/drafts` page degrades gracefully (verified on a local dev server
+  against the clone DB both with the table absent and with a synthetic QUEUED
+  record).
+- Therefore the application release and migration 010 are **independently
+  approvable**; deploying the image does not require the migration.
+
+### 9.4 Exact missing WhatsApp transport integration
+
+| Missing piece | Evidence |
+|---|---|
+| `messages.send` capability | WA-01 policy has only read capabilities + `calls.policy.write`; `has_messages_send=false`. WA-02 is `native.identity.read` only. |
+| Narrow sender token/socket | `ALRIFAI_VESSEL_DRAFT_SENDER_SOCKET` / `_TOKEN_FILE` absent from `.env`. |
+| Approved identities | `ALRIFAI_VESSEL_DRAFT_SENDER_JID` / `_RECIPIENT_JID` absent; no Owner-approved recipient JID exists. |
+| Two kill switches | `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED` absent; `app_settings.vessel_draft_outbound_enabled` absent. |
+| Delivery worker | No caller of `claimDueDeliveries()` / `prepareDeliveryRequest()` exists; no `send_message` call in the delivery path (only `lib/ai/sender.ts` for WA-02, disabled). |
+| Durable table in production | `vessel_draft_deliveries` ABSENT; migration 010 not applied. |
+
+The single smallest integration is: one narrow WA-01 consumer token with
+`messages.send` scoped to the approved Admin JID, plus one `send_message` socket
+call per claimed record driven by `claimDueDeliveries()` →
+`prepareDeliveryRequest()`, persisting the outcome with
+`applyDeliveryOutcomeToStore()`. Everything else (queue, idempotency, retry,
+audit, status, gate, template) already exists.
+
+### 9.5 Smallest safe release and activation plan (all steps need approval)
+
+1. **Release (no outbound):** fresh verified backup → build one image from the
+   current branch → `ALRIFAI_TAG=<new> docker compose ... up -d app sync` →
+   verify health/schema/counts/routes. **Do NOT apply migration 010.** The
+   delivery UI shows "not configured / MANUAL_COPY_ONLY". Rollback:
+   `ALRIFAI_TAG=phase3-ai-rc-7da17f1` (or `86d659a` for the older release).
+2. **Migration (separate approval):** apply `010_vessel_draft_delivery.sql`
+   via `scripts/standalone/migrate.mjs`; verify 46→47 tables, ledger `010`,
+   schema still `1.5.0`, legacy counts unchanged. Rollback: drop table + delete
+   ledger row `010` (simulated on a disposable clone).
+3. **Outbound activation (separate approval):** set the 5 gate blocks, add the
+   narrow `messages.send` token, then perform the controlled single-message
+   verification in §6. Kill switch off immediately afterwards if any check fails.
+4. **Confirmation stays unchanged:** `applyConfirmation()` still requires the
+   Admin's completed outgoing reply in the original order-giving chat.
+
+### 9.6 Approvals required before any of §9.5 executes
+
+- Explicit approval to build/deploy a new production image (fresh backup).
+- Explicit approval to apply migration 010.
+- The 8 outbound activation approvals in §7 (sender, recipient, chat scope,
+  template, trigger, retry, migration, live+rollback plan).
+
+Until then: `MANUAL_COPY_ONLY`, no `messages.send`, no WhatsApp message, no
+production migration, no new image.

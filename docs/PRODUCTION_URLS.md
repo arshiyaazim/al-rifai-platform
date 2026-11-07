@@ -123,9 +123,12 @@ Admin provisioning and user provisioning are documented in
 **Authenticated verification status (2026-11-07):** unauthenticated surfaces
 were live-verified on both working hosts (health 200, `/login` 200, 41 protected
 pages 307→`/login` or 401, `/api/*` 401; auth origin/validation branches
-checked). Full authenticated UI verification is **NOT TESTED**: the auth
-pipeline is healthy (valid hashes, 6 historical logins, 2 live sessions) but the
-Agent has no plaintext password / production session cookie. The earlier
-`400 CREDENTIALS_REQUIRED` came from an empty password, not a defect. No
-credential was reset. See `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md` and
+checked). **OWNER-CONFIRMED:** all three existing accounts log in with their
+current passwords (8 `LOGIN` events, 4 live sessions) — authentication is
+operational, not broken; no credential change. **AGENT-VERIFIED authenticated
+UI is still NOT TESTED** because the Agent has no production session cookie.
+Minimum secure access selected: root-only session cookie jar; a read-only
+Owner-assisted script is provided. The earlier `400 CREDENTIALS_REQUIRED` came
+from an empty password, not a defect. See
+`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md` and
 `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` for the per-feature matrix.
