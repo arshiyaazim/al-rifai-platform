@@ -150,8 +150,9 @@ export function isReleaseSlip(text: string): boolean {
 export type UnstructuredReleaseKind =
   | 'EMPTY'
   | 'CANCELLATION'
-  | 'FOOD_BILL'
+  | 'TRANSFER'
   | 'REPLACEMENT'
+  | 'FOOD_BILL'
   | 'OTHER';
 
 export type UnstructuredReleaseEvidence = {
@@ -178,7 +179,8 @@ export type UnstructuredReleaseEvidence = {
 };
 
 const CANCELLATION_PATTERN = /can+[cs]?[ae]l+ed|can+cel+ation|ক্যান্সেল|বাতিল|cancaled|cancelled|cancellation/i;
-const REPLACEMENT_PATTERN = /replac|relac|replaced|replacement|বদল|পরিবর্ত|রিপ্লেস|transfer/i;
+const TRANSFER_PATTERN = /নেমে|উঠছে|উঠে|বদলি|transfer|shifted|re-?board/i;
+const REPLACEMENT_PATTERN = /replac|relac|replaced|replacement|বদল|পরিবর্ত|রিপ্লেস/i;
 const FOOD_PATTERN = /food\s*bill|খাবার\s*বিল|খাবার|বিল/i;
 const TRANSPORT_PATTERN = /গাড়ি\s*ভাড়া|বুট\s*ভাড়া|ভাড়া|car\s*rent|boat\s*rent/i;
 
@@ -260,6 +262,8 @@ export function parseUnstructuredRelease(text: string): UnstructuredReleaseEvide
   const matchedTokens: string[] = [];
   const cancelMatch = CANCELLATION_PATTERN.exec(normalized);
   if (cancelMatch) { kinds.push('CANCELLATION'); matchedTokens.push(cancelMatch[0]); }
+  const transferMatch = TRANSFER_PATTERN.exec(normalized);
+  if (transferMatch) { kinds.push('TRANSFER'); matchedTokens.push(transferMatch[0]); }
   const replaceMatch = REPLACEMENT_PATTERN.exec(normalized);
   if (replaceMatch) { kinds.push('REPLACEMENT'); matchedTokens.push(replaceMatch[0]); }
   const foodMatch = FOOD_PATTERN.exec(normalized);
@@ -268,15 +272,20 @@ export function parseUnstructuredRelease(text: string): UnstructuredReleaseEvide
   if (transportMatch) matchedTokens.push(transportMatch[0]);
 
   const resolvedFoodBill = foodBill(normalized);
+  // A transfer is more specific than a cancellation: "Othoi-Cancaled ... boarded
+  // another vessel" is both, but the actionable outcome is a transfer. Both
+  // kinds are retained in `kinds` so a reviewer sees the whole picture.
   const kind: UnstructuredReleaseKind = !trimmed
     ? 'EMPTY'
-    : kinds.includes('CANCELLATION')
-      ? 'CANCELLATION'
-      : kinds.includes('REPLACEMENT')
-        ? 'REPLACEMENT'
-        : resolvedFoodBill !== null || kinds.includes('FOOD_BILL')
-          ? 'FOOD_BILL'
-          : 'OTHER';
+    : kinds.includes('TRANSFER')
+      ? 'TRANSFER'
+      : kinds.includes('CANCELLATION')
+        ? 'CANCELLATION'
+        : kinds.includes('REPLACEMENT')
+          ? 'REPLACEMENT'
+          : resolvedFoodBill !== null || kinds.includes('FOOD_BILL')
+            ? 'FOOD_BILL'
+            : 'OTHER';
 
   const fields: UnstructuredReleaseEvidence['fields'] = {
     motherVessel: motherCleaned,
@@ -301,8 +310,9 @@ export function parseUnstructuredRelease(text: string): UnstructuredReleaseEvide
   if (!fields.escortMobile) reasons.push('NO_ESCORT_MOBILE');
   if (mobileCandidates.length > 1) reasons.push('MULTIPLE_MOBILES');
   if (lighterCancel.hadSuffix) reasons.push('LIGHTER_NAME_HAS_CANCEL_SUFFIX');
-  if (kind === 'CANCELLATION') reasons.push('CANCELLATION_NOT_AUTO_APPLIED');
-  if (kind === 'REPLACEMENT') reasons.push('REPLACEMENT_NOT_AUTO_APPLIED');
+  if (kinds.includes('CANCELLATION')) reasons.push('CANCELLATION_NOT_AUTO_APPLIED');
+  if (kinds.includes('TRANSFER')) reasons.push('TRANSFER_NOT_AUTO_APPLIED');
+  if (kinds.includes('REPLACEMENT')) reasons.push('REPLACEMENT_NOT_AUTO_APPLIED');
   if (fields.foodBillMinor !== null) reasons.push('FOOD_BILL_NOT_AUTO_POSTED');
 
   return {kind, kinds, fields, matchedTokens, reasons};

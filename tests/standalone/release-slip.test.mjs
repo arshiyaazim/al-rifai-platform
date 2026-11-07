@@ -122,7 +122,9 @@ test('unstructured release: inline -Cancaled lighter name is cleaned but flagged
   const evidence = parseUnstructuredRelease(
     'D: 01920547773 Md.Nurun Nabi 01815282644(B)  Righter v.s.:-Othoi-Cancaled, ব্যাচেল অথৈ থেকে নেমে ঘুডে করে ভেসেল খাতিজা খাতুনে উঠছে বুট ভাড়া',
   );
-  assert.equal(evidence.kind, 'CANCELLATION');
+  assert.equal(evidence.kind, 'TRANSFER');
+  assert.ok(evidence.kinds.includes('CANCELLATION'));
+  assert.ok(evidence.kinds.includes('TRANSFER'));
   assert.equal(evidence.fields.lighterVessel, 'Othoi');
   assert.ok(evidence.reasons.includes('LIGHTER_NAME_HAS_CANCEL_SUFFIX'));
   assert.equal(evidence.fields.escortMobile, '01920547773');

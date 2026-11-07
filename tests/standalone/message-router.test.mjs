@@ -1155,6 +1155,30 @@ test('release: empty release-group message is preserved as review evidence', asy
   assert.ok(item.payload.reasons.includes('EMPTY_MESSAGE'));
 });
 
+test('release: transfer evidence is classified and kept pending', async () => {
+  await ensureAccount('wa-01');
+  await ensureReleaseGroup();
+  const created = await createProgram(admin, {
+    motherVessel: 'Union-Odyssey', lighterVessel: 'Othoi-1',
+    escortMobile: '01920547773', escortName: 'Md.Nurun Nabi',
+    startDate: '2026-11-02', startShift: 'D',
+  });
+  await stageMessage('wa-01', RELEASE_GROUP, 'msg-release-transfer-1', 'INCOMING', '8801722222222@s.whatsapp.net',
+    'D: 01920547773 Md.Nurun Nabi 01815282644(B)  Righter v.s.:-Othoi-Cancaled, ব্যাচেল অথৈ থেকে নেমে ঘুডে করে ভেসেল খাতিজা খাতুনে উঠছে বুট ভাড়া');
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.releases, 0);
+  assert.equal(result.reviewItems, 1);
+  const item = await row("SELECT payload FROM review_items WHERE domain='PROGRAM' ORDER BY created_at DESC LIMIT 1");
+  assert.equal(item.payload.releaseCategory, 'RELEASE_TRANSFER_CANDIDATE');
+  assert.ok(item.payload.evidenceKinds.includes('CANCELLATION'));
+  assert.ok(item.payload.evidenceKinds.includes('TRANSFER'));
+  assert.equal(item.payload.extractedFields.lighterVessel, 'Othoi');
+  assert.deepEqual(item.payload.candidateProgramIds, [created.program.id]);
+  assert.ok(item.payload.reasons.includes('TRANSFER_NOT_AUTO_APPLIED'));
+  const program = await row('SELECT state FROM programs WHERE id = $1', [created.program.id]);
+  assert.equal(program.state, 'ASSIGNED');
+});
+
 test('release: incomplete slip is reviewed and never releases', async () => {
   await ensureAccount('wa-01');
   await ensureReleaseGroup();

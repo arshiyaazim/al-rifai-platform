@@ -751,13 +751,15 @@ async function handleVessel(
       const candidates = await matchUnstructuredReleaseCandidates(evidence.fields);
       const releaseCategory = evidence.kind === 'EMPTY'
         ? 'RELEASE_EMPTY_MESSAGE'
-        : evidence.kind === 'CANCELLATION'
-          ? 'RELEASE_CANCELLATION_CANDIDATE'
-          : evidence.kind === 'REPLACEMENT'
-            ? 'RELEASE_REPLACEMENT_CANDIDATE'
-            : evidence.kind === 'FOOD_BILL'
-              ? 'RELEASE_FOOD_BILL_CANDIDATE'
-              : 'RELEASE_UNSTRUCTURED';
+        : evidence.kind === 'TRANSFER'
+          ? 'RELEASE_TRANSFER_CANDIDATE'
+          : evidence.kind === 'CANCELLATION'
+            ? 'RELEASE_CANCELLATION_CANDIDATE'
+            : evidence.kind === 'REPLACEMENT'
+              ? 'RELEASE_REPLACEMENT_CANDIDATE'
+              : evidence.kind === 'FOOD_BILL'
+                ? 'RELEASE_FOOD_BILL_CANDIDATE'
+                : 'RELEASE_UNSTRUCTURED';
       const submitted = await submitReviewItem(actor, 'PROGRAM', 'UPDATE', message.message_id,
         'EXTRACTION_FAILED', {
           sourceMessageId: message.message_id,
