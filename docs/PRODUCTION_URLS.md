@@ -12,7 +12,7 @@
 | Hostname | DNS | Public result | TLS | Status |
 |---|---|---|---|---|
 | `app.al-rifai.iamazim.com` | A `5.189.131.48` | 307 → `/dashboard`; `/login` 200 | valid; SAN app + alrifai | **CANONICAL — VERIFIED** |
-| `alrifai.iamazim.com` | A `5.189.131.48` | 307 → `/dashboard`; `/login` 200 | valid; SAN app + alrifai | **LEGACY ALIAS — VERIFIED** |
+| `alrifai.iamazim.com` | A `5.189.131.48` | 307 → `/dashboard`; `/login` 200; login API accepts origin | valid; SAN app + alrifai | **LEGACY ALIAS — VERIFIED** |
 | `al-rifai.iamazim.com` | CNAME `custom-domains.chatgpt.site` → Cloudflare 104.18.x | **Cloudflare 1014** | Cloudflare edge | **BROKEN — DNS REPAIR REQUIRED** |
 
 The origin is this VPS at `5.189.131.48`. The Phase 3 container publishes
@@ -25,7 +25,7 @@ managed by a different Cloudflare account. Cloudflare rejects cross-account
 CNAME targets with **1014 CNAME Cross-User Banned**. The application is not the
 cause; the DNS target is.
 
-The canonical and legacy hosts both have A records to the origin and work.
+The canonical and legacy hosts both have A records to the origin and work. Both exact hosts are in `ALRIFAI_UNIFIED_ORIGINS`, so login from either reaches credential verification.
 
 ---
 

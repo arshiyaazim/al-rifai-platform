@@ -17,9 +17,17 @@ Production Admin login is pending one Owner-supplied credential action.
 - No failed-login throttle/audit record is present; this is a credential/
   provisioning mismatch, not a lockout, origin failure or hash incompatibility.
 
-Therefore the `.env` Admin requirement was documented but not operational: no
-password exists there, no provisioning ran, and the configured username does not
-match the existing Admin account.
+A second, independent defect was found and fixed: `ALRIFAI_UNIFIED_ORIGINS`
+contained only `https://app.al-rifai.iamazim.com`. Logging in from the working
+legacy host `https://alrifai.iamazim.com` therefore returned
+`403 ORIGIN_DENIED` before the password was checked. The exact legacy origins
+were added to the allowlist and the app was recreated. The legacy host now
+reaches credential verification (`401 INVALID_CREDENTIALS` for a wrong
+password), not origin denial.
+
+The `.env` Admin requirement was still not operational: no password exists,
+no provisioning ran, and the configured username did not match the existing
+Admin account.
 
 ---
 
@@ -101,6 +109,7 @@ The production `.env` now contains the supported references:
 ALRIFAI_BOOTSTRAP_ADMIN_USERNAME=Admin
 ALRIFAI_BOOTSTRAP_ADMIN_PASSWORD_FILE=/etc/vps/apps/al-rifai/admin-bootstrap-password
 ALRIFAI_BOOTSTRAP_ADMIN_NAME=Admin
+ALRIFAI_UNIFIED_ORIGINS=https://app.al-rifai.iamazim.com,https://alrifai.iamazim.com,https://al-rifai.iamazim.com
 ALRIFAI_APP_USER_1_USERNAME=officeassistant
 ALRIFAI_APP_USER_1_PASSWORD_FILE=/etc/vps/apps/al-rifai/user-1-password
 ALRIFAI_APP_USER_2_USERNAME=officeazzistant2
