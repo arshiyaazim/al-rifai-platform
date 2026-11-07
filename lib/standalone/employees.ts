@@ -17,6 +17,52 @@ export type EmployeeRow = {
   updated_at: string;
 };
 
+export type EmployeeSuggestion = Pick<
+  EmployeeRow,
+  'employee_mobile' | 'preferred_name' | 'name_aliases' | 'designation' | 'state'
+>;
+
+export const EMPLOYEE_SUGGESTION_LIMIT = 10;
+
+function mobileSearchKey(digits: string): string | null {
+  if (/^01[3-9][0-9]{8}$/.test(digits)) return `+88${digits}`;
+  if (/^8801[3-9][0-9]{8}$/.test(digits)) return `+${digits}`;
+  return null;
+}
+
+/**
+ * Cash employee typeahead. The verified employee identifier in this schema is
+ * `employees.employee_mobile` (the primary key); no second identifier is
+ * invented. Search covers the preferred name, recorded aliases and mobile.
+ */
+export async function searchEmployees(query: string, limit = EMPLOYEE_SUGGESTION_LIMIT): Promise<EmployeeSuggestion[]> {
+  const q = query.trim().toLowerCase().slice(0, 100);
+  if (!q) return [];
+  const digits = q.replace(/\D/g, '');
+  const exactMobile = mobileSearchKey(digits);
+  const max = Math.min(Math.max(Number(limit) || EMPLOYEE_SUGGESTION_LIMIT, 1), EMPLOYEE_SUGGESTION_LIMIT);
+  return rows<EmployeeSuggestion>(
+    `SELECT e.employee_mobile, e.preferred_name, e.name_aliases, e.designation, e.state
+       FROM employees e
+      WHERE lower(e.preferred_name) LIKE '%' || $1 || '%'
+         OR EXISTS (
+              SELECT 1 FROM unnest(e.name_aliases) AS alias
+               WHERE lower(alias) LIKE '%' || $1 || '%'
+            )
+         OR ($2 <> '' AND e.employee_mobile LIKE '%' || $2 || '%')
+      ORDER BY
+        CASE
+          WHEN lower(e.preferred_name) LIKE $1 || '%' THEN 0
+          WHEN $3::text IS NOT NULL AND e.employee_mobile = $3 THEN 0
+          ELSE 1
+        END,
+        (e.state = 'ACTIVE') DESC,
+        e.preferred_name
+      LIMIT $4`,
+    [q, digits, exactMobile, max],
+  );
+}
+
 export async function listEmployees(filters: {q?: string; state?: string; limit?: number} = {}) {
   const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 10000);
   const q = (filters.q ?? '').trim().toLowerCase();

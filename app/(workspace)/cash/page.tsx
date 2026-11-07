@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import {countInstructions, countLedger, listAccounts, listInstructions, listLedger, listReconciliations} from '@/lib/standalone/finance';
-import {cashDashboardSummary} from '@/lib/standalone/cash-dashboard';
+import {cashDashboardSummary, currentMonthRange, previousMonthRange, shiftIsoDate} from '@/lib/standalone/cash-dashboard';
 import {listCashReviewCandidates} from '@/lib/standalone/review';
 import {rows} from '@/lib/standalone/db';
 import {money, pageUser, when} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
+import {CashPaymentForm} from '@/components/standalone/cash-payment-form';
 import {formatReviewAmount, formatReviewTimestamp, reviewCategoryLabel, reviewCategoryTone, reviewStateLabel, reviewStateTone} from '@/lib/review-ui';
 
 export const dynamic = 'force-dynamic';
@@ -30,7 +31,10 @@ function SummaryCard({label, value, hint, href}: SummaryCardProps) {
     : <div className="cash-dashboard-card">{body}</div>;
 }
 
-export default async function CashPage({searchParams}: {searchParams: Promise<{q?: string; state?: string; page?: string; ledgerPage?: string; from?: string; to?: string}>}) {
+export default async function CashPage({searchParams}: {searchParams: Promise<{
+  q?: string; state?: string; page?: string; ledgerPage?: string; from?: string; to?: string;
+  employeeName?: string; employeeMobile?: string; payoutMobile?: string; openPayment?: string;
+}>}) {
   const user = await pageUser();
   const canReview = can(user as never, 'cash.review');
   const canReverse = can(user as never, 'cash.reverse');
@@ -41,6 +45,10 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{q
   const state = filters.state ?? '';
   const from = filters.from ?? '';
   const to = filters.to ?? '';
+  const employeeName = (filters.employeeName ?? '').trim();
+  const employeeMobile = (filters.employeeMobile ?? '').trim();
+  const payoutMobile = (filters.payoutMobile ?? '').trim();
+  const paymentOpen = filters.openPayment === '1' || Boolean(employeeName || employeeMobile || payoutMobile);
   const page = Math.max(1, Number(filters.page) || 1);
   const ledgerPage = Math.max(1, Number(filters.ledgerPage) || 1);
   const pageSize = 100;
@@ -61,6 +69,10 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{q
   const pending = instructions.filter((instruction) => (instruction as {state: string}).state === 'REVIEW').slice(0, 20);
   const instructionPages = Math.max(1, Math.ceil(instructionTotal / pageSize));
   const ledgerPages = Math.max(1, Math.ceil(ledgerTotal / ledgerSize));
+  const monthRange = currentMonthRange(summary.asOfDate);
+  const lastMonthRange = previousMonthRange(summary.asOfDate);
+  const rangeHref = (range: {from: string; to: string}) => `/cash/transactions?from=${range.from}&to=${range.to}`;
+  const dateHref = (date: string) => `/cash/transactions?date=${date}`;
   const href = (overrides: Record<string, string | number>) => {
     const values: Record<string, string> = {};
     if (q) values.q = q;
@@ -87,34 +99,23 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{q
       </div>
 
       <div className="cash-dashboard-grid">
-        <SummaryCard label="Total Paid Amount" value={money(summary.totalPaidMinor)} hint="All posted payments" href="/cash/transactions?state=POSTED" />
-        <SummaryCard label="Current Month Paid" value={money(summary.currentMonthPaidMinor)} hint="Posted this month" />
-        <SummaryCard label="Today's Paid Amount" value={money(summary.todayPaidMinor)} hint="Posted today" />
-        <SummaryCard label="Yesterday Paid" value={money(summary.yesterdayPaidMinor)} hint="Posted yesterday" />
-        <SummaryCard label="Paid Via WA" value={money(summary.viaWhatsAppPaidMinor)} hint="Posted from WhatsApp source" />
-        <SummaryCard label="Paid By Office" value={money(summary.byOfficePaidMinor)} hint="Posted office payments" />
+        <SummaryCard label="Total Paid Amount" value={money(summary.totalPaidMinor)} hint="All posted payments" href="/cash/transactions" />
+        <SummaryCard label="Current Month Paid" value={money(summary.currentMonthPaidMinor)} hint="Posted this month" href={rangeHref(monthRange)} />
+        <SummaryCard label="Today's Paid Amount" value={money(summary.todayPaidMinor)} hint="Posted today" href={dateHref(summary.asOfDate)} />
+        <SummaryCard label="Yesterday Paid" value={money(summary.yesterdayPaidMinor)} hint="Posted yesterday" href={dateHref(shiftIsoDate(summary.asOfDate, -1))} />
+        <SummaryCard label="Paid Via WA" value={money(summary.viaWhatsAppPaidMinor)} hint="Posted from WhatsApp source" href="/cash/transactions?source=WHATSAPP" />
+        <SummaryCard label="Paid By Office" value={money(summary.byOfficePaidMinor)} hint="Posted non-WhatsApp payments" href="/cash/transactions?source=OFFICE" />
         <SummaryCard label="Number of Employee" value={String(summary.employeeCount)} hint="Employees on record" href="/employees" />
-        <SummaryCard label="Last Month Paid" value={money(summary.lastMonthPaidMinor)} hint="Posted last month" />
+        <SummaryCard label="Last Month Paid" value={money(summary.lastMonthPaidMinor)} hint="Posted last month" href={rangeHref(lastMonthRange)} />
       </div>
 
       <div className="cash-form-grid">
-        <details className="cash-form-panel">
+        <details className="cash-form-panel" id="new-payment" open={paymentOpen}>
           <summary>New payment instruction</summary>
-          <ActionForm
-            endpoint="/api/finance"
-            action="instruction.create"
-            submitLabel="Create (review)"
-            fields={[
-              {name: 'employeeName', label: 'Employee / payee name', required: true},
-              {name: 'employeeMobile', label: 'Employee mobile', placeholder: '01712345678'},
-              {name: 'payoutMobile', label: 'Payout number', placeholder: '017XXXXXXXX'},
-              {name: 'method', label: 'Method', type: 'select', options: [
-                {value: 'bkash', label: 'bKash'}, {value: 'nagad', label: 'Nagad'}, {value: 'rocket', label: 'Rocket'},
-                {value: 'bank', label: 'Bank'}, {value: 'cash', label: 'Cash'}]},
-              {name: 'amount', label: 'Amount (BDT)', required: true, placeholder: '1250.00'},
-              {name: 'accountId', label: 'Pay from', type: 'select', options: accounts.map((account) => ({value: account.id, label: `${account.code} — ${account.name}`}))},
-              {name: 'purpose', label: 'Purpose'},
-            ]}
+          <CashPaymentForm
+            key={`${employeeName}|${employeeMobile}|${payoutMobile}|${paymentOpen ? '1' : '0'}`}
+            accounts={accounts.map((account) => ({id: account.id, code: account.code, name: account.name}))}
+            defaults={{employeeName, employeeMobile, payoutMobile}}
           />
         </details>
         <details className="cash-form-panel">

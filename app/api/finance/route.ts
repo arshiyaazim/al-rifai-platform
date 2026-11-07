@@ -6,6 +6,7 @@ import {
 } from '@/lib/standalone/finance';
 import {assertCapability} from '@/lib/standalone/authz';
 import {rows, takaToMinor} from '@/lib/standalone/db';
+import {cashDashboardSummary, listCashPayments} from '@/lib/standalone/cash-dashboard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,6 +17,30 @@ export async function GET(request: Request) {
     assertCapability(actor as never, 'cash.read');
     const url = new URL(request.url);
     const resource = url.searchParams.get('resource') ?? 'instructions';
+    if (resource === 'summary') return ok(await cashDashboardSummary());
+    if (resource === 'payments') {
+      const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
+      const pageSize = Math.min(Math.max(Number(url.searchParams.get('pageSize')) || 25, 1), 100);
+      const result = await listCashPayments({
+        date: url.searchParams.get('date'),
+        from: url.searchParams.get('from'),
+        to: url.searchParams.get('to'),
+        employee: url.searchParams.get('employee'),
+        employeeMobile: url.searchParams.get('employeeMobile'),
+        source: url.searchParams.get('source'),
+        q: url.searchParams.get('q'),
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+      });
+      return ok({
+        rows: result.rows,
+        count: result.count,
+        totalMinor: result.totalMinor,
+        page,
+        pageSize,
+        filters: result.filters,
+      });
+    }
     if (resource === 'accounts') return ok({rows: await listAccounts()});
     if (resource === 'instruction') {
       const id = url.searchParams.get('id');

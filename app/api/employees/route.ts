@@ -1,5 +1,7 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../_shared';
-import {listEmployees, createEmployee, updateEmployee} from '@/lib/standalone/employees';
+import {
+  EMPLOYEE_SUGGESTION_LIMIT, listEmployees, searchEmployees, createEmployee, updateEmployee,
+} from '@/lib/standalone/employees';
 import {assertCapability, can} from '@/lib/standalone/authz';
 import {submitForReview} from '@/lib/standalone/review';
 
@@ -11,6 +13,12 @@ export async function GET(request: Request) {
     const actor = await actorFor(request, {csrf: false});
     assertCapability(actor as never, 'employee.read');
     const url = new URL(request.url);
+    if (url.searchParams.get('lookup') === '1') {
+      return ok({
+        suggestions: await searchEmployees(url.searchParams.get('q') ?? '', EMPLOYEE_SUGGESTION_LIMIT),
+        limit: EMPLOYEE_SUGGESTION_LIMIT,
+      });
+    }
     return ok({rows: await listEmployees({
       q: url.searchParams.get('q') ?? '',
       state: url.searchParams.get('state') ?? undefined,
