@@ -92,6 +92,7 @@ built and clone-tested, **not deployed**. Production still runs `86d659a`.
 | `docs/PROJECT_KNOWLEDGE.md` | Permanent project map: layout, feature-to-file, APIs, workflows, DB, env, issue queue, resolved history |
 | `docs/VESSEL_ORDER_DRAFT.md` | Order-draft root cause, live production evidence, implemented stage, transport options and rollback |
 | `NEXT-HANDOFF.md` | Session handoff: image digests, clone/production/live evidence, tests, blockers, GO/NO-GO deployment command |
+| `docs/PHASE3_GO_NO_GO_7da17f1.md` | GO/NO-GO decision record: evidence, compatibility, risks, deploy/rollback commands, post-deploy checks, sign-off request |
 | `tests/standalone/history-extraction.test.mjs` | Cash payment-block parser tests |
 | `app/api/assistant/route.ts` | Admin assistant/draft/applicant/order API |
 | `compose.phase3.yaml` | Production override for `alrifai_v2_phase3` and flags off |

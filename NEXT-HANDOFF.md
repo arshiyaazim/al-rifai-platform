@@ -1,8 +1,9 @@
 # NEXT-HANDOFF
 
 **Session ended:** 2026-11-07
-**Read first:** `docs/PROJECT_KNOWLEDGE.md`, `docs/VESSEL_ORDER_DRAFT.md`,
-`docs/PRODUCTION_URLS.md`, `docs/LEGACY_PHASE3_COMPARISON.md`.
+**Read first:** `docs/PHASE3_GO_NO_GO_7da17f1.md`, `docs/PROJECT_KNOWLEDGE.md`,
+`docs/VESSEL_ORDER_DRAFT.md`, `docs/PRODUCTION_URLS.md`,
+`docs/LEGACY_PHASE3_COMPARISON.md`.
 
 **Report language:** English only. Always state whether a finding is
 **clone-tested**, **production-deployed** or **live-verified**.
