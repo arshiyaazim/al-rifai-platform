@@ -54,6 +54,8 @@ NOT applied to production).
 | `docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md` | Approved `.env` tag alignment, backup, verification, rollback |
 | `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md` | Auth pipeline root cause; no defect; credentials preserved |
 | `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` | VERIFIED/PARTIAL/FAILED/NOT TESTED production UI matrix + OWNER-CONFIRMED / AGENT-VERIFIED distinction |
+| `docs/MAIN_RECONCILIATION_PLAN.md` | `main` / feature Git divergence (22/17 commits, merge base `76d5d00`), README conflict list, approved PR/`--no-ff` merge plan; no merge performed |
+| `README.md` | Reconciled release status: Current Production / Historical Release / Built but Not Deployed / Pending Migration & Activation |
 | `scripts/owner-assisted-ui-verify.sh` | Read-only, `bash -n`-clean Owner-assisted verification script; prints no cookie/session body/secret |
 | `lib/action-form-request.ts` | Pure ActionForm HTTP wiring (POST default, PATCH/DELETE) |
 | `tests/standalone/vessel-draft-delivery.test.mjs` | 12 isolated delivery state-machine tests |
