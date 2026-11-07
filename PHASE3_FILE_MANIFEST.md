@@ -49,6 +49,7 @@
 | `docs/ADMIN_AUTH.md` | Admin authentication diagnosis and secure setup |
 | `docs/PRODUCTION_URLS.md` | Verified URLs and legacy compatibility matrix |
 | `docs/DNS_CLOUDFLARE_1014.md` | Cloudflare 1014 diagnosis and correction proposal |
+| `docs/LEGACY_PHASE3_COMPARISON.md` | Legacy/Phase 3 page, feature and database comparison |
 | `app/(workspace)/assistant/page.tsx` | Admin Assistant page |
 | `app/(workspace)/transactions/page.tsx` | Cash transactions/ledger page |
 | `app/(workspace)/cash/transactions/page.tsx` | Cash transactions route |

@@ -455,7 +455,8 @@ Employees: `/employees`. Attendance: `/attendance`. Reports: `/reports`.
 Review: `/review`. Messages: `/messages`.
 
 See `docs/PRODUCTION_URLS.md` for the full route and legacy compatibility
-matrix, and `docs/DNS_CLOUDFLARE_1014.md` for the DNS correction proposal.
+matrix, `docs/LEGACY_PHASE3_COMPARISON.md` for the feature/database comparison,
+and `docs/DNS_CLOUDFLARE_1014.md` for the DNS correction proposal.
 
 ### Authentication and user provisioning
 
