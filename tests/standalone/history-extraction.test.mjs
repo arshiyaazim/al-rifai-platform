@@ -46,3 +46,9 @@ test('missing method is never fabricated as cash', () => {
   assert.ok(block.reasons.includes('PAYMENT_METHOD_UNRESOLVED'));
   assert.equal(block.fields.method, undefined);
 });
+
+test('three identifiable numbers are ambiguous and never guessed', () => {
+  const [block] = parsePaymentBlocks('ID: 01712345678 Rahim Uddin 01812345678 Karim 01912345678 (B) 500/-');
+  assert.ok(block.reasons.includes('AMBIGUOUS_MOBILE_NUMBERS'));
+  assert.equal(block.reasons.length > 0, true, 'the block must go to review');
+});
