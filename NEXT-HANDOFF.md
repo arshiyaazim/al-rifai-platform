@@ -1,15 +1,17 @@
 # NEXT-HANDOFF
 
-**Session ended:** 2026-11-07 (third session — config alignment, auth diagnosis,
-durable Vessel Draft delivery)
-**Read first:** `docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`,
-`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`,
-`docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`,
+**Session ended:** 2026-11-07 (fourth session — README/Git reconciliation)
+**ACTIVE GOAL (unchanged): Authenticated Production UI Verification — status
+BLOCKED, not complete.** A README correction does not complete it.
+**Read first:** `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`,
+`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`, `docs/MAIN_RECONCILIATION_PLAN.md`,
+`docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`,
 `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`, `docs/PROJECT_KNOWLEDGE.md`,
 `docs/BUSINESS_WORKFLOW_BACKLOG.md`, `docs/PHASE3_GO_NO_GO_7da17f1.md`.
 
 **Report language:** English only. Always state whether a finding is
-**implemented**, **clone-tested**, **production-deployed** or **live-verified**.
+**implemented**, **clone-tested**, **production-deployed**, **live-verified**,
+**OWNER-CONFIRMED** or **BLOCKED**.
 
 ---
 
@@ -88,6 +90,36 @@ durable Vessel Draft delivery)
      `MANUAL_COPY_ONLY` retained. `applyConfirmation()` untouched.
 5. Docs, Git commits and pushes after each logically complete change.
 
+## README / Git reconciliation (this session, docs only)
+
+- **Verified facts:** running image `phase3-ai-rc-7da17f1` (digest
+  `sha256:5f3de875…`), DB `alrifai_v2_phase3`, schema `1.5.0`,
+  `schema_migrations` **002–009** applied (no `010`), 46 tables, router flags
+  `PHASE3_ROUTER_WORKER_ENABLED=1` / `ALRIFAI_VESSEL_PROCESSING_ENABLED=1` /
+  `ALRIFAI_LIVE_CASH_SYNC=0`, all `AI_*` flags `0`, `.env` tag aligned.
+- **Found** both `main` and feature READMEs still opened with a
+  `v1.4.0-phase3-rc2` / schema 1.4.0 / `phase3-rc-final5` "Current Release"
+  block, plus stale schema/routing/AI/installer/test-count/deployment claims.
+  `main` additionally claimed runtime image `86d659a` and pending `9e85e49`.
+- **Corrected feature-branch README**: added a `Release status` table with the
+  four required categories (Current Production / Historical Release / Built but
+  Not Deployed / Pending Migration & Activation); preserved all historical tags,
+  rollback instructions and cutover history in a clearly-labelled
+  "Historical Release" section; corrected schema 1.4.0→1.5.0, migrations
+  002–008→002–009, feature-flags-OFF→production overrides, "AI not
+  deployed"→migration 009 applied with AI flags off, installer counts, test
+  counts (83/112→133/133), stale cutover-era validation claims, and the
+  auth/provisioning paragraph. Marked the active goal **BLOCKED** with the
+  specific Owner action.
+- **Git divergence (read-only):** `main` `0861e05`, feature `70fcebe`, merge
+  base `76d5d00`; **22 main-only / 17 feature-only** commits. Criss-cross docs
+  merges. **No force-push, reset, rebase or auto-merge performed.**
+- **Merge plan:** `docs/MAIN_RECONCILIATION_PLAN.md` — GitHub PR (recommended)
+  or a `--no-ff` local merge after Owner approval, taking feature-branch
+  versions for documentation conflicts while keeping all 22 main-only commits.
+  `main` README remains stale until that approved merge.
+- **No production deployment, migration, credential, WhatsApp or DNS change.**
+
 ## Test evidence
 
 - Unit **133/133**, integration **133/133**, focused store integration **8/8**,
@@ -113,21 +145,27 @@ durable Vessel Draft delivery)
 
 ## Issue priority order
 
-1. Owner writes the root-only **session cookie jar**
-   `/etc/vps/apps/al-rifai/verification-session.cookies` (or runs
-   `scripts/owner-assisted-ui-verify.sh`) → complete AGENT-VERIFIED /
-   OWNER-ASSISTED authenticated UI matrix. Login is already OWNER-CONFIRMED.
+1. **ACTIVE GOAL — Authenticated Production UI Verification: BLOCKED.**
+   Login is OWNER-CONFIRMED for all 3 accounts, but AGENT-VERIFIED UI is NOT
+   TESTED. **Specific Owner action:** write one valid `__Host-alrifai_cash`
+   cookie into root-only `/etc/vps/apps/al-rifai/verification-session.cookies`
+   (`root:root`, `400`), or run `scripts/owner-assisted-ui-verify.sh` and share
+   only its non-secret output. Then complete
+   `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` with GET-only checks.
+   **Do not mark COMPLETE on a README correction or a merge.**
 2. Owner approves the 8 outbound activation items in
    `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` §7 (including migration 010, exact
    sender/recipient/scope/template/trigger/retry/live+rollback plan).
-3. Decide whether to build/deploy a candidate containing `675a3ef` + delivery
+3. Decide whether to build/deploy a candidate containing the feature-branch
    code (fresh backup required; rollback `7da17f1`; compatible with 46-table
    schema).
-4. Manual review of the 7 historical `RELEASE_UNSTRUCTURED` items.
-5. Vessel release ↔ attendance linkage; program pay / payroll unresolved cases.
-6. Legacy Cashbook/archive, reconciliation and site settlements mapping.
-7. Cloudflare 1014 (Owner DNS decision).
-8. Merge feature branch into `main`.
+4. Owner approves the `main` reconciliation in
+   `docs/MAIN_RECONCILIATION_PLAN.md` (PR or `--no-ff` merge); `main` README is
+   still stale until then. Do not auto-merge / force-push / reset.
+5. Manual review of the 7 historical `RELEASE_UNSTRUCTURED` items.
+6. Vessel release ↔ attendance linkage; program pay / payroll unresolved cases.
+7. Legacy Cashbook/archive, reconciliation and site settlements mapping.
+8. Cloudflare 1014 (Owner DNS decision).
 9. Low-priority legacy UI parity (typeahead, charts).
 
 ## Database migration ledger
@@ -139,19 +177,23 @@ durable Vessel Draft delivery)
 
 ## Git / push status
 
-- `main` `0861e05` clean, not merged.
-- `feature/phase3-router-cash-vessel` pushed and clean; see `git log` for this
-  session's commits. No force-push. No production image built this session.
+- `main` `0861e05` clean, not merged; README **still stale** until the approved
+  reconciliation in `docs/MAIN_RECONCILIATION_PLAN.md`.
+- `feature/phase3-router-cash-vessel` pushed and clean; README corrected this
+  session. Merge base `76d5d00`; 22 main-only / 17 feature-only commits.
+- No force-push, no reset, no rebase, no auto-merge, no production image built.
 
 ## Exact next task and starting files
 
-1. Owner writes the root-only session cookie jar
+1. **ACTIVE GOAL (BLOCKED) — Authenticated Production UI Verification.** Owner
+   writes the root-only session cookie jar
    `/etc/vps/apps/al-rifai/verification-session.cookies` (`root:root`, `400`)
    with one valid production session, or runs
    `scripts/owner-assisted-ui-verify.sh` themselves and shares only its
    non-secret output. Agent then re-runs
    `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` with authenticated GET-only
    requests and deletes the artifacts. Login is OWNER-CONFIRMED; never reset.
+   **This goal is not COMPLETE; do not close it on a README fix or a merge.**
 2. Owner reviews `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` §5 (exact draft example),
    §6 (single-message verification procedure) and §7 (8 approvals).
 3. If a further release is approved: fresh backup, build/deploy the current

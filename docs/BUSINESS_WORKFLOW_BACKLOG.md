@@ -41,7 +41,11 @@ parsing; `7da17f1` deployment; verified pre-deploy backup; `.env` tag
 alignment; employee `PATCH`; payroll gating; TRANSFER classification; pure +
 durable delivery queue; **Owner-confirmed login for all 3 accounts (no defect,
 no reset)**; root-only session-cookie-jar access method + Owner-assisted
-verification script.
+verification script; **feature-branch README reconciled** (historical rc2 /
+schema 1.4.0 / `phase3-rc-final5` relabelled, four release categories added,
+schema/routing/AI/installer/test-count/deployment claims corrected, historical
+tags and rollback instructions preserved). `main` README remains stale pending
+the approved merge in `docs/MAIN_RECONCILIATION_PLAN.md`.
 
 ### Clone verification of fixes 5–7 (image `phase3-ai-rc-675a3ef`)
 
@@ -71,7 +75,7 @@ verification script.
 
 | # | Area | Gap | Proposed next step | Starting files |
 |---|---|---|---|---|
-| 1 | Production authentication | **OWNER-CONFIRMED** login for all 3 accounts (not broken, no reset needed). AGENT-VERIFIED authenticated UI still pending: no production session cookie | Owner writes root-only `/etc/vps/apps/al-rifai/verification-session.cookies` (`root:root`, 400) or runs `scripts/owner-assisted-ui-verify.sh`; Agent performs GET-only checks, deletes artifacts | `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`, `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`, `scripts/owner-assisted-ui-verify.sh` |
+| 1 | **ACTIVE GOAL — Authenticated Production UI Verification (BLOCKED)** | **OWNER-CONFIRMED** login for all 3 accounts (not broken, no reset needed). AGENT-VERIFIED authenticated UI still NOT TESTED: no production session cookie. **Not COMPLETE** | **Specific Owner action:** write root-only `/etc/vps/apps/al-rifai/verification-session.cookies` (`root:root`, 400) or run `scripts/owner-assisted-ui-verify.sh`; Agent performs GET-only checks, deletes artifacts | `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`, `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`, `scripts/owner-assisted-ui-verify.sh` |
 | 2 | Vessel Draft delivery | Outbound transport not enabled (correctly gated); 8 approvals pending including migration 010 | Owner approves exact sender/recipient/account/chat scope/template/trigger/retry/migration/live+rollback plan | `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` §5–§7, `lib/standalone/vessel-draft-delivery-store.ts` |
 | 3 | Deploy current branch code | `675a3ef` + Task 4 code (employee PATCH, payroll gating, TRANSFER, durable delivery UI) not deployed | Fresh backup + new candidate + Owner approval; rollback `7da17f1` | `NEXT-HANDOFF.md` |
 | 4 | Vessel release + attendance workflow | Attendance is recorded manually; there is no automatic link between a released program and duty attendance | Define the explicit link (no automation without approval); keep both workflows readable/auditable | `lib/standalone/attendance.ts`, `lib/standalone/programs.ts` |
@@ -81,7 +85,7 @@ verification script.
 | 8 | Missing employee / transaction UI | Legacy employee typeahead, add-transaction drawer and charts are not reproduced | Decide whether to reimplement; low priority | `app/(workspace)/employees/`, `app/(workspace)/transactions/` |
 | 9 | Historical release items | 7 items remain pending for human decision | Manual review in `/review`; do not auto-apply | `docs/HISTORICAL_RELEASE_REVIEW_20261107.md` |
 | 10 | `al-rifai.iamazim.com` | Cloudflare 1014 (HTTP 403 body) | Owner DNS decision | `docs/DNS_CLOUDFLARE_1014.md` |
-| 11 | Git sync | `main` `0861e05` does not contain the code fixes | Merge `feature/phase3-router-cash-vessel` after deployment | — |
+| 11 | Git sync / README reconciliation | `main` `0861e05` README still claims `v1.4.0-phase3-rc2` / schema 1.4.0 / `86d659a`; feature README corrected. 22 main-only / 17 feature-only commits, merge base `76d5d00` | Owner-approved PR or `--no-ff` merge (no force-push/reset/auto-merge); take feature versions for doc conflicts, keep all main-only commits | `docs/MAIN_RECONCILIATION_PLAN.md`, `README.md` |
 
 ## 3a. Test results (current branch)
 

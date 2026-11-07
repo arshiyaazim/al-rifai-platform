@@ -9,7 +9,10 @@
 production**. Additive migration `010_vessel_draft_delivery.sql` is written,
 clone-tested and **pending Owner approval**
 (`docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`).
-**Git `main`:** `0861e05` (docs merge); feature branch `feature/phase3-router-cash-vessel` pushed
+**Git `main`:** `0861e05` (docs merge, **README still stale**); feature branch
+`feature/phase3-router-cash-vessel` pushed at `70fcebe` with corrected README.
+Merge base `76d5d00`, 22 main-only / 17 feature-only commits; reconciliation
+plan `docs/MAIN_RECONCILIATION_PLAN.md` (no merge performed).
 **`.env` ALRIFAI_TAG:** aligned to `phase3-ai-rc-7da17f1` with Owner approval
 (`docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`); previous `86d659a` preserved
 in a backup.
@@ -378,7 +381,7 @@ session, checkpoint or allowlist may be restarted, re-paired or reconfigured.
 | 5 | Medium | Vessel release ↔ attendance linkage; program pay / payroll unresolved cases | Explicit design, no automation without approval |
 | 6 | Medium | Legacy Cashbook/archive, reconciliation and site settlements unmapped | Separate Owner-approved mapping |
 | 7 | Medium | `al-rifai.iamazim.com` returns Cloudflare 1014 (HTTP 403 body) | Owner DNS/Cloudflare decision (`docs/DNS_CLOUDFLARE_1014.md`) |
-| 8 | Medium | `main` does not yet contain the code fixes | Merge the feature branch |
+| 8 | Medium | `main` `0861e05` README still claims `v1.4.0-phase3-rc2` / schema 1.4.0 / `86d659a`; feature README corrected. 22 main-only / 17 feature-only commits | Owner-approved PR or `--no-ff` merge per `docs/MAIN_RECONCILIATION_PLAN.md`; keep all main-only commits, no force-push/reset |
 | 9 | Low | Legacy employee typeahead and add-transaction drawer not reproduced | Decide whether to reimplement |
 | 10 | Low | Legacy insight/income charts replaced by tables | Accept or reimplement charts |
 
@@ -415,6 +418,13 @@ session, checkpoint or allowlist may be restarted, re-paired or reconfigured.
 - **Root-only session cookie jar** selected as the minimum secure access for
   Agent-side verification; `scripts/owner-assisted-ui-verify.sh` provides a
   read-only, no-secret-output Owner-assisted procedure.
+- **Feature-branch README reconciled** with verified live state: `v1.4.0-phase3-rc2`
+  / schema 1.4.0 / `phase3-rc-final5` relabelled as Historical Release; Current
+  Production / Built but Not Deployed / Pending Migration & Activation added;
+  routing flags, AI availability, schema, installer counts, test counts and
+  stale cutover claims corrected; historical tags, rollback instructions and
+  cutover history preserved. `main` README remains stale pending the approved
+  merge in `docs/MAIN_RECONCILIATION_PLAN.md`. **Active goal stays BLOCKED.**
 - **Authentication root cause identified:** no defect — 0-byte bootstrap files
   are provisioning-only, DB hashes are valid, 6 successful logins exist. No
   credential changed (`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`).
