@@ -87,6 +87,10 @@ test('programs: create, duplicate, assignment, release, pay', async () => {
   await assignEscort(adminA, assigned.program.id, {employeeMobile: '01712345678', employeeName: 'Rahim Uddin'});
   const assignment = await row('SELECT * FROM program_assignments WHERE program_id = $1 AND end_date IS NULL', [assigned.program.id]);
   assert.ok(assignment);
+  // Assigning by mobile alone resolves the directory name instead of storing the number.
+  await assignEscort(adminA, sibling.program.id, {employeeMobile: '01712345678'});
+  const resolvedName = await row('SELECT escort_name FROM programs WHERE id = $1', [sibling.program.id]);
+  assert.equal(resolvedName.escort_name, 'Rahim Uddin');
   assert.equal((await listPrograms({})).length, 4);
 });
 
