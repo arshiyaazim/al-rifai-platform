@@ -12,7 +12,7 @@
 |---|---|
 | Production runtime | `local/al-rifai-platform:phase3-ai-rc-86d659a` (digest `sha256:932ef856…`) |
 | Candidate (built, tested, **not deployed**) | `local/al-rifai-platform:phase3-ai-rc-9e85e49` (digest `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0`) |
-| Git `main` | `21c7103` |
+| Git `main` | includes docs merge `9fcc2e7`; runtime release `86d659a` |
 | Worktree / branch | `/opt/al-rifai-phase3-test`, `feature/phase3-router-cash-vessel` at `9e85e49` |
 | Tags | `v2.6.1-vessel-drafts` (also `v2.5.1-legacy-pages`, `v2.6.0-vessel-drafts`) |
 | Database schema | `1.5.0` |
@@ -59,9 +59,9 @@ permissions were changed. No migration was added or applied.
 
 ## What remains broken or unverified
 
-1. **Production logins unverified.** The three password files are still 0 bytes.
-   No authorized production session exists; do not claim authenticated UI
-   verification in production.
+1. **Production logins unverified.** The three password files are still 0 bytes
+   (re-checked 2026-11-07). No authorized production session exists; do not
+   claim authenticated UI verification in production.
 2. **Vessel draft delivery.** The platform cannot send the draft to WhatsApp.
    Current mode is `MANUAL_COPY_ONLY`. Automatic delivery needs Owner approval
    and a narrow WA-01 send capability.
@@ -104,7 +104,7 @@ permissions were changed. No migration was added or applied.
 
 ## Git / push status
 
-- `main` `21c7103` pushed to `origin`.
+- `main` includes docs merge `9fcc2e7` (docs commit `81c376c`) pushed to `origin`.
 - `feature/phase3-router-cash-vessel` `9e85e49` pushed.
 - Tags `v2.6.0-vessel-drafts`, `v2.6.1-vessel-drafts` pushed.
 - No uncommitted deploy; no force-push.
