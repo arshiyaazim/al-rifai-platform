@@ -2,8 +2,10 @@
 
 **Verified:** 2026-11-07, from outside the origin (public HTTPS).
 **Canonical hostname:** `https://app.al-rifai.iamazim.com`
-**Runtime image:** `local/al-rifai-platform:phase3-ai-rc-86d659a`
-**Digest:** `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
+**Runtime image (production):** `local/al-rifai-platform:phase3-ai-rc-86d659a`
+**Runtime digest:** `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
+**Candidate (built, tested, NOT deployed):** `local/al-rifai-platform:phase3-ai-rc-9e85e49`
+**Candidate digest:** `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0`
 
 ---
 
@@ -41,7 +43,8 @@ redirected to `/login` or receive 401 depending on the request type.
 | `/cash` | Cash instructions, review, ledger, submissions | auth required |
 | `/cash/[id]` | Instruction detail | auth required |
 | `/vessel` | Vessel Register | auth required |
-| `/vessel/[id]` | Program detail/lifecycle | auth required |
+| `/vessel/drafts` | Vessel Order Drafts — exact Owner draft, copy-only (candidate `9e85e49`) | auth required |
+| `/vessel/[id]` | Program detail/lifecycle, includes the Owner draft block | auth required |
 | `/employees` | Employee directory | auth required |
 | `/employees/[mobile]` | Employee profile | auth required |
 | `/attendance` | Attendance and corrections | auth required |

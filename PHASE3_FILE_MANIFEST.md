@@ -2,7 +2,7 @@
 
 **Branch:** `feature/phase3-router-cash-vessel`
 **Baseline:** `e6becfc`
-**Schema:** `1.4.0`
+**Schema:** `1.5.0` (production); migrations are explicit CLI only
 
 ## New files
 
@@ -79,6 +79,14 @@
 | `scripts/standalone/backfill-cash-coverage.mjs` | Idempotent Cash coverage backfill; REVIEW only |
 | `scripts/standalone/repair-legacy-program-links.mjs` | Idempotent assignment/source/event repair for imported programs |
 | `tests/standalone/release-slip.test.mjs` | Release-slip parser tests |
+| `lib/order-draft-from-record.ts` | Read-only projection: DRAFT/CONFIRMED program or PROGRAM review payload → exact Owner draft + blocking gaps; `MANUAL_COPY_ONLY` |
+| `components/standalone/owner-draft-panel.tsx` | Server-rendered Owner draft block with gap warnings and delivery note |
+| `components/standalone/copy-draft-button.tsx` | Clipboard-only copy button (no API, no send) |
+| `app/(workspace)/vessel/drafts/page.tsx` | Vessel Order Drafts workspace for Admin copy/assignment |
+| `tests/standalone/order-draft-record.test.mjs` | 7 pure tests: exact layout, dates/shifts, missing-field blocking, review mapping |
+| `docs/PROJECT_KNOWLEDGE.md` | Permanent project map: layout, feature-to-file, APIs, workflows, DB, env, issue queue |
+| `docs/VESSEL_ORDER_DRAFT.md` | Order-draft root cause, implemented stage, transport options and rollback |
+| `NEXT-HANDOFF.md` | Session handoff: versions, tests, blockers, exact next task |
 | `tests/standalone/history-extraction.test.mjs` | Cash payment-block parser tests |
 | `app/api/assistant/route.ts` | Admin assistant/draft/applicant/order API |
 | `compose.phase3.yaml` | Production override for `alrifai_v2_phase3` and flags off |
@@ -89,7 +97,7 @@
 |---|---|
 | `lib/standalone/finance.ts` | Full lifecycle, reversal, reconciliation, candidate→instruction, audit atomicity |
 | `lib/standalone/review.ts` | Client-aware review application, transaction-aware audit |
-| `lib/standalone/programs.ts`, `employees.ts`, `attendance.ts` | Client-aware writers + capability enforcement |
+| `lib/standalone/programs.ts`, `employees.ts`, `attendance.ts` | Client-aware writers + capability enforcement; `getProgram()` returns `start_date`/`end_date` as ISO text (fixes `[object Date]` 500) |
 | `lib/standalone/audit.ts` | Transaction-aware `recordAudit` |
 | `lib/standalone/whatsapp.ts` | Correct conflict target, type narrowing, capability checks |
 | `lib/message-router.ts` | System actor for automated writes; capability-safe routing |
