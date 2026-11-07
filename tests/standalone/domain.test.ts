@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test, {before} from 'node:test';
 import {rows, row} from '../../lib/standalone/db.ts';
-import {createEmployee, listEmployees} from '../../lib/standalone/employees.ts';
+import {createEmployee, listEmployees, updateEmployee} from '../../lib/standalone/employees.ts';
 import {createProgram, assignEscort, releaseProgram, listPrograms, updateProgram, startProgramDuty, completeProgram} from '../../lib/standalone/programs.ts';
 import {recordAttendance, attendanceSummary, listAttendance} from '../../lib/standalone/attendance.ts';
 import {resolveEmployeeIdentity} from '../../lib/employee-identity.ts';
@@ -48,6 +48,21 @@ test('employees: create, alias merge, duplicate prevention', async () => {
   const employee = await row('SELECT name_aliases FROM employees WHERE employee_mobile = $1', [created.employeeMobile]);
   assert.ok(employee.name_aliases.includes('Rahim U.'));
   assert.equal((await listEmployees({q: 'rahim'})).length, 1);
+});
+
+test('employees: PATCH update applies fields and enforces employee.manage', async () => {
+  const created = await createEmployee(adminA, {employeeMobile: '01722222222', preferredName: 'Before Patch', dutyType: 'escort'});
+  await updateEmployee(adminA, created.employeeMobile, {
+    preferredName: 'After Patch', designation: 'Senior escort', state: 'ACTIVE', notes: 'clone regression',
+  });
+  const stored = await row('SELECT preferred_name, designation, notes FROM employees WHERE employee_mobile = $1', [created.employeeMobile]);
+  assert.equal(stored.preferred_name, 'After Patch');
+  assert.equal(stored.designation, 'Senior escort');
+  assert.equal(stored.notes, 'clone regression');
+  await assert.rejects(
+    () => updateEmployee(user, created.employeeMobile, {preferredName: 'Not Allowed'}),
+    /CAPABILITY_REQUIRED/,
+  );
 });
 
 test('programs: create, duplicate, assignment, release, pay', async () => {
