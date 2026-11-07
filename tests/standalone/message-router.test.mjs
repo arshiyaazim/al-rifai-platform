@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test, {beforeEach} from 'node:test';
 import {createPool} from '../../db/postgres.mjs';
-import {row} from '../../lib/standalone/db.ts';
+import {row, rows} from '../../lib/standalone/db.ts';
 import {routePendingMessages} from '../../lib/message-router.ts';
 import {approveInstruction, decideCashSubmission, setInstructionAccount} from '../../lib/standalone/finance.ts';
 import {correctCashSubmission} from '../../lib/standalone/review.ts';
@@ -29,10 +29,11 @@ beforeEach(async () => {
   const owner = createPool({role: 'app', readOnly: false, applicationName: 'alrifai-router-test-reset'});
   try {
     await owner.query(`TRUNCATE TABLE
-      audit_events, cash_reversals, cash_reconciliations, cash_instructions, cash_postings, ledger_entries,
+      audit_events, cash_payment_event_postings, cash_payment_events, cash_reversals, cash_reconciliations, cash_instructions, cash_postings, ledger_entries,
       cash_submission_reviews, cash_submissions, review_decisions, review_items,
       attendance, identity_aliases, program_pay, program_source_messages,
       program_assignments, program_events, programs, employees,
+      vessel_draft_deliveries,
       whatsapp_media, whatsapp_messages, whatsapp_chats, whatsapp_sync_state,
       whatsapp_accounts, whatsapp_import_runs, escort_client_group_authorizations,
       app_settings
@@ -255,6 +256,73 @@ test('cash: Bangla amount and payment expressions', async () => {
   const instr = await row("SELECT * FROM cash_instructions WHERE source_message_id = 'msg-cash-bangla-1'");
   assert.ok(instr);
   assert.equal(instr.state, 'REVIEW');
+});
+
+test('cash: single mobile becomes employee identity and payout destination (automatic Paid)', async () => {
+  await ensureAccount('wa-01');
+  const previous = process.env.PHASE3_PAID_EVENTS_ENABLED;
+  process.env.PHASE3_PAID_EVENTS_ENABLED = '1';
+  try {
+    await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-cash-single-mobile-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
+      'ID: 01712345678 Rahim Uddin (B) 500/- duty pay');
+    const result = await routePendingMessages(admin, 10);
+    assert.equal(result.instructions, 1);
+    const instruction = await row("SELECT * FROM cash_instructions WHERE source_message_id = 'msg-cash-single-mobile-1'");
+    assert.ok(instruction);
+    assert.equal(instruction.employee_mobile, '+8801712345678');
+    assert.equal(instruction.payout_mobile, '+8801712345678');
+    assert.equal(instruction.state, 'REVIEW', 'business paid does not post or auto-approve');
+    const event = await row('SELECT * FROM cash_payment_events WHERE instruction_id = $1', [instruction.id]);
+    assert.ok(event, 'automatic Paid Event created without Office approval');
+    assert.equal(event.source_category, 'WHATSAPP');
+    assert.equal(event.status, 'PAID');
+    assert.equal(event.employee_mobile, event.payout_mobile);
+    assert.equal((await row('SELECT count(*)::int AS n FROM cash_postings')).n, 0);
+    assert.equal((await row('SELECT count(*)::int AS n FROM cash_submissions')).n, 0);
+  } finally {
+    if (previous === undefined) delete process.env.PHASE3_PAID_EVENTS_ENABLED;
+    else process.env.PHASE3_PAID_EVENTS_ENABLED = previous;
+  }
+});
+
+test('cash: multiple payment blocks in one message create separate instructions and events', async () => {
+  await ensureAccount('wa-01');
+  const previous = process.env.PHASE3_PAID_EVENTS_ENABLED;
+  process.env.PHASE3_PAID_EVENTS_ENABLED = '1';
+  try {
+    await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-cash-multiblock-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
+      'ID: 01712345678 Rahim Uddin 01812345678(B) 500/-\nID: 01912345678 Karim Uddin 01712345678(N) 700/-');
+    const result = await routePendingMessages(admin, 10);
+    assert.equal(result.instructions, 2);
+    const instructions = await rows("SELECT * FROM cash_instructions WHERE source_message_id = 'msg-cash-multiblock-1' ORDER BY source_block_key");
+    assert.equal(instructions.length, 2);
+    assert.deepEqual(instructions.map((entry) => entry.source_block_key), ['payment-block-0', 'payment-block-1']);
+    const events = await rows('SELECT * FROM cash_payment_events WHERE source_message_id = $1 ORDER BY source_block_key',
+      ['msg-cash-multiblock-1']);
+    assert.equal(events.length, 2);
+  } finally {
+    if (previous === undefined) delete process.env.PHASE3_PAID_EVENTS_ENABLED;
+    else process.env.PHASE3_PAID_EVENTS_ENABLED = previous;
+  }
+});
+
+test('cash: replay of an automatic Paid message creates no duplicate event', async () => {
+  await ensureAccount('wa-01');
+  const previous = process.env.PHASE3_PAID_EVENTS_ENABLED;
+  process.env.PHASE3_PAID_EVENTS_ENABLED = '1';
+  try {
+    const text = 'ID: 01712345678 Rahim Uddin 01812345678(B) 1,250.50/- duty pay';
+    await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-cash-paid-replay-1', 'OUTGOING', '8801880446111@s.whatsapp.net', text);
+    await routePendingMessages(admin, 10);
+    await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-cash-paid-replay-1', 'OUTGOING', '8801880446111@s.whatsapp.net', text);
+    const replay = await routePendingMessages(admin, 10);
+    assert.equal(replay.instructions, 0);
+    assert.equal((await row("SELECT count(*)::int AS n FROM cash_instructions WHERE source_message_id='msg-cash-paid-replay-1'")).n, 1);
+    assert.equal((await row("SELECT count(*)::int AS n FROM cash_payment_events WHERE source_message_id='msg-cash-paid-replay-1'")).n, 1);
+  } finally {
+    if (previous === undefined) delete process.env.PHASE3_PAID_EVENTS_ENABLED;
+    else process.env.PHASE3_PAID_EVENTS_ENABLED = previous;
+  }
 });
 
 test('cash: missing amount → cash_submissions review candidate', async () => {

@@ -478,84 +478,96 @@ async function handleCash(
   actor: Actor,
   message: MessageToProcess,
   text: string,
-): Promise<{created: boolean; reviewSubmitted: boolean; reasons: string[]}> {
+): Promise<{created: boolean; instructionsCreated: number; reviewSubmitted: boolean; reasons: string[]}> {
   const {parsePaymentBlocks} = await import('./history-extraction.mjs');
   const blocks = parsePaymentBlocks(text) as Array<{
     blockKey: string;
+    blockOrder: number;
     fields: Record<string, string>;
     reasons: string[];
   }>;
 
-  const block = (blocks ?? []).find((b) => b.reasons.length === 0);
-  if (!block) {
-    // No cleanly parsable block: submit to cash_submissions (PENDING_REVIEW).
-    // Also submit a review item with category EXTRACTION_FAILED.
-    const payload = {
+  const clean = (blocks ?? []).filter((b) => b.reasons.length === 0);
+  const incomplete = (blocks ?? []).filter((b) => b.reasons.length > 0);
+  let instructionsCreated = 0;
+  let reviewSubmitted = false;
+  const reasons: string[] = [];
+
+  for (const block of clean) {
+    const fields = block.fields;
+    const amountMinor = Number(fields.amountMinor);
+    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+      reasons.push('AMOUNT_INVALID_OR_MISSING');
+      continue;
+    }
+    if (!fields.method) {
+      reasons.push('PAYMENT_METHOD_UNRESOLVED');
+      continue;
+    }
+    const created = await createInstruction(actor, {
+      employeeMobile: fields.employeeMobile ?? null,
+      employeeName: fields.employeeName ?? '',
+      // Final Owner rule: for a single-mobile block the parser has already
+      // made payoutMobile equal to employeeMobile. For a two-number block the
+      // payout number remains distinct.
+      payoutMobile: fields.payoutMobile ?? fields.employeeMobile ?? null,
+      method: fields.method,
+      amountMinor,
+      purpose: fields.purpose ?? null,
+      accountId: null,
+      sourceChannel: 'WHATSAPP',
       sourceMessageId: message.message_id,
-      sourceChatJid: message.chat_jid,
-      sourceAccountId: message.account_id,
-      sourceTimestamp: message.source_timestamp,
-      senderJid: message.sender_jid,
-      rawText: text,
-      parseReasons: blocks?.flatMap((b) => b.reasons ?? []).filter(Boolean) ?? ['NO_PARSEABLE_BLOCK'],
-      parser: 'parsePaymentBlocks',
-      parserVersion: 'history-extraction-v2',
-      needsReviewerCorrection: true,
-    };
-    // submitReviewItem() creates the single CASH review candidate
-    // (cash_submissions) with the raw text and parse reasons; do not also
-    // insert a summary submission for the same message.
-    await submitReviewItem(actor, 'CASH', 'CREATE', message.message_id,
-      'EXTRACTION_FAILED', payload);
-    return {created: false, reviewSubmitted: true,
-      reasons: blocks?.flatMap((b) => b.reasons ?? []).filter(Boolean) ?? ['NO_PARSEABLE_BLOCK']};
+      sourceBlockKey: block.blockKey,
+      sourceHash: stableId('h', [message.account_id, message.message_id, block.blockKey]),
+    }, {whatsAppVerified: true, paidAt: message.source_timestamp});
+    if (created) instructionsCreated += 1;
   }
 
-  const fields = block.fields;
-  const employeeMobile = fields.employeeMobile ?? null;
-  const amountMinor = Number(fields.amountMinor);
-  const purpose = fields.purpose ?? null;
-
-  if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
-    // Invalid amount: submit to cash_submissions for reviewer correction
-    const payload = {
-      sourceMessageId: message.message_id,
-      sourceChatJid: message.chat_jid,
-      sourceAccountId: message.account_id,
-      rawText: text,
-      fields,
-      parseReasons: ['AMOUNT_INVALID_OR_MISSING'],
-      parser: 'parsePaymentBlocks',
-      needsReviewerCorrection: true,
-    };
-    await submitReviewItem(actor, 'CASH', 'CREATE', message.message_id,
-      'INCOMPLETE_CASH_INSTRUCTION', payload);
-    return {created: false, reviewSubmitted: true, reasons: ['AMOUNT_INVALID_OR_MISSING']};
+  // Any ambiguous/incomplete block is preserved for Office review. It never
+  // becomes a Business Paid Event until a human corrects and approves it.
+  if (incomplete.length) {
+    reasons.push(...incomplete.flatMap((b) => b.reasons));
+    const first = incomplete[0];
+    const submitted = await submitReviewItem(actor, 'CASH', 'CREATE', message.message_id,
+      'INCOMPLETE_CASH_INSTRUCTION', {
+        sourceMessageId: message.message_id,
+        sourceChatJid: message.chat_jid,
+        sourceAccountId: message.account_id,
+        sourceTimestamp: message.source_timestamp,
+        senderJid: message.sender_jid,
+        rawText: text,
+        fields: first.fields,
+        blockKey: first.blockKey,
+        parseReasons: [...new Set(reasons)],
+        blocks: incomplete.map((b) => ({blockKey: b.blockKey, fields: b.fields, reasons: b.reasons})),
+        parser: 'parsePaymentBlocks',
+        parserVersion: 'history-extraction-v3',
+        needsReviewerCorrection: true,
+      });
+    reviewSubmitted = submitted.submitted;
   }
 
-  const hash = stableId('h', [message.account_id, message.message_id, block.blockKey]);
+  if (!clean.length && !incomplete.length) {
+    // No payment block at all: preserve the raw message for review.
+    const submitted = await submitReviewItem(actor, 'CASH', 'CREATE', message.message_id,
+      'EXTRACTION_FAILED', {
+        sourceMessageId: message.message_id,
+        sourceChatJid: message.chat_jid,
+        sourceAccountId: message.account_id,
+        sourceTimestamp: message.source_timestamp,
+        senderJid: message.sender_jid,
+        rawText: text,
+        parseReasons: ['NO_PARSEABLE_BLOCK'],
+        parser: 'parsePaymentBlocks',
+        parserVersion: 'history-extraction-v3',
+        needsReviewerCorrection: true,
+      });
+    reviewSubmitted = submitted.submitted;
+    reasons.push('NO_PARSEABLE_BLOCK');
+  }
 
-  // Atomic: createInstruction() now writes source provenance fields in the
-  // same INSERT. No separate stamping transaction needed.
-  const created = await createInstruction(actor, {
-    employeeMobile,
-    employeeName: fields.employeeName ?? 'Unknown',
-    payoutMobile: fields.payoutMobile ?? null,
-    method: fields.method ?? 'cash',
-    amountMinor,
-    purpose,
-    accountId: null,
-    sourceChannel: 'WHATSAPP',
-    sourceMessageId: message.message_id,
-    sourceBlockKey: block.blockKey,
-    sourceHash: hash,
-  });
-
-  // The unique source identity already exists: this is a replay or a losing
-  // concurrent worker. Report an idempotent skip; do not create another row.
-  if (!created) return {created: false, reviewSubmitted: false, reasons: ['IDEMPOTENT_SKIP']};
-
-  return {created: true, reviewSubmitted: false, reasons: []};
+  return {created: instructionsCreated > 0, instructionsCreated, reviewSubmitted,
+    reasons: [...new Set(reasons)]};
 }
 
 /** Release groups are recognised by the approved setting or their configured label. */
@@ -1070,10 +1082,10 @@ export async function routePendingMessages(
               result.ignored += 1;
             } else {
               const cashResult = await handleCash(SYSTEM_ACTOR, message, text);
-              result.instructions += cashResult.created ? 1 : 0;
+              result.instructions += cashResult.instructionsCreated;
               result.reviewItems += cashResult.reviewSubmitted ? 1 : 0;
               classification = cashResult.created
-                ? `CASH:REVIEW_CREATED`
+                ? (cashResult.reviewSubmitted ? `CASH:REVIEW_CREATED_WITH_MORE` : `CASH:REVIEW_CREATED`)
                 : cashResult.reviewSubmitted
                   ? `CASH:REVIEW_SUBMITTED:${cashResult.reasons.join(',')}`
                   : 'CASH:IDEMPOTENT_SKIP';

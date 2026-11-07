@@ -1,12 +1,65 @@
 # NEXT-HANDOFF
 
 **Session ended:** 2026-11-07
-**Read first:** `docs/PROJECT_KNOWLEDGE.md`, `docs/VESSEL_ORDER_DRAFT.md`,
-`docs/LEGACY_PHASE3_COMPARISON.md`, `docs/PRODUCTION_URLS.md`.
+**Read first:** `AGENTS.md`, `docs/PROJECT_KNOWLEDGE.md`,
+`docs/VESSEL_ORDER_DRAFT.md`, `docs/LEGACY_PHASE3_COMPARISON.md`,
+`docs/PRODUCTION_URLS.md`.
 
 ---
 
-## Current versions
+## 2026-11-07 — Phase 3 Cash Business Paid implementation (isolated)
+
+**Branch:** `feature/phase3-cash-paid-events` (worktree
+`/opt/al-rifai-phase3-cash`), based on `13d660c`.
+**Status:** implementation, tests, migrations and documentation complete in
+isolation. **Not merged, not deployed, not applied to production.** Feature flag
+`PHASE3_PAID_EVENTS_ENABLED` is OFF by default.
+
+Delivered:
+
+- WhatsApp automatic Business Paid without Office approval, at the verified
+  Admin→Accountant routing point; no automatic `postInstruction()`, no
+  `cash_postings`, no `ledger_entries`.
+- Final single-mobile rule: one number is both `employee_mobile` and
+  `payout_mobile`; two numbers keep ID + payout; 3+ are ambiguous.
+- All clean payment blocks in one message are processed, not only the first.
+- Parser regression coverage for hyphenated numbers, `(C)/(R)/BANK`, `Tk:`,
+  next-line amounts, `{B)`, `---`, `500-` and missing methods. A method is never
+  fabricated as `cash`.
+- Office approval creates exactly one `OFFICE` event when the flag is on;
+  pending/rejected submissions create none.
+- Migration 011 repaired to valid PostgreSQL; append-only PAYMENT / CORRECTION /
+  REVERSAL design; separate posting-link table; `1.6.0`.
+- Migration 010 recovered byte-for-byte from `3e0dd01` and added to the fresh
+  installer/grants. It remains inert; no sender or worker was activated.
+
+Evidence (isolated PostgreSQL 16 container; production untouched):
+
+| Check | Result |
+|---|---|
+| Typecheck | 0 errors |
+| Lint | 0 errors, 2 pre-existing warnings |
+| Unit | 117/117 |
+| Integration | 144/144 |
+| Build | pass |
+| Fresh install | schema 1.6.0, 49 tables, 10 ledger rows |
+| Incremental 1.5.0 → 1.6.0 | 010 then 011; repeat no-op |
+| Failed migration probe | exit 1; probe table and ledger row rolled back |
+| 010 SHA-256 | `fa299768…17e7c7` |
+| 011 SHA-256 | `4203fdbe…964165` |
+
+Canonical `/opt/al-rifai-platform` remains on `main` with its pre-existing dirty
+files preserved, including
+`app/(workspace)/layout.tsx.backup-20261107-192036`.
+
+Next authorized steps (require separate approval): review/merge the branch,
+back up production, rehearse 010/011 on a production copy, apply migrations,
+deploy with the flag OFF, verify parity, then enable the flag. Rollback is
+setting the flag to `0`.
+
+---
+
+## Earlier session state (2026-11-07)
 
 | Item | Value |
 |---|---|

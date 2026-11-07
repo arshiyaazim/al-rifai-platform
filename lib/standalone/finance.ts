@@ -1,9 +1,17 @@
 import type {PoolClient} from 'pg';
-import {rows, row, tx, text, optionalText, optionalMobile, isoDate, moneyMinor, DomainError, type Actor} from './db.ts';
+import {rows, row, tx, text, optionalText, optionalMobile, mobile, isoDate, moneyMinor, DomainError, type Actor} from './db.ts';
 import {recordAudit, stableId, newId} from './audit.ts';
 import {assertCapability} from './authz.ts';
 
 type Tx = Pick<PoolClient, 'query'>;
+
+const PAYMENT_METHODS = ['bkash', 'nagad', 'rocket', 'bank', 'cash'] as const;
+type PaymentMethod = typeof PAYMENT_METHODS[number];
+
+/** Business Paid Events are opt-in and default disabled. */
+export function paidEventsEnabled(): boolean {
+  return process.env.PHASE3_PAID_EVENTS_ENABLED === '1';
+}
 
 // ── accounts ────────────────────────────────────────────────────────────────
 export type AccountRow = {
@@ -71,7 +79,7 @@ export type InstructionInput = {
  * concurrent worker loses the insert race and gets no row.
  */
 async function insertInstruction(client: Tx, actor: Actor, input: InstructionInput) {
-  if (!['bkash', 'nagad', 'rocket', 'bank', 'cash'].includes(input.method)) throw new DomainError('INVALID_METHOD');
+  if (!PAYMENT_METHODS.includes(input.method as PaymentMethod)) throw new DomainError('INVALID_METHOD');
   const amountMinor = moneyMinor(input.amountMinor);
   const employeeMobile = optionalMobile(input.employeeMobile, 'employeeMobile');
   const payoutMobile = optionalMobile(input.payoutMobile, 'payoutMobile');
@@ -97,7 +105,67 @@ async function insertInstruction(client: Tx, actor: Actor, input: InstructionInp
   return created.rows[0] ?? null;
 }
 
-export async function createInstruction(actor: Actor, input: InstructionInput) {
+/**
+ * Append one Business Paid Event. This is the only business-layer writer and
+ * it is called inside the caller's transaction. It never touches cash_postings
+ * or ledger_entries.
+ */
+type BusinessPaidEventInput = {
+  instructionId: string | null;
+  sourceSubmissionId?: string | null;
+  employeeMobile: string;
+  payoutMobile: string;
+  employeeName: string;
+  amountMinor: number | string;
+  method: string;
+  sourceCategory: 'WHATSAPP' | 'OFFICE';
+  sourceMessageId?: string | null;
+  sourceBlockKey?: string | null;
+  paidAt?: string | null;
+  createdBy: string;
+};
+
+export async function insertBusinessPaidEvent(client: Tx, input: BusinessPaidEventInput): Promise<string | null> {
+  const employeeMobile = mobile(input.employeeMobile, 'employeeMobile');
+  const payoutMobile = mobile(input.payoutMobile, 'payoutMobile');
+  const employeeName = text(input.employeeName, 'employeeName', {max: 150});
+  const amountMinor = moneyMinor(input.amountMinor, 'amountMinor');
+  if (!PAYMENT_METHODS.includes(input.method as PaymentMethod)) throw new DomainError('INVALID_METHOD');
+  if (!['WHATSAPP', 'OFFICE'].includes(input.sourceCategory)) throw new DomainError('INVALID_SOURCE_CATEGORY');
+  if (input.sourceCategory === 'WHATSAPP') {
+    if (!input.sourceMessageId || !input.sourceBlockKey) {
+      throw new DomainError('PAID_EVENT_WHATSAPP_PROVENANCE_REQUIRED', 409);
+    }
+  } else if (!input.sourceSubmissionId) {
+    throw new DomainError('PAID_EVENT_OFFICE_SUBMISSION_REQUIRED', 409);
+  }
+  const registered = await client.query(
+    'SELECT 1 FROM employees WHERE employee_mobile = $1', [employeeMobile],
+  );
+  const id = newId('pe');
+  const created = await client.query<{id: string}>(
+    `INSERT INTO cash_payment_events
+       (id, event_type, instruction_id, source_submission_id, employee_mobile, payout_mobile,
+        employee_name, employee_link_status, amount_minor, method, source_category,
+        source_message_id, source_block_key, status, paid_at, created_by)
+     VALUES ($1,'PAYMENT',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'PAID',$13,$14)
+     ON CONFLICT DO NOTHING
+     RETURNING id`,
+    [id, input.instructionId, input.sourceSubmissionId ?? null, employeeMobile, payoutMobile,
+      employeeName, registered.rowCount ? 'REGISTERED' : 'UNREGISTERED',
+      amountMinor, input.method, input.sourceCategory,
+      input.sourceMessageId ?? null, input.sourceBlockKey ?? null,
+      input.paidAt ?? new Date().toISOString(), input.createdBy],
+  );
+  return created.rows[0]?.id ?? null;
+}
+
+export async function createInstruction(actor: Actor, input: InstructionInput, options: {
+  /** True only after the WA-01 Admin -> Accountant eligibility checks passed. */
+  whatsAppVerified?: boolean;
+  /** Business payment timestamp (message source time), never a posting time. */
+  paidAt?: string | null;
+} = {}) {
   assertCapability(actor, 'cash.submit');
   return tx(async (client) => {
     const created = await insertInstruction(client, actor, input);
@@ -109,6 +177,31 @@ export async function createInstruction(actor: Actor, input: InstructionInput) {
         entityId: created.id,
         detail: {amountMinor: created.amount_minor, method: created.method, source: created.source_channel},
       }, client);
+      if (options.whatsAppVerified && paidEventsEnabled()) {
+        if (!created.employee_mobile || !created.payout_mobile) {
+          // A WhatsApp payment without both identities is not a verified
+          // single-mobile payment; never invent a payout destination.
+          throw new DomainError('PAID_EVENT_IDENTITY_UNRESOLVED', 409);
+        }
+        const paidEventId = await insertBusinessPaidEvent(client, {
+          instructionId: created.id,
+          employeeMobile: created.employee_mobile,
+          payoutMobile: created.payout_mobile,
+          employeeName: created.employee_name,
+          amountMinor: created.amount_minor,
+          method: created.method,
+          sourceCategory: 'WHATSAPP',
+          sourceMessageId: created.source_message_id,
+          sourceBlockKey: created.source_block_key,
+          paidAt: options.paidAt ?? null,
+          createdBy: actor.id,
+        });
+        if (paidEventId) {
+          await recordAudit({actor, action: 'CASH_PAYMENT_EVENT_CREATED', entity: 'cash_payment_events',
+            entityId: paidEventId, detail: {instructionId: created.id, sourceCategory: 'WHATSAPP',
+              sourceMessageId: created.source_message_id, sourceBlockKey: created.source_block_key}}, client);
+        }
+      }
     }
     return created;
   });
@@ -218,6 +311,24 @@ export async function postInstruction(actor: Actor, id: string) {
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
       [postingId, id, instruction.account_id, instruction.amount_minor, instruction.method, actor.id, entry.rows[0].id],
     );
+    // A Business Paid Event and a financial posting are separate records. When
+    // both genuinely exist, append the immutable link. This never creates a
+    // Business Paid Event and never posts anything by itself.
+    if (paidEventsEnabled()) {
+      const event = await client.query<{id: string}>(
+        `SELECT id FROM cash_payment_events
+          WHERE instruction_id = $1 AND event_type = 'PAYMENT'`, [id],
+      );
+      if (event.rowCount) {
+        await client.query(
+          `INSERT INTO cash_payment_event_postings
+             (payment_event_id, instruction_id, posting_id, posted_at, created_by)
+           VALUES ($1,$2,$3,now(),$4)
+           ON CONFLICT DO NOTHING`,
+          [event.rows[0].id, id, postingId, actor.id],
+        );
+      }
+    }
     await client.query(
       `UPDATE cash_instructions SET state='POSTED', posted_at=now(), posted_by=$2 WHERE id=$1`,
       [id, actor.id],
@@ -477,30 +588,43 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
     if (submission.submitted_by === actor.id) throw new DomainError('REVIEWER_IS_SUBMITTER', 403);
 
     let instructionId: string | null = null;
+    let paidEventId: string | null = null;
     if (decision === 'APPROVED') {
       const payload = (submission.payload ?? {}) as Record<string, unknown>;
       const payloadFields = (payload.fields && typeof payload.fields === 'object')
         ? payload.fields as Record<string, unknown>
         : {};
       const field = (key: string) => payload[key] ?? payloadFields[key];
+      const employeeName = typeof field('employeeName') === 'string' ? String(field('employeeName')).trim() : '';
+      if (!employeeName) throw new DomainError('EMPLOYEE_NAME_UNRESOLVED', 409);
+      // Final Owner rule: one mobile is both employee identity and payout.
+      const employeeMobile = optionalMobile(field('employeeMobile') ?? field('employeeId'), 'employeeMobile');
+      if (!employeeMobile) throw new DomainError('EMPLOYEE_MOBILE_UNRESOLVED', 409);
+      const payoutMobile = optionalMobile(field('payoutMobile'), 'payoutMobile') ?? employeeMobile;
+      const method = field('method');
+      if (typeof method !== 'string' || !PAYMENT_METHODS.includes(method as PaymentMethod)) {
+        throw new DomainError('PAYMENT_METHOD_UNRESOLVED', 409);
+      }
+      const amountMinor = moneyMinor(field('amountMinor'), 'amountMinor');
+      const sourceBlockKey = (payload.sourceBlockKey as string | null | undefined)
+        ?? (payload.blockKey as string | null | undefined)
+        ?? (payloadFields.blockKey as string | null | undefined)
+        ?? null;
       // Attribute the instruction to the candidate's originator, not to the
       // reviewer. Otherwise a sole human Admin would be blocked by the
       // self-review rule immediately after approving the candidate.
       const originator = {...actor, id: submission.submitted_by, displayName: undefined};
       const instruction = await insertInstruction(client, originator, {
-        employeeName: String(field('employeeName') ?? 'Unknown'),
-        employeeMobile: (field('employeeMobile') as string | null | undefined) ?? null,
-        payoutMobile: (field('payoutMobile') as string | null | undefined) ?? null,
-        method: String(field('method') ?? 'cash'),
-        amountMinor: Number(field('amountMinor')),
+        employeeName,
+        employeeMobile,
+        payoutMobile,
+        method,
+        amountMinor,
         purpose: (field('purpose') as string | null | undefined) ?? null,
         accountId: (field('accountId') as string | null | undefined) ?? null,
         sourceChannel: submission.source_message_id ? 'WHATSAPP' : 'WEB',
         sourceMessageId: submission.source_message_id ?? (payload.sourceMessageId as string | null | undefined) ?? null,
-        sourceBlockKey: (payload.sourceBlockKey as string | null | undefined)
-          ?? (payload.blockKey as string | null | undefined)
-          ?? (payloadFields.blockKey as string | null | undefined)
-          ?? null,
+        sourceBlockKey,
         sourceHash: (payload.sourceHash as string | null | undefined) ?? null,
         sourceChatJid: submission.source_chat_jid,
         sourceAccountId: submission.source_account_id,
@@ -517,6 +641,29 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
           WHERE id=$1`,
         [id, instructionId, actor.id, why],
       );
+      // Office verification is its own source category even when the
+      // candidate originated from a WhatsApp message. It must never be
+      // presented as an independently verified WhatsApp automatic payment.
+      if (paidEventsEnabled()) {
+        paidEventId = await insertBusinessPaidEvent(client, {
+          instructionId,
+          sourceSubmissionId: submission.id,
+          employeeMobile: instruction.employee_mobile ?? employeeMobile,
+          payoutMobile: instruction.payout_mobile ?? payoutMobile,
+          employeeName: instruction.employee_name,
+          amountMinor: instruction.amount_minor,
+          method: instruction.method,
+          sourceCategory: 'OFFICE',
+          sourceMessageId: submission.source_message_id,
+          sourceBlockKey,
+          paidAt: null,
+          createdBy: actor.id,
+        });
+        if (paidEventId) {
+          await recordAudit({actor, action: 'CASH_PAYMENT_EVENT_CREATED', entity: 'cash_payment_events',
+            entityId: paidEventId, detail: {instructionId, sourceCategory: 'OFFICE', submissionId: id}}, client);
+        }
+      }
     } else {
       await client.query(
         `UPDATE cash_submissions
@@ -532,7 +679,101 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
     );
     await recordAudit({actor, action: `CASH_SUBMISSION_${decision}`, entity: 'cash_submission', entityId: id,
       detail: {instructionId, reason: why}}, client);
-    return {id, state: decision, instructionId, instructionState: instructionId ? 'REVIEW' : null};
+    return {id, state: decision, instructionId, instructionState: instructionId ? 'REVIEW' : null, paidEventId};
+  });
+}
+
+// ── Business Paid corrections / reversals (append-only, no ledger writes) ──
+export type PaymentEventCorrectionInput = {
+  amountMinor: number;
+  employeeName?: string | null;
+  method?: string | null;
+  reason: string;
+};
+
+async function originalPaymentEvent(client: Tx, eventId: string) {
+  const found = await client.query<{
+    id: string; instruction_id: string | null; source_submission_id: string | null;
+    employee_mobile: string; payout_mobile: string; employee_name: string;
+    amount_minor: string; method: string; source_category: 'WHATSAPP' | 'OFFICE';
+    source_message_id: string | null; source_block_key: string | null; status: string;
+  }>(`SELECT id, instruction_id, source_submission_id, employee_mobile, payout_mobile, employee_name,
+             amount_minor::text, method, source_category, source_message_id, source_block_key, status
+        FROM cash_payment_events
+       WHERE id = $1 AND event_type = 'PAYMENT'`, [eventId]);
+  if (!found.rowCount) throw new DomainError('PAYMENT_EVENT_NOT_FOUND', 404);
+  return found.rows[0];
+}
+
+/**
+ * Append a CORRECTION event. It never changes the original row, never posts
+ * and never writes a ledger entry. Reporting uses the latest correction as the
+ * effective business amount.
+ */
+export async function correctBusinessPaidEvent(actor: Actor, eventId: string, input: PaymentEventCorrectionInput) {
+  assertCapability(actor, 'cash.review');
+  if (actor.role !== 'ADMIN') throw new DomainError('ADMIN_REQUIRED', 403);
+  if (!paidEventsEnabled()) throw new DomainError('PAID_EVENTS_DISABLED', 409);
+  const reason = text(input.reason, 'reason', {max: 500});
+  const amountMinor = moneyMinor(input.amountMinor, 'amountMinor');
+  return tx(async (client) => {
+    const original = await originalPaymentEvent(client, eventId);
+    const reversed = await client.query(
+      `SELECT 1 FROM cash_payment_events WHERE event_type='REVERSAL' AND reverses_event_id=$1`, [eventId],
+    );
+    if (reversed.rowCount) throw new DomainError('PAYMENT_EVENT_REVERSED', 409);
+    const method = input.method ?? original.method;
+    if (!PAYMENT_METHODS.includes(method as PaymentMethod)) throw new DomainError('INVALID_METHOD');
+    const employeeName = input.employeeName?.trim() || original.employee_name;
+    const id = newId('pe');
+    await client.query(
+      `INSERT INTO cash_payment_events
+         (id, event_type, instruction_id, source_submission_id, employee_mobile, payout_mobile,
+          employee_name, employee_link_status, amount_minor, method, source_category,
+          source_message_id, source_block_key, status, paid_at, reason, corrects_event_id, created_by)
+       SELECT $1,'CORRECTION',instruction_id,source_submission_id,employee_mobile,payout_mobile,
+              $2,employee_link_status,$3,$4,source_category,source_message_id,source_block_key,
+              'CORRECTED',now(),$5,$6,$7
+         FROM cash_payment_events WHERE id=$6`,
+      [id, employeeName, amountMinor, method, reason, eventId, actor.id],
+    );
+    await recordAudit({actor, action: 'CASH_PAYMENT_EVENT_CORRECTED', entity: 'cash_payment_events',
+      entityId: id, detail: {correctsEventId: eventId, amountMinor, reason}}, client);
+    return {id, eventType: 'CORRECTION', correctsEventId: eventId, amountMinor};
+  });
+}
+
+/**
+ * Append a REVERSAL event. The original event and any financial posting are
+ * untouched; this is business-layer audit only and never creates a ledger
+ * reversal.
+ */
+export async function reverseBusinessPaidEvent(actor: Actor, eventId: string, reason: string) {
+  assertCapability(actor, 'cash.review');
+  if (actor.role !== 'ADMIN') throw new DomainError('ADMIN_REQUIRED', 403);
+  if (!paidEventsEnabled()) throw new DomainError('PAID_EVENTS_DISABLED', 409);
+  const why = text(reason, 'reason', {max: 500});
+  return tx(async (client) => {
+    await originalPaymentEvent(client, eventId);
+    const existing = await client.query(
+      `SELECT 1 FROM cash_payment_events WHERE event_type='REVERSAL' AND reverses_event_id=$1`, [eventId],
+    );
+    if (existing.rowCount) throw new DomainError('PAYMENT_EVENT_ALREADY_REVERSED', 409);
+    const id = newId('pe');
+    await client.query(
+      `INSERT INTO cash_payment_events
+         (id, event_type, instruction_id, source_submission_id, employee_mobile, payout_mobile,
+          employee_name, employee_link_status, amount_minor, method, source_category,
+          source_message_id, source_block_key, status, paid_at, reason, reverses_event_id, created_by)
+       SELECT $1,'REVERSAL',instruction_id,source_submission_id,employee_mobile,payout_mobile,
+              employee_name,employee_link_status,amount_minor,method,source_category,
+              source_message_id,source_block_key,'REVERSED',now(),$2,$3,$4
+         FROM cash_payment_events WHERE id=$3`,
+      [id, why, eventId, actor.id],
+    );
+    await recordAudit({actor, action: 'CASH_PAYMENT_EVENT_REVERSED', entity: 'cash_payment_events',
+      entityId: id, detail: {reversesEventId: eventId, reason: why}}, client);
+    return {id, eventType: 'REVERSAL', reversesEventId: eventId};
   });
 }
 

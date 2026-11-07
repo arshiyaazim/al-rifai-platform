@@ -1,8 +1,8 @@
 # Phase 3 File Manifest
 
-**Branch:** `feature/phase3-router-cash-vessel`
-**Baseline:** `e6becfc`
-**Schema:** `1.5.0` (production); migrations are explicit CLI only
+**Branch:** `feature/phase3-cash-paid-events` (Phase 3 Cash Paid worktree)
+**Baseline:** `13d660c`
+**Schema:** `1.6.0` target (production still `1.5.0`; migrations are explicit CLI only)
 
 ## New files
 
@@ -88,6 +88,14 @@
 | `docs/VESSEL_ORDER_DRAFT.md` | Order-draft root cause, implemented stage, transport options and rollback |
 | `NEXT-HANDOFF.md` | Session handoff: versions, tests, blockers, exact next task |
 | `tests/standalone/history-extraction.test.mjs` | Cash payment-block parser tests |
+| `db/standalone/010_vessel_draft_delivery.sql` | Inert WA-01 vessel draft-delivery queue (recovered from `3e0dd01`; not activated) |
+| `db/standalone/011_cash_payment_events.sql` | Append-only Business Paid Events, corrections/reversals and financial posting link |
+| `lib/standalone/finance.ts` (`insertBusinessPaidEvent`, `correctBusinessPaidEvent`, `reverseBusinessPaidEvent`) | Business Paid write/correction/reversal services; never writes the ledger |
+| `tests/standalone/cash-paid-events.test.mjs` | 12 tests: single-mobile, WhatsApp automatic Paid, Office Paid, replay/concurrency, flag, reporting, append-only, no ledger |
+| `tests/standalone/migration-integrity.test.mjs` | 5 tests: 010→011 order/checksums, schema, indexes, constraints, idempotent re-apply |
+| `AGENTS.md` | Non-negotiable Cash/WhatsApp/Paid-vs-POSTED/migration invariants |
+| `phase3-implementation-plan.md` | Corrected implementation record (was a proposal) |
+| `phase3-technical-decision-report.md` | Corrected final design and evidence |
 | `app/api/assistant/route.ts` | Admin assistant/draft/applicant/order API |
 | `compose.phase3.yaml` | Production override for `alrifai_v2_phase3` and flags off |
 
@@ -95,7 +103,12 @@
 
 | Path | Change |
 |---|---|
-| `lib/standalone/finance.ts` | Full lifecycle, reversal, reconciliation, candidate→instruction, audit atomicity |
+| `lib/standalone/finance.ts` | Full lifecycle, reversal, reconciliation, candidate→instruction, audit atomicity; Phase 3 Business Paid Events, single-mobile payout, strict method/identity, posting link |
+| `lib/history-extraction.mjs` | Cash parser: single-mobile rule, hyphenated numbers, multi-line blocks, `(C)/(R)/BANK`, amount variants, no fabricated method |
+| `lib/message-router.ts` | Processes all clean Cash blocks; WhatsApp automatic Business Paid at the authorized routing point |
+| `lib/standalone/cash-dashboard.ts` | Flag-gated Business Paid reporting union with legacy POSTED; business detail list; lazy timezone binding |
+| `scripts/standalone/install.mjs` | Fresh install includes 010/011 and verifies the new tables |
+| `scripts/standalone/grants.mjs` | Append-only grants for Business Paid tables; read-write grant for the inert vessel queue |
 | `lib/standalone/review.ts` | Client-aware review application, transaction-aware audit |
 | `lib/standalone/programs.ts`, `employees.ts`, `attendance.ts` | Client-aware writers + capability enforcement; `getProgram()` returns `start_date`/`end_date` as ISO text (fixes `[object Date]` 500) |
 | `lib/standalone/audit.ts` | Transaction-aware `recordAudit` |
@@ -112,6 +125,9 @@
 
 ## Delivery boundary
 
-- Code and integration tests complete on the feature branch.
-- Production deployment, migration and live financial posting NOT executed.
-- Owner approval required before merge/deploy.
+- Code, migrations, tests and documentation are complete on
+  `feature/phase3-cash-paid-events`.
+- Production migration, deployment and flag activation were NOT executed.
+- Owner approval is required before merge/deploy/migration.
+- `PHASE3_PAID_EVENTS_ENABLED` remains OFF by default; rollback is setting it
+  to `0`.

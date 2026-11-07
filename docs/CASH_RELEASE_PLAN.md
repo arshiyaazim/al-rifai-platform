@@ -273,3 +273,63 @@ automatic eligibility and Office approval integration remain future work.
   WhatsApp-sourced.
 - Deployment, production verification and any WA/Office classification work
   remain outside this phase.
+
+---
+
+# Phase 3 — Business Paid Events (2026-11-07, isolated implementation)
+
+Status: source implementation + isolated verification complete. Not merged, not
+deployed and not applied to production.
+
+## Owner rules encoded
+
+- WA-01 verified Admin OUTGOING to the single authorized Accountant direct chat
+  is the only Cash source. WA-02 remains identity-only.
+- One identifiable mobile = `employee_mobile` = `payout_mobile`. Two numbers
+  keep ID + payout. Three or more are ambiguous and go to review.
+- A missing method is never fabricated as `cash`.
+- Business Paid (`cash_payment_events`) is separate from Financial POSTED
+  (`cash_postings`/`ledger_entries`). WhatsApp automatic Paid never calls
+  `postInstruction()`.
+- `PHASE3_PAID_EVENTS_ENABLED` defaults to `0` and guards both WhatsApp and
+  Office event creation.
+
+## Reporting
+
+- Flag OFF: unchanged Phase 2 POSTED reporting.
+- Flag ON: Business Paid Events plus historical POSTED rows with no event.
+  Reversed events and their postings are excluded; corrections use the latest
+  correction amount. Dates use `Asia/Dhaka`.
+
+## Migrations
+
+| Migration | Purpose | SHA-256 |
+|---|---|---|
+| `010_vessel_draft_delivery.sql` | inert vessel draft-delivery queue | `fa299768329105611153b977a6f6c1400372d5651d77f7125bc1c5c69817e7c7` |
+| `011_cash_payment_events.sql` | append-only Business Paid Events + posting link | `4203fdbeff6eede80cc44799b6cdad4112b37e621ef44cf09d22d0ac58964165` |
+
+011 must follow 010. Both are recorded in `schema_migrations`; schema version
+becomes `1.6.0`.
+
+## Deployment instructions (separate Owner approval required)
+
+1. Take a verified production backup.
+2. Rehearse 010/011 on a restored production copy.
+3. Run `scripts/standalone/migrate.mjs` against the approved database. Confirm
+   the ledger checksums above and schema `1.6.0`.
+4. Deploy the image with `PHASE3_PAID_EVENTS_ENABLED=0`.
+5. Verify flag-OFF parity: dashboard totals, posting permissions, no new events.
+6. Only after approval set the flag to `1`. No restart of an outbound WhatsApp
+   sender is required; this work does not send messages.
+
+Rollback: set the flag to `0`. Do not drop or mutate existing
+`cash_payment_events` rows; they are append-only audit records.
+
+## Remaining limitations
+
+- No production migration or deployment was performed.
+- Business correction/reversal server functions exist and are tested, but have
+  no UI yet.
+- The real-message inspection was a bounded read-only sample, not a complete
+  archive audit.
+- 11 sampled blocks remain incomplete by design and go to review.
