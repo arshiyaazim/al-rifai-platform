@@ -172,3 +172,27 @@ deployment, flag activation, ledger posting or WhatsApp permission change.
 Added API/UI: Business Paid list/detail, WhatsApp/Office evidence, financial
 posting status, correction/reversal actions, and explicit Business Paid vs
 Financial POSTED reporting basis.
+
+---
+
+## 2026-11-08 — Production release preparation audit (read-only)
+
+Candidate: `feature/phase3-integration` @ `0b691a223949e9a413589db9e5f3dcd3366448e3`.
+
+| Check | Result |
+|---|---|
+| Production image | `phase3-ai-rc-7da17f1`, `sha256:5f3de875…01fa`, healthy |
+| Production schema | `1.5.0`, 46 tables, migrations 002–009 |
+| Restored backup | `phase3-predeploy-7da17f1-20261107T124612Z.dump`, 8.5 MB, SHA-256 `61c73a1a…48aa`, 333 TOC |
+| Production-copy migration | 010+011 applied; schema `1.6.0`, 49 tables, 10 migrations; row counts preserved |
+| Repeat migration | no-op |
+| Failure probe | rollback clean; no probe table/ledger row |
+| Runtime grants | 010 vessel READ_WRITE; 011 events/postings APPEND_ONLY |
+| App startup on restored copy | `/api/health` 200, `1.6.0` |
+| Auth/RBAC | unauth redirect/401; admin routes 200; staff mutation 403; no-CSRF 403; admin correction/reversal 200 with zero posting/ledger rows |
+| UI markers | `/cash/paid`, detail, `/cash/transactions` POSTED basis, Vessel routes 200 |
+| Production changes | **none** |
+
+Critical release dependency: apply 010/011 before starting the new image because
+`/cash/paid` queries the 011 table even when `PHASE3_PAID_EVENTS_ENABLED=0`.
+A fresh backup and Owner approval are still required.

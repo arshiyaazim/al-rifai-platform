@@ -17,6 +17,44 @@ BLOCKED, not complete.** A README or source change does not complete it.
 
 ---
 
+## 2026-11-08 — Production release preparation audit (read-only)
+
+**Candidate:** `feature/phase3-integration` @
+`0b691a223949e9a413589db9e5f3dcd3366448e3`.
+**Status:** production readiness evidence and runbook prepared; **no production
+migration, deployment, restart or flag activation was performed.**
+
+Key findings:
+
+- Production still runs image `phase3-ai-rc-7da17f1`
+  (`sha256:5f3de875…01fa`), schema `1.5.0`, 46 tables, 8 migrations.
+- Production router gate is ON (WA-01 watermark 19634, 9 business chats; WA-02
+  zero business chats). Router worker and Vessel processing are ON. Paid Events
+  is absent/OFF.
+- A verified 8.5 MB pre-deploy backup was restored into an isolated PostgreSQL
+  16 copy. Migration 010+011 produced schema `1.6.0`, 49 tables, 10 migrations,
+  preserved all restored row counts, repeat migration was a no-op, grants and
+  immutable triggers are present, app health returned 200/`1.6.0`, and a
+  temporary failing migration rolled back cleanly.
+- Isolated HTTP checks: unauthenticated `/cash` redirects to login; Business
+  Paid API returns 401 unauthenticated; admin routes 200; staff correction is
+  403 `CAPABILITY_REQUIRED`; admin correction without CSRF is 403
+  `CSRF_DENIED`; admin correction/reversal succeeds and leaves zero posting/
+  ledger rows.
+- Historical aggregates: 3,836 cash instructions, zero Business Paid Events,
+  2,339 payment-format messages, 1 potential multi-block message, 117 pending
+  submissions (72 missing core fields), 39 unregistered employee mobiles and
+  1,401 unregistered payouts.
+- **Critical deployment order:** apply 010/011 **before** starting the new
+  image because `/cash/paid` queries the 011 table even with Paid Events OFF.
+- Fresh backup, production migration window, image build/tag approval, router
+  pause and Owner sign-off remain outstanding.
+
+Full evidence/runbook:
+`docs/PHASE3_PRODUCTION_RELEASE_AUDIT_20261108.md`.
+
+---
+
 ## 2026-11-07 — Phase 3 integration + Admin Business Paid API/UI (isolated)
 
 **Branch:** `feature/phase3-integration`

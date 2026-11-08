@@ -1,5 +1,15 @@
 # Phase 3 Rollback Instructions
 
+> **2026-11-08 integration note — migrations 010/011 and Business Paid:**
+> - Disable `PHASE3_PAID_EVENTS_ENABLED` first. Existing `cash_payment_events`
+>   rows are append-only audit records; never delete them.
+> - Rolling back the application image does **not** revert additive 010/011
+>   schema or any Business Paid Event created after activation. Prefer forward
+>   recovery; a full restore loses post-migration payments/events.
+> - `vessel_draft_deliveries` (migration 010) is inert; do not enable outbound sending as part of
+>   rollback.
+> - Apply the same DB/file-safety rules as below.
+
 **Trigger:** failure after Phase 3 deployment (migration error, health failure,
 unexpected behaviour or data-integrity concern).
 
