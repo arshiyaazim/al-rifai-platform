@@ -4,9 +4,11 @@
 **Migration:** `db/standalone/010_vessel_draft_delivery.sql`
 **SHA-256:** `fa299768329105611153b977a6f6c1400372d5651d77f7125bc1c5c69817e7c7`
 **Branch:** `feature/phase3-integration` @ `0b309b2`
-**Production status:** **NOT APPLIED** (production schema `1.5.0`, migrations
-`002`–`009` only).
-**Runtime delivery status:** **MANUAL_COPY_ONLY**. No outbound sender exists.
+**Production status:** **APPLIED 2026-11-08** (010-only gate: 47 tables,
+schema `1.5.0`; after 011: 49 tables, schema `1.6.0`).
+**Runtime delivery status:** **MANUAL_COPY_ONLY**. Worker and transport code
+exist, but all outbound flags/gates remain OFF and no sender permission or
+recipient is approved.
 
 ---
 
@@ -73,7 +75,7 @@ change and separate implementation. This document does not invent it.
 | Manual copy of draft by Admin | **IMPLEMENTED / DEPLOYED** |
 | Admin reply as confirmation | **IMPLEMENTED / DEPLOYED** |
 | Durable outbound draft queue | **IMPLEMENTED / TESTED IN ISOLATION**, migration pending |
-| Automatic WhatsApp draft delivery | **NOT IMPLEMENTED** (transport call absent) |
+| Automatic WhatsApp draft delivery | **IMPLEMENTED IN SOURCE, NOT ACTIVATED** (worker + transport exist; gate OFF) |
 | Bridge-2 order intake / Bridge-2→Bridge-1 handoff | **UNKNOWN / NOT VERIFIED** |
 | Release evidence / program lifecycle | **IMPLEMENTED / TESTED / DEPLOYED** for structured slips; unstructured evidence stays review-only |
 
@@ -164,10 +166,10 @@ Identical on router, cash, integration and canonical untracked copy.
 | Pure delivery state machine | `lib/vessel-draft-delivery.ts` | 22–350 | Implemented | 12 tests | Not used by a worker |
 | Durable queue store | `lib/standalone/vessel-draft-delivery-store.ts` | 42–395 | Implemented | 8 tests | Migration absent; no worker |
 | Queue producer | `enqueueDraftForProgram` | 149–205 | Implemented | store tests | No production caller |
-| Queue consumer | `claimDueDeliveries` | 239–282 | Implemented | store tests | **No caller in app/worker** |
+| Queue consumer | `lib/vessel-draft-delivery-worker.ts::runVesselDraftDeliveryTick` → `claimDueDeliveries` | worker 72–150; store 239–282 | Implemented | 5 worker/transport tests + 8 store tests | Worker default-disabled |
 | Outbound request builder | `buildOutboundRequest` | 302–327 | Implemented; never executes | 12 tests | Gate disabled |
-| Transport/send call | — | — | **NOT IMPLEMENTED** | — | — |
-| Retry/unknown recovery | `recoverStuckDeliveries`, `applyDeliveryOutcomeToStore` | 207–337 | Implemented | store tests | No worker |
+| Transport/send call | `lib/vessel-draft-transport.ts::sendVesselDraft` | 45–70 | Implemented; MCP `send_message` | mocked adapter tests | Production gate/permission OFF |
+| Retry/unknown recovery | `recoverStuckDeliveries`, `applyDeliveryOutcomeToStore` | 207–337 | Implemented | store + worker tests | Worker default-disabled |
 | Admin delivery status | `deliveryStatusForPrograms`, `/vessel/drafts` | 338–352; page 108–142 | Implemented | store test | UI shows disabled gate |
 | Legacy draft composer | `lib/order-draft.ts::composeAdminDraft` | 38–65 | Implemented historical; no current caller | not authoritative | Not used |
 | Legacy candidate draft | `lib/escort-intake-candidate.mjs::buildEscortAdminDraft` | 385–389 | Implemented historical; no current caller | — | Not used |
@@ -256,12 +258,12 @@ Rules:
 
 | Capability | Status |
 |---|---|
-| Durable `vessel_draft_deliveries` queue | Code + migration exists; migration not in production |
-| Queue producer | Code exists; no production caller |
-| Queue consumer worker | Code exists; no caller |
-| WhatsApp delivery adapter | **NOT IMPLEMENTED** |
+| Durable `vessel_draft_deliveries` queue | Code + migration **applied in production** |
+| Queue producer | Connected after committed DRAFT program when an approved recipient exists |
+| Queue consumer worker | Implemented; default-disabled by `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED=0` |
+| WhatsApp delivery adapter | **IMPLEMENTED IN SOURCE**; not enabled |
 | `messages.send` permission | Absent from WA-01 and WA-02 current policies |
-| Automatic delivery | **NO** |
+| Automatic delivery | **CODE PRESENT, DISABLED** |
 | Manual copy from `/vessel/drafts` | **YES**, production-deployed |
 | Bridge-2 order intake | **NOT IMPLEMENTED / UNVERIFIED** |
 | Bridge-2 → Bridge-1 handoff | **NOT IMPLEMENTED / UNVERIFIED** |
@@ -289,12 +291,12 @@ Missing for automatic delivery:
 | Exact Owner draft | Yes | Yes | Yes | Yes | — | `order-draft-template.ts` |
 | Draft UI / copy | Yes | Yes | Yes | Yes | — | `/vessel/drafts`, panel |
 | Admin reply confirmation | Yes | Yes | Yes | Yes | — | `applyConfirmation` |
-| Durable delivery queue | Yes | Yes | Yes | No (migration absent) | Apply 010 | `010`, store |
-| Queue producer wiring | Yes | Yes | Yes | No | production caller | store tests only |
-| Queue worker | Yes | Yes | Yes | No | worker/cron | store tests only |
-| WhatsApp send adapter | Yes | **No** | No | No | implement `send_message` path | design §6 |
+| Durable delivery queue | Yes | Yes | Yes | Yes (migration applied; empty) | — | `010`, store, production ledger |
+| Queue producer wiring | Yes | Yes | Yes | Conditional (requires approved recipient) | Owner recipient approval | `createProgram` hook, store tests |
+| Queue worker | Yes | Yes | Yes | No (default-disabled) | Owner gate | worker/transport tests |
+| WhatsApp send adapter | Yes | Yes | Yes | No | approved permission/recipient | transport tests |
 | Outbound permission | Needed | No | No | No | Owner/bridge approval | policies |
-| Retry/terminal unknown | Yes | Yes | Yes | No | worker | store tests |
+| Retry/terminal unknown | Yes | Yes | Yes | No (default-disabled) | Owner gate | store + worker tests |
 | Bridge-2 order intake | Owner-intended (unverified) | **No** | No | No | specification + implementation | no verified source |
 | Bridge-2→Bridge-1 handoff | Owner-intended (unverified) | **No** | No | No | specification + implementation | no verified source |
 | Release evidence | Yes | Yes | Yes | Yes (review-only) | — | `release-slip.ts` |
@@ -308,27 +310,32 @@ Missing for automatic delivery:
    panel to operate. It does **not** send messages.
 
 2. **What does it NOT enable?**
-   No WhatsApp send permission, no worker, no automatic delivery, no Bridge-2
-   intake, no confirmation change, no program update, no outbound message.
+   No WhatsApp send permission, no approved sender/recipient, no outbound
+   activation and no Bridge-2 intake. The worker and send adapter are present
+   but default-disabled by both env and the five-block gate.
 
 3. **Is automatic Escort Draft Delivery implemented?**
-   **No.** The queue, state machine, idempotency and request builder exist; the
-   send adapter and worker caller do not.
+   **Implemented in source, not activated.** Queue, producer hook, worker,
+   claim, narrow `send_message` adapter, retry and terminal states exist. With
+   current production config the gate remains closed and mode is
+   `MANUAL_COPY_ONLY`.
 
 4. **Can the workflow be tested without live WhatsApp sending?**
-   Yes. `MANUAL_COPY_ONLY`, exact template, queue state machine, idempotency,
-   retry, terminal states, grants and Admin status are all testable with
-   synthetic DB data. Existing evidence: 12 pure + 8 store + 7 draft tests.
+   Yes. The worker is tested with an injected fake transport; no real socket or
+   message is used. Evidence: 12 pure + 8 store + 5 worker/transport + 7 draft
+   tests.
 
 5. **What must be completed before production activation?**
-   Apply 010, wire a worker, implement one narrow `send_message` call, configure
-   the five-block gate, obtain send permission and exact recipient, add live
-   verification/rollback evidence, and confirm the template.
+   Approve and configure the exact sender JID, recipient JID, socket/token,
+   `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=1`, DB
+   `vessel_draft_outbound_enabled=true`, `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED=1`,
+   and perform the one-message controlled verification/rollback.
 
 6. **What requires separate Owner approval?**
    Sending account, recipient JID, chat scope, exact template, trigger/retry
    behavior, migration, send permission, live activation, rollback, and any
    Bridge-2 scope expansion.
 
-**Migration 010 does not implement a complete business workflow; it only adds
-optional durable storage for a delivery stage that still lacks a transport.**
+**Migration 010 and the worker code do not, by themselves, enable outbound
+sending. Production outbound remains blocked until the exact Owner-approved
+transport gate is configured and verified.**

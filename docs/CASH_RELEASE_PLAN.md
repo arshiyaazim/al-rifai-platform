@@ -371,3 +371,11 @@ Technical references:
 `docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md`,
 `docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md`,
 `docs/PHASE3_GIT_COMPLETENESS_AUDIT.md`.
+
+## 2026-11-08 staged production migration
+
+- Migration 010 applied first: 47 tables, schema `1.5.0`; verified.
+- Migration 011 applied after the 010 gate: 49 tables, schema `1.6.0`; verified.
+- Fresh backup SHA-256 `d88b0f0f...22ae77`; critical row counts preserved.
+- `PHASE3_PAID_EVENTS_ENABLED` remains OFF; `cash_payment_events` and posting
+  links are empty. No financial posting or historical backfill occurred.

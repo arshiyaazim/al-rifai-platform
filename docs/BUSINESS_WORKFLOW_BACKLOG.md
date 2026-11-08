@@ -1,10 +1,10 @@
 # Business workflow backlog — 2026-11-07
 
-> **2026-11-08 integration update:** the combined candidate applies 010 **and**
-> 011 in isolated rehearsal (schema `1.6.0`, 49 tables). Production remains
-> `1.5.0`/46 tables and no migration has been applied. 010 is still a durable
-> queue only; automatic WhatsApp draft delivery and Bridge-2 order intake remain
-> unimplemented/unverified. See
+> **2026-11-08 integration/release update:** production migrations 010 and 011
+> were applied in stages and independently verified (`1.6.0`, 49 tables). 010
+> queue, producer hook, worker and narrow transport adapter are implemented; all
+> outbound gates remain OFF and delivery is still `MANUAL_COPY_ONLY`. Bridge-2
+> order intake remains unverified/unimplemented. See
 > `docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md` and
 > `docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md`.
 

@@ -130,6 +130,9 @@
 | `docs/PHASE3_GIT_COMPLETENESS_AUDIT.md` | Branch/worktree/commit completeness audit, canonical dirty-file assessment, file-level matrix |
 | `docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md` | Migration 010 SQL, draft workflow, exact template, delivery status and completion matrix |
 | `docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md` | Migration 011 SQL, Business Paid pipeline, API/UI, historical coverage and activation readiness |
+| `lib/vessel-draft-delivery-worker.ts` | Default-disabled queue worker: gate check, claim, prepare, send, persist outcome, health/status |
+| `lib/vessel-draft-transport.ts` | Narrow WA-01 MCP `send_message` adapter; mock-tested, production gate OFF |
+| `tests/standalone/vessel-draft-delivery-worker.test.mjs` | 5 worker/transport tests: send, retry/backoff, terminal unknown, disabled gate, adapter mapping |
 | `phase3-implementation-plan.md` | Corrected implementation record (was a proposal) |
 | `phase3-technical-decision-report.md` | Corrected final design and evidence |
 | `app/api/assistant/route.ts` | Admin assistant/draft/applicant/order API |

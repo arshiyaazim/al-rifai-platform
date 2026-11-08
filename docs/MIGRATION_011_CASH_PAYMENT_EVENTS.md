@@ -3,10 +3,13 @@
 **Date:** 2026-11-08
 **Migration:** `db/standalone/011_cash_payment_events.sql`
 **SHA-256:** `4203fdbeff6eede80cc44799b6cdad4112b37e621ef44cf09d22d0ac58964165`
-**Branch:** `feature/phase3-integration` @ `0b309b2`
-**Production status:** **NOT APPLIED** (production schema `1.5.0`, 46 tables,
-migrations `002`–`009`; `PHASE3_PAID_EVENTS_ENABLED` absent/OFF).
-**Feature status:** implemented and isolated-tested; **NOT production-active**.
+**Branch:** `feature/phase3-010-011-release` @ release commit (from integration
+`0b309b2`)
+**Production status:** **APPLIED 2026-11-08** (schema `1.6.0`, 49 tables,
+migrations 002–011; 0 Business Paid Events).
+**Feature status:** implemented, isolated-tested and schema-deployed; **NOT
+production-active**. `PHASE3_PAID_EVENTS_ENABLED` remains OFF and the integrated
+application image was not yet deployed at the migration gate.
 
 ---
 
@@ -230,13 +233,13 @@ Read-only production aggregates at audit time (2026-11-08):
 
 | Item | Count |
 |---|---:|
-| Cash instructions | 3,838 |
+| Cash instructions | 3,840 |
 | Business Paid Events | 0 (migration not applied) |
-| Instructions with source message/block | 3,838 |
+| Instructions with source message/block | 3,840 |
 | Instructions without employee/payout mobile | 0 |
-| WA-01 outgoing text in Accountant conversation | 2,431 |
-| Payment-format messages (`ID:`) | 2,341 |
-| Total `ID:` blocks | 2,341 |
+| WA-01 outgoing text in Accountant conversation | 2,433 |
+| Payment-format messages (`ID:`) | 2,343 |
+| Total `ID:` blocks | 2,343 |
 | Messages with 2+ `ID:` markers | 1 |
 | Messages with more than one instruction | 0 |
 | Pending cash submissions | 117 |
@@ -248,11 +251,11 @@ Read-only production aggregates at audit time (2026-11-08):
 Important distinctions:
 
 - **Historical WhatsApp mirror**: 34,677 messages; independent of this migration.
-- **Existing Cash Instructions**: 3,838 REVIEW/POSTED rows; remain unchanged.
+- **Existing Cash Instructions**: 3,840 REVIEW/POSTED rows; remain unchanged.
 - **Existing Financial POSTED**: 1,586 postings/ledger entries; remain authoritative.
 - **New Business Paid Events**: zero in production until flag + migration + live
   traffic.
-- **Missing retroactive events**: all 3,838 existing instructions remain without
+- **Missing retroactive events**: all 3,840 existing instructions remain without
   a Business Paid Event. No backfill was run or authorized.
 - **Multi-block gap**: 1 message has two `ID:` markers but no message has more
   than one instruction; the old backfill likely skipped the second block.
@@ -267,20 +270,20 @@ Important distinctions:
 
 | Feature | Implemented | Tested in isolation | Deployed | Activated | Missing / blocked |
 |---|---|---|---|---|---|
-| WhatsApp parser single-mobile | Yes | Yes | No (integration branch) | No | — |
-| Multi-block processing | Yes | Yes | No | No | historical gap remains |
-| WhatsApp automatic PAYMENT | Yes | Yes | No | No | migration + flag |
-| Office PAYMENT | Yes | Yes | No | No | migration + flag |
-| PAYMENT append-only | Yes | Yes | No | No | migration |
-| CORRECTION append-only | Yes | Yes | No | No | migration + flag |
-| REVERSAL append-only | Yes | Yes | No | No | migration + flag |
-| Posting link | Yes | Yes | No | No | migration + flag |
-| No automatic postInstruction | Yes | Yes | No | No | — |
-| Admin list API | Yes | Yes | No | No | migration + deploy |
-| Admin detail API | Yes | Yes | No | No | migration + deploy |
-| Admin list/detail UI | Yes | Build/HTTP | No | No | migration + deploy |
-| Correction/reversal UI/API | Yes | Yes | No | No | migration + flag |
-| Business Paid summary | Yes | Yes | No | No | migration + flag |
+| WhatsApp parser single-mobile | Yes | Yes | Yes (schema; image pending) | No | — |
+| Multi-block processing | Yes | Yes | Yes (schema; image pending) | No | historical gap remains |
+| WhatsApp automatic PAYMENT | Yes | Yes | Yes (schema; image pending) | No | image + flag |
+| Office PAYMENT | Yes | Yes | Yes (schema; image pending) | No | image + flag |
+| PAYMENT append-only | Yes | Yes | Yes | No | image |
+| CORRECTION append-only | Yes | Yes | Yes | No | image + flag |
+| REVERSAL append-only | Yes | Yes | Yes | No | image + flag |
+| Posting link | Yes | Yes | Yes | No | image + flag |
+| No automatic postInstruction | Yes | Yes | Yes | No | — |
+| Admin list API | Yes | Yes | Yes (schema; image pending) | No | deploy image |
+| Admin detail API | Yes | Yes | Yes (schema; image pending) | No | deploy image |
+| Admin list/detail UI | Yes | Build/HTTP | Yes (schema; image pending) | No | deploy image |
+| Correction/reversal UI/API | Yes | Yes | Yes (schema; image pending) | No | image + flag |
+| Business Paid summary | Yes | Yes | Yes (schema; image pending) | No | image + flag |
 | Legacy POSTED parity | Yes | Yes | Production currently POSTED-only | No event flag | — |
 | Historical backfill | **No** | No | No | No | not authorized |
 | Existing pending candidate correction | **No** | No | No | No | reviewer action |
@@ -311,7 +314,7 @@ Important distinctions:
    so **011 must be applied before starting the integrated image**.
 
 5. **What historical records remain without Paid Events?**
-   All 3,838 existing cash instructions and all 2,341 historical payment-format
+   All 3,840 existing cash instructions and all 2,343 historical payment-format
    messages, until a separately authorized retroactive process exists. No
    backfill is part of this migration.
 

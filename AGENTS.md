@@ -84,6 +84,14 @@ in `docs/` and the Phase 3 reports.
   011 (`cash_payment_events`). Do not renumber them after they are deployed.
 - Applied migration files are checksum-locked by `schema_migrations`. Changing
   an applied file requires an explicit, reviewed `--allow-checksum-change`.
+- Staged application: `migrate.mjs --through=010` applies only 010. Normal
+  `migrate.mjs` then applies 011. Runtime grants are presence-aware so a stage
+  can run before later tables exist.
+- Vessel Draft worker and transport are default-disabled
+  (`ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED=0`,
+  `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=0`, DB
+  `vessel_draft_outbound_enabled=false`). Do not enable without the exact
+  approved sender/recipient, socket/token and one-message verification.
 - `cash_payment_events` and `cash_payment_event_postings` are append-only.
   Corrections/reversals are new rows; never UPDATE/DELETE financial history.
 

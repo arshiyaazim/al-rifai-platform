@@ -6,12 +6,14 @@
 >   documentation only).
 > - Combined migrations: **010 + 011**; isolated/fresh rehearsal target schema
 >   **`1.6.0`, 49 tables, 10 migration rows**.
-> - Production remains **`1.5.0`, 46 tables, migrations 002–009**; **no 010/011
->   migration, deployment or Paid Events activation has occurred**.
+> - Production migrations 010 and 011 were applied in stages on 2026-11-08 and
+>   verified: **schema `1.6.0`, 49 tables, migrations 002–011**. Paid Events
+>   remains OFF with 0 events.
 > - Business Paid API/UI exists in source: `/cash/paid`, `/cash/paid/[id]`,
 >   `business-paid` list/detail resources and correction/reversal actions.
-> - 010 remains a durable queue only; automatic WhatsApp draft delivery is
->   **NOT IMPLEMENTED**, current mode `MANUAL_COPY_ONLY`.
+> - 010 queue + producer + default-disabled worker + narrow transport adapter
+>   are implemented; outbound gates are OFF and current mode is
+>   `MANUAL_COPY_ONLY`.
 > - WA-02 is identity-only in the **current runtime**; the Owner-intended
 >   Bridge-2 → Bridge-1 order-draft workflow is **UNKNOWN / NOT VERIFIED** and
 >   requires separate evidence.

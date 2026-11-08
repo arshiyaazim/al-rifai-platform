@@ -5,10 +5,14 @@
 > rehearsal target is schema **`1.6.0`, 49 tables, 10 migration rows**. The
 > 010-only statements in this historical document (schema stays `1.5.0`, CI
 > 46→47) describe the earlier router-branch rehearsal, not the combined branch.
-> 010 remains a durable queue only: no worker caller and no `send_message` path
-> exists, so delivery is still **`MANUAL_COPY_ONLY`**. Current WA-02 scope is
-> identity-only; an Owner-intended Bridge-2 → Bridge-1 order workflow is
-> unverified and not implemented.
+> 010 is now applied in production. A default-disabled worker
+> (`lib/vessel-draft-delivery-worker.ts`) and a narrow WA-01
+> `send_message` adapter (`lib/vessel-draft-transport.ts`) now exist. Because no
+> approved sender/recipient or send permission is configured, delivery is still
+> **`MANUAL_COPY_ONLY`** and no message was sent. Sections below that say the
+> worker/send call is absent are historical and superseded by this note. Current
+> WA-02 scope is identity-only; an Owner-intended Bridge-2 → Bridge-1 order
+> workflow is unverified and not implemented.
 
 **Date:** 2026-11-07 (updated after durable-infrastructure completion)
 **Status:** Safe internal work **implemented and clone/unit/integration-tested**.

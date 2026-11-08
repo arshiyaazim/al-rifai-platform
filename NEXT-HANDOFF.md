@@ -17,6 +17,25 @@ BLOCKED, not complete.** A README or source change does not complete it.
 
 ---
 
+## 2026-11-08 — Migration 010/011 execution (staged, authorized)
+
+**Branch:** `feature/phase3-010-011-release` (from integration `0b309b2`).
+**Production migrations:** 010 applied first (47 tables, schema 1.5.0), verified;
+then 011 applied (49 tables, schema 1.6.0), verified. Both checksums match.
+**Paid Events:** `PHASE3_PAID_EVENTS_ENABLED` remains OFF; 0 Business Paid
+Events, 0 posting links.
+**Backup:** fresh `pg_dump -Fc` created and verified before migration
+(`phase3-release-010011-20261108T084939Z.dump`, SHA-256
+`d88b0f0f173732a1ca3cfcb812ed9489aa9d443f4bfc5ed3d3ace0be4c22ae77`).
+**Data:** critical row counts unchanged (employees 218, programs 102,
+attendance 439, instructions 3,840, postings 1,586, ledger 1,586, submissions
+117, review 20, messages 34,743).
+**Migration 010 implementation:** durable queue + producer hook + default-
+disabled worker + narrow WA-01 `send_message` adapter + retry/terminal states +
+Admin status. Outbound gate remains OFF; no message sent.
+
+---
+
 ## 2026-11-08 — Git completeness audit and migration technical documentation
 
 **Branch:** `feature/phase3-docs-audit` (from integration `0b309b2`).

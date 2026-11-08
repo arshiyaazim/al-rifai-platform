@@ -5,7 +5,9 @@
 > `feature/phase3-integration` @ `0b691a223949e9a413589db9e5f3dcd3366448e3`,
 > target schema **`1.6.0`** (migrations **010 + 011**). Use
 > `docs/PHASE3_PRODUCTION_RELEASE_AUDIT_20261108.md` as the current runbook.
-> Production remains `1.5.0`; no 2026-11-08 deployment/migration has occurred.
+> Production migrations 010 and 011 were applied in stages on 2026-11-08 and
+> verified (`1.6.0`, 49 tables). Application image deployment/final verification
+> is recorded in the handoff; Paid Events remains OFF.
 >
 > Current release gates: fresh verified backup; apply 010 then 011 **before**
 > starting the new image; keep `PHASE3_PAID_EVENTS_ENABLED=0` at first deploy;

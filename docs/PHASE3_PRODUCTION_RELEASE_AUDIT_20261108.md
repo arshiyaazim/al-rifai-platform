@@ -389,3 +389,23 @@ Owner sign-off are still required. Paid Events must remain OFF at first deploy.
 
 **NO-GO — retroactive Business Paid backfill:** not authorized and not
 implemented.
+
+---
+
+## Execution addendum — 2026-11-08 staged migration
+
+The Owner authorized staged production work after this audit.
+
+1. Fresh backup `phase3-release-010011-20261108T084939Z.dump` created and
+   verified (8.6 MB, SHA-256 `d88b0f0f…22ae77`, 344 TOC lines).
+2. Production-copy rehearsal: 1.5.0/46 → 010-only 1.5.0/47 → 011 1.6.0/49,
+   with all critical counts preserved.
+3. Migration 010 applied alone to production and verified before 011:
+   47 tables, schema 1.5.0, delivery table empty, runtime grant present.
+4. Migration 011 applied after the 010 gate and verified: 49 tables, schema
+   1.6.0, append-only triggers and grants present, 0 Paid Events.
+5. Critical counts remained unchanged. Paid Events flag remained OFF. No
+   historical backfill, financial posting or outbound WhatsApp send occurred.
+
+The application image and final feature verification are recorded separately in
+the handoff/release evidence after deployment.

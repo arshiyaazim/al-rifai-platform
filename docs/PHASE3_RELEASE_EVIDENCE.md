@@ -201,3 +201,19 @@ Technical references:
 `docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md`,
 `docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md`,
 `docs/PHASE3_GIT_COMPLETENESS_AUDIT.md`.
+
+---
+
+## 2026-11-08 staged production migration (010 then 011)
+
+| Gate | Result |
+|---|---|
+| Fresh production backup | `phase3-release-010011-20261108T084939Z.dump`, 8.6 MB, SHA-256 `d88b0f0f173732a1ca3cfcb812ed9489aa9d443f4bfc5ed3d3ace0be4c22ae77`, 344 TOC lines |
+| Production-copy rehearsal | 1.5.0/46 → 010-only 1.5.0/47 → 011 1.6.0/49; counts preserved |
+| Migration 010 production | applied, 47 tables, schema 1.5.0; verified before 011 |
+| Migration 011 production | applied, 49 tables, schema 1.6.0; verified |
+| Ledger checksums | 010 `fa299768…17e7c7`; 011 `4203fdbe…4165` |
+| Runtime grants | 010 SELECT/INSERT/UPDATE; 011 SELECT/INSERT |
+| Data counts | unchanged (employees 218, programs 102, attendance 439, instructions 3,840, postings 1,586, ledger 1,586, submissions 117, review 20, messages 34,743) |
+| Paid Events | 0 events, 0 posting links, flag OFF |
+| Outbound | gate/worker OFF; no message sent; delivery mode MANUAL_COPY_ONLY |
