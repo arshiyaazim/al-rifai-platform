@@ -11,8 +11,8 @@ import {
 } from '../../lib/standalone/cash-dashboard.ts';
 import {createEmployee, searchEmployees} from '../../lib/standalone/employees.ts';
 import {
-  approveInstruction, createAccount, createInstruction, listAccounts,
-  postInstruction, reversePosting,
+  approveInstruction, cashTransactionView, countCashTransactions, createAccount, createInstruction,
+  listAccounts, listCashTransactions, postInstruction, reversePosting,
 } from '../../lib/standalone/finance.ts';
 import {resetBusinessState} from './reset.mjs';
 
@@ -228,4 +228,49 @@ test('employee lookup: name, alias and mobile search are capped at ten', async (
   const capped = await searchEmployees('Lookup Limit', 50);
   assert.equal(capped.length, 10, 'the server never returns more than ten suggestions');
   assert.equal((await searchEmployees('   ')).length, 0);
+});
+
+test('cash transactions: 8-column read model, cumulative total, search and pagination', async () => {
+  const mobile = '01755550999';
+  await createEmployee(adminA, {
+    employeeMobile: mobile,
+    preferredName: 'Tx Target',
+    designation: 'Loader',
+    joinedOn: '2024-02-03',
+  });
+  const insert = (id, amountMinor, state, createdAt) => row(
+    `INSERT INTO cash_instructions
+       (id, employee_mobile, employee_name, method, amount_minor, state,
+        source_channel, source_message_id, source_block_key, created_by, created_at)
+     VALUES ($1,$2,'Tx Target','bkash',$3,$4,'WHATSAPP',$1,'b-'||$1,'test',$5)`,
+    [id, `+88${mobile}`, amountMinor, state, createdAt],
+  );
+  await insert('tx-a', 1000, 'REVIEW', '2026-10-01T10:00:00+06:00');
+  await insert('tx-b', 2000, 'APPROVED', '2026-10-02T10:00:00+06:00');
+  await insert('tx-c', 5000, 'VOID', '2026-10-03T10:00:00+06:00');
+
+  const all = await listCashTransactions({q: 'Tx Target'});
+  assert.equal(all.length, 2, 'VOID rows are excluded');
+  assert.equal(all[0].id, 'tx-b');
+  assert.equal(all[0].payout_number, '2');
+  assert.equal(all[0].total_paid_minor, '3000');
+  assert.equal(all[0].name_of_employee, 'Tx Target');
+  assert.equal(all[0].designation, 'Loader');
+  assert.equal(all[0].date_of_join, '2024-02-03');
+  assert.equal(all[1].payout_number, '1');
+  assert.equal(all[1].total_paid_minor, '1000');
+
+  assert.equal(await countCashTransactions({q: 'Tx Target'}), 2);
+  assert.equal((await listCashTransactions({q: mobile})).length, 2, 'search by employee mobile digits');
+
+  const page = await listCashTransactions({q: 'Tx Target', limit: 1, offset: 1});
+  assert.equal(page.length, 1);
+  assert.equal(page[0].id, 'tx-a');
+
+  const view = cashTransactionView(all[0]);
+  assert.equal(view.employeeId, `+88${mobile}`);
+  assert.equal(view.nameOfEmployee, 'Tx Target');
+  assert.equal(view.payoutNumber, 2);
+  assert.equal(view.amountMinor, '2000');
+  assert.equal(view.totalPaidMinor, '3000');
 });

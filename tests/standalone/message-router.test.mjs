@@ -9,6 +9,7 @@ import {routePendingMessages} from '../../lib/message-router.ts';
 import {approveInstruction, decideCashSubmission, setInstructionAccount} from '../../lib/standalone/finance.ts';
 import {correctCashSubmission} from '../../lib/standalone/review.ts';
 import {createProgram} from '../../lib/standalone/programs.ts';
+import {listCashTransactions} from '../../lib/standalone/finance.ts';
 
 // Integration tests exercise vessel routing; production keeps the deployment
 // flag off until the Owner enables Vessel intake.
@@ -457,6 +458,22 @@ test('cash: unauthorized chat is ignored', async () => {
   } finally {
     await row("UPDATE whatsapp_chats SET authorized = true WHERE chat_jid = '8801844836824@s.whatsapp.net' AND account_id = 'wa-01'");
   }
+});
+
+
+test('cash: parsed WhatsApp payment appears in the live Cash transaction read model', async () => {
+  await ensureAccount('wa-01');
+  await stageMessage('wa-01', CASH_CHAT, 'msg-cash-live-table-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
+    'ID: 01733334444 Live Table Payee 01833334444(B) 1,234.00/- duty pay');
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.instructions, 1);
+  const rows = await listCashTransactions({q: 'Live Table Payee'});
+  assert.equal(rows.length, 1, 'the parsed instruction is visible in the live table read model');
+  assert.equal(rows[0].name_of_employee, 'Live Table Payee');
+  assert.equal(rows[0].payout_number, '1');
+  assert.equal(rows[0].amount_minor, '123400');
+  assert.equal(rows[0].total_paid_minor, '123400');
+  assert.equal(rows[0].source_message_id, 'msg-cash-live-table-1');
 });
 
 // ──────────────────────────────────────────────────────────────────────

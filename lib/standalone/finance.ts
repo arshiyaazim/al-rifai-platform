@@ -224,6 +224,147 @@ export async function listInstructions(filters: {state?: string; q?: string; lim
   );
 }
 
+export type CashTransactionFilters = {
+  q?: string;
+  state?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type CashTransactionRow = {
+  id: string;
+  employee_id: string | null;
+  name_of_employee: string;
+  designation: string | null;
+  date_of_join: string | null;
+  payout_number: string;
+  amount_minor: string;
+  total_paid_minor: string;
+  method: string;
+  state: string;
+  created_at: string;
+  source_channel: string | null;
+  source_message_id: string | null;
+};
+
+/**
+ * Live Cash transaction ledger derived from parsed WhatsApp instructions.
+ *
+ * Source of truth: `cash_instructions` (the existing parser output for the
+ * Accountant ↔ Admin direct conversation), joined to the employee registry for
+ * designation and joining date. `payout_number` is the sequential payout
+ * number for that employee; `total_paid_minor` is the cumulative instructed
+ * amount up to and including this row. VOID and REJECTED rows are excluded.
+ *
+ * Amounts remain integer minor units (paisa) exactly as stored. No upload,
+ * image, OCR or bridge write is involved.
+ */
+export async function listCashTransactions(filters: CashTransactionFilters = {}): Promise<CashTransactionRow[]> {
+  const limit = Math.min(Math.max(Number(filters.limit) || 20, 1), 100);
+  const offset = Math.max(Number(filters.offset) || 0, 0);
+  const params: unknown[] = [];
+  const bind = (value: unknown) => { params.push(value); return `$${params.length}`; };
+  const where: string[] = [];
+  if (filters.q) {
+    const like = bind(`%${filters.q.trim()}%`);
+    where.push(`(coalesce(i.employee_mobile,'') ILIKE ${like}
+      OR i.employee_name ILIKE ${like}
+      OR coalesce(e.preferred_name,'') ILIKE ${like}
+      OR EXISTS (SELECT 1 FROM unnest(e.name_aliases) AS alias WHERE alias ILIKE ${like})
+      OR right(regexp_replace(coalesce(i.employee_mobile,''), '\\D', '', 'g'), 11)
+         = right(regexp_replace(${bind(filters.q)}, '\\D', '', 'g'), 11))`);
+  }
+  if (filters.state) where.push(`i.state = ${bind(filters.state)}`);
+  if (filters.from) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date >= ${bind(filters.from)}::date`);
+  if (filters.to) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date <= ${bind(filters.to)}::date`);
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  params.push(limit, offset);
+  return rows<CashTransactionRow>(
+    `WITH ordered AS (
+       SELECT i.*,
+              row_number() OVER (
+                PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
+                ORDER BY i.created_at, i.id
+              )::text AS payout_number,
+              sum(i.amount_minor) OVER (
+                PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
+                ORDER BY i.created_at, i.id
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+              )::text AS total_paid_minor
+         FROM cash_instructions i
+        WHERE i.state NOT IN ('VOID','REJECTED')
+     )
+     SELECT i.id,
+            coalesce(i.employee_mobile, e.employee_mobile) AS employee_id,
+            coalesce(e.preferred_name, i.employee_name) AS name_of_employee,
+            e.designation,
+            e.joined_on::text AS date_of_join,
+            i.payout_number,
+            i.amount_minor::text AS amount_minor,
+            i.total_paid_minor,
+            i.method,
+            i.state,
+            i.created_at::text AS created_at,
+            i.source_channel,
+            i.source_message_id
+       FROM ordered i
+       LEFT JOIN employees e ON e.employee_mobile = i.employee_mobile
+       ${clause}
+      ORDER BY i.created_at DESC, i.id DESC
+      LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params,
+  );
+}
+
+/** 1:1 camelCase projection for the Cash transaction API and table. */
+export function cashTransactionView(row: CashTransactionRow) {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    nameOfEmployee: row.name_of_employee,
+    designation: row.designation,
+    dateOfJoin: row.date_of_join,
+    payoutNumber: Number(row.payout_number),
+    amount: row.amount_minor,
+    totalPaid: row.total_paid_minor,
+    amountMinor: row.amount_minor,
+    totalPaidMinor: row.total_paid_minor,
+    method: row.method,
+    state: row.state,
+    source: row.source_channel,
+    sourceMessageId: row.source_message_id,
+    createdAt: row.created_at,
+  };
+}
+
+export async function countCashTransactions(filters: Omit<CashTransactionFilters, 'limit' | 'offset'> = {}) {
+  const params: unknown[] = [];
+  const bind = (value: unknown) => { params.push(value); return `$${params.length}`; };
+  const where: string[] = [`i.state NOT IN ('VOID','REJECTED')`];
+  if (filters.q) {
+    const like = bind(`%${filters.q.trim()}%`);
+    where.push(`(coalesce(i.employee_mobile,'') ILIKE ${like}
+      OR i.employee_name ILIKE ${like}
+      OR coalesce(e.preferred_name,'') ILIKE ${like}
+      OR EXISTS (SELECT 1 FROM unnest(e.name_aliases) AS alias WHERE alias ILIKE ${like})
+      OR right(regexp_replace(coalesce(i.employee_mobile,''), '\\D', '', 'g'), 11)
+         = right(regexp_replace(${bind(filters.q)}, '\\D', '', 'g'), 11))`);
+  }
+  if (filters.state) where.push(`i.state = ${bind(filters.state)}`);
+  if (filters.from) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date >= ${bind(filters.from)}::date`);
+  if (filters.to) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date <= ${bind(filters.to)}::date`);
+  const result = await row<{n: number}>(
+    `SELECT count(*)::int AS n
+       FROM cash_instructions i
+       LEFT JOIN employees e ON e.employee_mobile = i.employee_mobile
+      WHERE ${where.join(' AND ')}`,
+    params,
+  );
+  return Number(result?.n ?? 0);
+}
+
 export async function countInstructions(filters: {state?: string; q?: string} = {}) {
   const q = (filters.q ?? '').trim().toLowerCase();
   const result = await row<{n: number}>(

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import {countInstructions, countLedger, listAccounts, listInstructions, listLedger, listReconciliations} from '@/lib/standalone/finance';
+import {cashTransactionView, countCashTransactions, countInstructions, countLedger, listAccounts, listCashTransactions, listInstructions, listLedger, listReconciliations} from '@/lib/standalone/finance';
 import {cashDashboardSummary, currentMonthRange, previousMonthRange, shiftIsoDate, paidEventsReportingEnabled} from '@/lib/standalone/cash-dashboard';
 import {listCashReviewCandidates} from '@/lib/standalone/review';
 import {rows} from '@/lib/standalone/db';
@@ -7,6 +7,7 @@ import {money, pageUser, when} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
 import {CashPaymentForm} from '@/components/standalone/cash-payment-form';
+import {CashTransactionsTable} from '@/components/standalone/cash-transactions-table';
 import {formatReviewAmount, formatReviewTimestamp, reviewCategoryLabel, reviewCategoryTone, reviewStateLabel, reviewStateTone} from '@/lib/review-ui';
 
 export const dynamic = 'force-dynamic';
@@ -59,7 +60,8 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
   const ledgerPage = Math.max(1, Number(filters.ledgerPage) || 1);
   const pageSize = 100;
   const ledgerSize = 50;
-  const [accounts, instructions, instructionTotal, ledger, ledgerTotal, summary, submissions, cashCandidates, reconciliations] = await Promise.all([
+  const txLimit = 20;
+  const [accounts, instructions, instructionTotal, ledger, ledgerTotal, summary, submissions, cashCandidates, reconciliations, txRows, txTotal] = await Promise.all([
     listAccounts(),
     listInstructions({q, state: state || undefined, limit: pageSize, offset: (page - 1) * pageSize}),
     countInstructions({q, state: state || undefined}),
@@ -71,7 +73,10 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
     ),
     listCashReviewCandidates({state: 'PENDING_REVIEW', limit: 50}),
     listReconciliations(25),
+    listCashTransactions({limit: txLimit, offset: 0}),
+    countCashTransactions(),
   ]);
+  const initialTransactions = txRows.map(cashTransactionView);
   const pending = instructions.filter((instruction) => (instruction as {state: string}).state === 'REVIEW').slice(0, 20);
   const instructionPages = Math.max(1, Math.ceil(instructionTotal / pageSize));
   const ledgerPages = Math.max(1, Math.ceil(ledgerTotal / ledgerSize));
@@ -115,6 +120,14 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
         <SummaryCard label="Number of Employee" value={String(summary.employeeCount)} hint="Employees on record" href="/employees" />
         <SummaryCard label="Last Month Paid" value={money(summary.lastMonthPaidMinor)} hint={paidBasis ? 'Business paid last month' : 'Posted last month'} href={rangeHref(lastMonthRange)} />
       </div>
+
+      <CashTransactionsTable initial={{
+        transactions: initialTransactions,
+        total: txTotal,
+        page: 1,
+        limit: txLimit,
+        totalPages: Math.max(1, Math.ceil(txTotal / txLimit)),
+      }} />
 
       <div className="cash-form-grid">
         {canSubmit ? (
