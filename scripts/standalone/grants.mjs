@@ -38,6 +38,7 @@ const APPEND_ONLY = [
   // Business Paid Events are append-only. Corrections/reversals are new rows;
   // the posting link is also append-only once postInstruction() commits.
   'cash_payment_events', 'cash_payment_event_postings',
+  'cash_transaction_adjustments',
 ];
 
 const DELETE_ONLY = ['cash_portal_sessions', 'login_throttle_state'];

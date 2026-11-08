@@ -7,7 +7,7 @@ import {CashEmployeeHistory, type CashEmployeePayload} from '@/components/standa
 export const dynamic = 'force-dynamic';
 
 export default async function CashEmployeePage({params}: {params: Promise<{employeeId: string}>}) {
-  await pageUser();
+  const user = await pageUser();
   const {employeeId} = await params;
   const id = decodeURIComponent(employeeId);
   const limit = 20;
@@ -32,5 +32,5 @@ export default async function CashEmployeePage({params}: {params: Promise<{emplo
     limit,
     totalPages: Math.max(1, Math.ceil(total / limit)),
   };
-  return <CashEmployeeHistory employeeId={id} initial={initial} />;
+  return <CashEmployeeHistory employeeId={id} initial={initial} canManage={user.role === 'ADMIN' && user.capabilities.includes('cash.review')} />;
 }

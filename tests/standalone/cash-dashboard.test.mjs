@@ -13,6 +13,7 @@ import {createEmployee, searchEmployees} from '../../lib/standalone/employees.ts
 import {
   approveInstruction, cashTransactionView, countCashTransactions, createAccount, createInstruction,
   getCashEmployeeSummary, listAccounts, listCashTransactions, postInstruction, reversePosting, updateCashTransaction,
+  correctCashTransaction, reverseCashTransaction,
 } from '../../lib/standalone/finance.ts';
 import {resetBusinessState} from './reset.mjs';
 
@@ -295,4 +296,54 @@ test('cash transaction edit and employee history summary are audited', async () 
     "SELECT action FROM audit_events WHERE entity='cash_instruction' AND entity_id='tx-b' AND action='CASH_TRANSACTION_UPDATED'",
   );
   assert.ok(audit, 'the edit is recorded in audit_events');
+});
+
+test('cash correction keeps the posted original untouched and records an effective amount', async () => {
+  const acc = await account();
+  await insertPosted(acc.id, {
+    id: 'corr-1', employeeMobile: '+8801755551111', employeeName: 'Correction Target',
+    amountMinor: 5000, method: 'bkash', source: 'WHATSAPP', postedAt: new Date(),
+  });
+  const corrected = await correctCashTransaction(adminA, 'corr-1', {
+    correctedAmount: 4500,
+    reason: 'Amount corrected to match the receipt',
+  });
+  assert.equal(corrected?.original_amount_minor, '5000');
+  assert.equal(corrected?.amount_minor, '4500');
+  assert.equal(corrected?.adjustment_minor, '-500');
+  assert.equal(corrected?.correction_count, 1);
+  const original = await row("SELECT state, amount_minor FROM cash_instructions WHERE id='corr-1'");
+  assert.equal(original.state, 'POSTED');
+  assert.equal(original.amount_minor, '5000');
+  const adjustment = await row("SELECT * FROM cash_transaction_adjustments WHERE correction_of='corr-1'");
+  assert.equal(adjustment.amount_minor, '4500');
+  assert.equal(adjustment.adjustment_minor, '-500');
+  const audit = await row("SELECT action FROM audit_events WHERE entity_id='corr-1' AND action='CASH:CORRECTION'");
+  assert.ok(audit);
+});
+
+test('cash reversal marks the original REVERSED and creates a new POSTED replacement', async () => {
+  const acc = await account();
+  await insertPosted(acc.id, {
+    id: 'rev-1', employeeMobile: '+8801755552222', employeeName: 'Reversal Target',
+    amountMinor: 7000, method: 'bkash', source: 'WHATSAPP', postedAt: new Date(),
+  });
+  const result = await reverseCashTransaction(adminA, 'rev-1', {
+    amount: 6500,
+    method: 'nagad',
+    notes: 'Re-posted after method correction',
+    reason: 'Wrong payment method on the original posting',
+  });
+  assert.equal(result.original?.state, 'REVERSED');
+  assert.equal(result.original?.original_amount_minor, '7000');
+  assert.equal(result.replacement?.state, 'POSTED');
+  assert.equal(result.replacement?.amount_minor, '6500');
+  assert.equal(result.replacement?.reversal_of, 'rev-1');
+  const original = await row("SELECT state, amount_minor FROM cash_instructions WHERE id='rev-1'");
+  assert.equal(original.state, 'REVERSED');
+  assert.equal(original.amount_minor, '7000');
+  const postings = await row("SELECT count(*)::int AS n FROM cash_postings WHERE instruction_id IN ('rev-1',$1)", [result.replacement?.id]);
+  assert.equal(postings.n, 2);
+  const audit = await row("SELECT action FROM audit_events WHERE entity_id='rev-1' AND action='CASH:REVERSAL'");
+  assert.ok(audit);
 });

@@ -39,7 +39,7 @@ function historyQuery(page: number, limit: number, filters: {
   return params;
 }
 
-export function CashEmployeeHistory({employeeId, initial}: {employeeId: string; initial: CashEmployeePayload}) {
+export function CashEmployeeHistory({employeeId, initial, canManage = false}: {employeeId: string; initial: CashEmployeePayload; canManage?: boolean}) {
   const [data, setData] = useState<CashEmployeePayload>(initial);
   const [page, setPage] = useState(initial.page);
   const [limit, setLimit] = useState(initial.limit);
@@ -182,14 +182,16 @@ export function CashEmployeeHistory({employeeId, initial}: {employeeId: string; 
               {loading ? Array.from({length: Math.min(limit, 5)}).map((_, index) => (
                 <tr key={`sk-${index}`}><td>—</td><td colSpan={7}><span className="muted">Loading…</span></td></tr>
               )) : data.transactions.map((item, index) => (
-                <tr key={item.id}>
+                <tr key={item.id} style={item.state === 'REVERSED' ? {opacity: 0.6} : undefined}>
                   <td>{offset + index + 1}</td>
                   <td>{localDate(item.createdAt)}</td>
                   <td>{item.payoutNumber}</td>
-                  <td className="cash-amount" style={{textAlign: 'right'}}>{amount(item.amountMinor)}</td>
+                  <td className="cash-amount" style={{textAlign: 'right', textDecoration: item.state === 'REVERSED' ? 'line-through' : undefined}}>
+                    {amount(item.amountMinor)}{(item.correctionCount ?? 0) > 0 ? <small className="muted"> (corrected)</small> : null}
+                  </td>
                   <td>{dash(item.method)}</td>
                   <td><span className="pill">{item.state}</span></td>
-                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{item.sourceMessageId
+                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{item.reversalOf ? <small className="muted" style={{display: 'block'}}>Reversal of #{item.reversalOf}</small> : null}{item.sourceMessageId
                     ? <Link href={`/messages?q=${encodeURIComponent(item.sourceMessageId)}`}>{item.sourceMessageId}</Link>
                     : dash(item.source)}</td>
                   <td>
@@ -211,8 +213,10 @@ export function CashEmployeeHistory({employeeId, initial}: {employeeId: string; 
       </section>
 
       <CashTransactionSidebar
+        key={selected?.id ?? 'none'}
         transaction={selected}
         onClose={() => setSelected(null)}
+        canManage={canManage}
         onUpdated={(updated) => {
           setSelected(updated);
           setData((previous) => ({

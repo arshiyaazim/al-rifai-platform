@@ -107,7 +107,7 @@ beforeEach(async () => {
   const owner = createPool({role: 'app', readOnly: false, applicationName: 'alrifai-cutover-test-reset'});
   try {
     await owner.query(`TRUNCATE TABLE
-      audit_events, cash_payment_event_postings, cash_payment_events, cash_reversals, cash_reconciliations, cash_instructions, cash_postings, ledger_entries,
+      audit_events, cash_transaction_adjustments, cash_payment_event_postings, cash_payment_events, cash_reversals, cash_reconciliations, cash_instructions, cash_postings, ledger_entries,
       cash_submission_reviews, cash_submissions, review_decisions, review_items,
       attendance, identity_aliases, program_pay, program_source_messages,
       program_assignments, program_events, programs, employees,

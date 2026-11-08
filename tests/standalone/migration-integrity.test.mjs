@@ -26,7 +26,7 @@ async function withOwner(fn) {
   }
 }
 
-test('010–014 are installed in order with the exact file checksums', async () => {
+test('010–015 are installed in order with the exact file checksums', async () => {
   const installed = await withOwner(async (owner) =>
     (await owner.query('SELECT version, name, checksum FROM schema_migrations ORDER BY version')).rows);
   const byVersion = new Map(installed.map((entry) => [entry.version, entry]));
@@ -35,11 +35,13 @@ test('010–014 are installed in order with the exact file checksums', async () 
   const twelve = byVersion.get('012');
   const thirteen = byVersion.get('013');
   const fourteen = byVersion.get('014');
+  const fifteen = byVersion.get('015');
   assert.ok(ten, 'migration 010 is recorded');
   assert.ok(eleven, 'migration 011 is recorded');
   assert.ok(twelve, 'migration 012 is recorded');
   assert.ok(thirteen, 'migration 013 is recorded');
   assert.ok(fourteen, 'migration 014 is recorded');
+  assert.ok(fifteen, 'migration 015 is recorded');
   assert.equal(ten.name, '010_vessel_draft_delivery.sql');
   assert.equal(eleven.name, '011_cash_payment_events.sql');
   assert.equal(ten.checksum, sha256(sqlFile('010_vessel_draft_delivery.sql')));
@@ -50,11 +52,14 @@ test('010–014 are installed in order with the exact file checksums', async () 
   assert.equal(thirteen.checksum, sha256(sqlFile('013_escort_workflow_authorization.sql')));
   assert.equal(fourteen.name, '014_manual_programs.sql');
   assert.equal(fourteen.checksum, sha256(sqlFile('014_manual_programs.sql')));
+  assert.equal(fifteen.name, '015_cash_corrections.sql');
+  assert.equal(fifteen.checksum, sha256(sqlFile('015_cash_corrections.sql')));
   const order = installed.map((entry) => entry.version);
   assert.ok(order.indexOf('010') < order.indexOf('011'), '010 must be applied before 011');
   assert.ok(order.indexOf('011') < order.indexOf('012'), '011 must be applied before 012');
   assert.ok(order.indexOf('012') < order.indexOf('013'), '012 must be applied before 013');
   assert.ok(order.indexOf('013') < order.indexOf('014'), '013 must be applied before 014');
+  assert.ok(order.indexOf('014') < order.indexOf('015'), '014 must be applied before 015');
 });
 
 
@@ -121,6 +126,26 @@ test('014 manual-program fields exist and classifies WhatsApp orders', async () 
   assert.ok(columns.includes('source_type'));
   const whatsapp = await row("SELECT count(*)::int AS n FROM programs WHERE source_channel='WHATSAPP' AND source_type <> 'WHATSAPP_ORDER'");
   assert.equal(whatsapp.n, 0, 'existing WhatsApp programs are classified as WHATSAPP_ORDER');
+});
+
+
+test('015 cash correction/reversal schema exists', async () => {
+  assert.equal((await row("SELECT to_regclass('public.cash_transaction_adjustments') IS NOT NULL AS present")).present, true);
+  const columns = (await rows(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='cash_transaction_adjustments'`,
+  )).map((entry) => entry.column_name);
+  for (const required of ['instruction_id', 'correction_of', 'posting_id', 'amount_minor', 'adjustment_minor', 'reason', 'state', 'created_by', 'created_at']) {
+    assert.ok(columns.includes(required), `cash_transaction_adjustments.${required}`);
+  }
+  const state = await row(
+    "SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='cash_instructions'::regclass AND conname='cash_instructions_state_check'",
+  );
+  assert.ok(state?.definition?.includes('REVERSED'));
+  const reversalColumn = await row(
+    "SELECT count(*)::int AS n FROM information_schema.columns WHERE table_schema='public' AND table_name='cash_instructions' AND column_name='reversal_of'",
+  );
+  assert.equal(reversalColumn.n, 1);
 });
 
 test('010 vessel draft delivery schema is additive and intact', async () => {
@@ -221,7 +246,8 @@ test('duplicate WhatsApp source and invalid event values are rejected', async ()
   );
 });
 
-test('014, 013, 012, 011 and 010 re-apply safely in the same database', async () => {
+test('015–010 re-apply safely in the same database', async () => {
+  const fifteen = sqlFile('015_cash_corrections.sql').toString('utf8');
   const fourteen = sqlFile('014_manual_programs.sql').toString('utf8');
   const thirteen = sqlFile('013_escort_workflow_authorization.sql').toString('utf8');
   const twelve = sqlFile('012_whatsapp_message_intelligence.sql').toString('utf8');
@@ -235,6 +261,7 @@ test('014, 013, 012, 011 and 010 re-apply safely in the same database', async ()
       await owner.query(twelve);
       await owner.query(thirteen);
       await owner.query(fourteen);
+      await owner.query(fifteen);
       await owner.query('COMMIT');
     } catch (error) {
       await owner.query('ROLLBACK');
@@ -249,11 +276,12 @@ test('014, 013, 012, 011 and 010 re-apply safely in the same database', async ()
       await owner.query(twelve);
       await owner.query(thirteen);
       await owner.query(fourteen);
+      await owner.query(fifteen);
       await owner.query('COMMIT');
     } catch (error) {
       await owner.query('ROLLBACK');
       throw error;
     }
   });
-  assert.equal((await row("SELECT value FROM schema_meta WHERE key='schema_version'")).value, '1.9.0');
+  assert.equal((await row("SELECT value FROM schema_meta WHERE key='schema_version'")).value, '1.10.0');
 });

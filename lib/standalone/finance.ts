@@ -208,26 +208,186 @@ export async function createInstruction(actor: Actor, input: InstructionInput, o
   });
 }
 
+/**
+ * Correct a POSTED transaction without touching the original posting.
+ *
+ * A new append-only `cash_transaction_adjustments` row records the corrected
+ * amount and the signed difference; the original instruction, posting and
+ * ledger entry remain untouched. A contra ledger entry records the difference.
+ * The effective displayed amount is original + sum(adjustments).
+ */
+export async function correctCashTransaction(
+  actor: Actor,
+  id: string,
+  input: {correctedAmount: number | string; reason: string},
+) {
+  assertCapability(actor, 'cash.review');
+  if (actor.role !== 'ADMIN') throw new DomainError('ADMIN_REQUIRED', 403);
+  const reason = String(input.reason ?? '').trim();
+  if (reason.length < 10 || reason.length > 500) throw new DomainError('REASON_INVALID', 400);
+  const correctedAmount = Number(input.correctedAmount);
+  if (!Number.isSafeInteger(correctedAmount) || correctedAmount <= 0) throw new DomainError('INVALID_AMOUNT', 400);
+  const adjustmentId = newId('adj');
+  await tx(async (client) => {
+    const found = await client.query<{
+      id: string; state: string; amount_minor: string; account_id: string | null; employee_name: string;
+    }>('SELECT id, state, amount_minor, account_id, employee_name FROM cash_instructions WHERE id=$1 FOR UPDATE', [id]);
+    if (!found.rowCount) throw new DomainError('CASH_TRANSACTION_NOT_FOUND', 404);
+    const original = found.rows[0];
+    if (original.state !== 'POSTED') throw new DomainError('CORRECTION_REQUIRES_POSTED', 409);
+    if (!original.account_id) throw new DomainError('ACCOUNT_REQUIRED', 400);
+    const posting = await client.query<{id: string}>('SELECT id FROM cash_postings WHERE instruction_id=$1', [id]);
+    if (!posting.rowCount) throw new DomainError('POSTING_NOT_FOUND', 409);
+    const adjustmentMinor = correctedAmount - Number(original.amount_minor);
+    if (adjustmentMinor === 0) throw new DomainError('CORRECTION_NO_CHANGE', 409);
+    await client.query(
+      `INSERT INTO cash_transaction_adjustments
+         (id, instruction_id, correction_of, posting_id, adjustment_type, amount_minor,
+          adjustment_minor, reason, state, created_by)
+       VALUES ($1,$2,$2,$3,'CORRECTION',$4,$5,$6,'CORRECTION',$7)`,
+      [adjustmentId, id, posting.rows[0].id, correctedAmount, adjustmentMinor, reason, actor.id],
+    );
+    const magnitude = Math.abs(adjustmentMinor);
+    await client.query(
+      `INSERT INTO ledger_entries
+         (account_id, entry_date, direction, amount_minor, category, description, source, instruction_id, created_by)
+       VALUES ($1, current_date, $2, $3, 'CORRECTION', $4, 'INSTRUCTION', $5, $6)`,
+      [original.account_id, adjustmentMinor > 0 ? 'DEBIT' : 'CREDIT', magnitude,
+        `Correction of ${original.employee_name}`.slice(0, 500), id, actor.id],
+    );
+    await recordAudit({
+      actor, action: 'CASH:CORRECTION', entity: 'cash_instruction', entityId: id,
+      detail: {before: {amountMinor: original.amount_minor, state: original.state},
+        after: {correctedAmountMinor: correctedAmount, adjustmentMinor, adjustmentId}, reason},
+      source: 'WEB', sourceRef: id,
+    }, client);
+  });
+  return getCashTransaction(id);
+}
+
+/**
+ * Reverse a POSTED transaction by marking the original REVERSED and creating a
+ * new POSTED replacement. The original posting/ledger entry stays immutable;
+ * a contra CREDIT restores its balance and the replacement gets a new DEBIT.
+ */
+export async function reverseCashTransaction(
+  actor: Actor,
+  id: string,
+  input: {amount: number | string; method?: string; notes?: string | null; reason: string},
+) {
+  assertCapability(actor, 'cash.reverse');
+  if (actor.role !== 'ADMIN') throw new DomainError('ADMIN_REQUIRED', 403);
+  const reason = String(input.reason ?? '').trim();
+  if (reason.length < 10 || reason.length > 500) throw new DomainError('REASON_INVALID', 400);
+  const amount = Number(input.amount);
+  if (!Number.isSafeInteger(amount) || amount <= 0) throw new DomainError('INVALID_AMOUNT', 400);
+  const replacementId = newId('ins');
+  const replacementPostingId = newId('pos');
+  await tx(async (client) => {
+    const found = await client.query<{
+      id: string; state: string; amount_minor: string; method: string; account_id: string | null;
+      employee_mobile: string | null; employee_name: string; payout_mobile: string | null;
+      purpose: string | null;
+    }>('SELECT * FROM cash_instructions WHERE id=$1 FOR UPDATE', [id]);
+    if (!found.rowCount) throw new DomainError('CASH_TRANSACTION_NOT_FOUND', 404);
+    const original = found.rows[0];
+    if (original.state !== 'POSTED') throw new DomainError('REVERSAL_REQUIRES_POSTED', 409);
+    if (!original.account_id) throw new DomainError('ACCOUNT_REQUIRED', 400);
+    const posting = await client.query<{id: string}>('SELECT id FROM cash_postings WHERE instruction_id=$1', [id]);
+    if (!posting.rowCount) throw new DomainError('POSTING_NOT_FOUND', 409);
+    const method = PAYMENT_METHODS.includes(String(input.method) as PaymentMethod)
+      ? String(input.method) : original.method;
+    const notes = input.notes === undefined ? original.purpose : (String(input.notes ?? '').trim() || null);
+    // Reverse the original posting with a contra ledger entry.
+    const contra = await client.query<{id: string}>(
+      `INSERT INTO ledger_entries
+         (account_id, entry_date, direction, amount_minor, category, description, source, instruction_id, created_by)
+       VALUES ($1, current_date, 'CREDIT', $2, 'REVERSAL', $3, 'REVERSAL', $4, $5) RETURNING id::text`,
+      [original.account_id, original.amount_minor,
+        `Reversal of ${original.employee_name}`.slice(0, 500), id, actor.id],
+    );
+    await client.query(
+      `INSERT INTO cash_reversals
+         (id, posting_id, instruction_id, account_id, amount_minor, reason, reversed_by, ledger_entry_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [newId('rev'), posting.rows[0].id, id, original.account_id, original.amount_minor, reason, actor.id, contra.rows[0].id],
+    );
+    await client.query(
+      `UPDATE cash_instructions
+          SET state='REVERSED', reversed_at=now(), reversed_by=$2, reversal_reason=$3
+        WHERE id=$1`,
+      [id, actor.id, reason],
+    );
+    // New POSTED replacement instruction.
+    await client.query(
+      `INSERT INTO cash_instructions
+         (id, employee_mobile, employee_name, payout_mobile, method, amount_minor, purpose,
+          account_id, state, source_channel, posted_at, posted_by, created_by, reversal_of)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'POSTED','WEB',now(),$9,$9,$10)`,
+      [replacementId, original.employee_mobile, original.employee_name, original.payout_mobile,
+        method, amount, notes, original.account_id, actor.id, id],
+    );
+    const debit = await client.query<{id: string}>(
+      `INSERT INTO ledger_entries
+         (account_id, entry_date, direction, amount_minor, category, description, source, instruction_id, created_by)
+       VALUES ($1, current_date, 'DEBIT', $2, 'PAYROLL', $3, 'INSTRUCTION', $4, $5) RETURNING id::text`,
+      [original.account_id, amount, `Reversal re-post ${original.employee_name}`.slice(0, 500), replacementId, actor.id],
+    );
+    await client.query(
+      `INSERT INTO cash_postings
+         (id, instruction_id, account_id, amount_minor, method, posted_by, ledger_entry_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [replacementPostingId, replacementId, original.account_id, amount, method, actor.id, debit.rows[0].id],
+    );
+    await recordAudit({
+      actor, action: 'CASH:REVERSAL', entity: 'cash_instruction', entityId: id,
+      detail: {before: {id, amountMinor: original.amount_minor, method: original.method, state: original.state},
+        after: {id: replacementId, amountMinor: amount, method, state: 'POSTED'}, reason},
+      source: 'WEB', sourceRef: id,
+    }, client);
+  });
+  return {original: await getCashTransaction(id), replacement: await getCashTransaction(replacementId)};
+}
+
 export async function getCashTransaction(id: string): Promise<CashTransactionRow | null> {
   const items = await rows<CashTransactionRow>(
-    `WITH ordered AS (
+    `WITH adjustments AS (
+       SELECT correction_of,
+              sum(adjustment_minor) AS adjustment_minor,
+              count(*)::int AS correction_count,
+              max(id) AS last_correction_id
+         FROM cash_transaction_adjustments
+        GROUP BY correction_of
+     ), adjusted AS (
+       SELECT i.*,
+              coalesce(a.adjustment_minor, 0) AS adjustment_minor,
+              i.amount_minor + coalesce(a.adjustment_minor, 0) AS effective_amount_minor,
+              coalesce(a.correction_count, 0) AS correction_count,
+              a.last_correction_id
+         FROM cash_instructions i
+         LEFT JOIN adjustments a ON a.correction_of = i.id
+     ), ordered AS (
        SELECT i.*,
               row_number() OVER (
                 PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
                 ORDER BY i.created_at, i.id
               )::text AS payout_number,
-              sum(i.amount_minor) OVER (
+              sum(CASE WHEN i.state = 'REVERSED' THEN 0 ELSE i.effective_amount_minor END) OVER (
                 PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
                 ORDER BY i.created_at, i.id
                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
               )::text AS total_paid_minor
-         FROM cash_instructions i
+         FROM adjusted i
      )
      SELECT i.id, coalesce(i.employee_mobile, e.employee_mobile) AS employee_id,
             coalesce(e.preferred_name, i.employee_name) AS name_of_employee,
             e.designation, e.joined_on::text AS date_of_join, i.payout_number,
-            i.amount_minor::text AS amount_minor, i.total_paid_minor, i.method, i.state,
-            i.created_at::text AS created_at, i.source_channel, i.source_message_id, i.purpose AS notes
+            i.effective_amount_minor::text AS amount_minor,
+            i.amount_minor::text AS original_amount_minor,
+            i.adjustment_minor::text AS adjustment_minor,
+            i.total_paid_minor, i.correction_count, i.last_correction_id, i.reversal_of,
+            i.method, i.state, i.created_at::text AS created_at,
+            i.source_channel, i.source_message_id, i.purpose AS notes
        FROM ordered i LEFT JOIN employees e ON e.employee_mobile = i.employee_mobile
       WHERE i.id = $1`,
     [id],
@@ -247,10 +407,14 @@ export async function getCashEmployeeSummary(employeeId: string) {
             coalesce(e.preferred_name, max(i.employee_name)) AS name_of_employee,
             max(e.designation) AS designation,
             max(e.joined_on)::text AS date_of_join,
-            count(*)::int AS total_payouts,
-            coalesce(sum(i.amount_minor), 0)::text AS total_paid_minor
+            count(*) FILTER (WHERE i.state <> 'REVERSED')::int AS total_payouts,
+            coalesce(sum(CASE WHEN i.state = 'REVERSED' THEN 0 ELSE i.amount_minor + coalesce(a.adjustment_minor, 0) END), 0)::text AS total_paid_minor
        FROM cash_instructions i
        LEFT JOIN employees e ON e.employee_mobile = i.employee_mobile
+       LEFT JOIN (
+         SELECT correction_of, sum(adjustment_minor) AS adjustment_minor
+           FROM cash_transaction_adjustments GROUP BY correction_of
+       ) a ON a.correction_of = i.id
       WHERE i.employee_mobile = $1 AND i.state NOT IN ('VOID','REJECTED')
       GROUP BY coalesce(i.employee_mobile, e.employee_mobile), e.preferred_name, e.designation`,
     [mobile],
@@ -276,8 +440,8 @@ export async function updateCashTransaction(
     }>('SELECT id, employee_mobile, employee_name, amount_minor, purpose, state FROM cash_instructions WHERE id=$1 FOR UPDATE', [id]);
     if (!found.rowCount) throw new DomainError('CASH_TRANSACTION_NOT_FOUND', 404);
     const current = found.rows[0];
-    if (current.state === 'POSTED' && input.amount !== undefined && input.amount !== null) {
-      throw new DomainError('CASH_AMOUNT_LOCKED_AFTER_POSTING', 409);
+    if (['POSTED','REVERSED'].includes(current.state) && input.amount !== undefined && input.amount !== null) {
+      throw new DomainError('POSTED_FINANCIAL_FIELDS_LOCKED', 409);
     }
     if (input.amount !== undefined && input.amount !== null) {
       const paidEvent = await client.query('SELECT 1 FROM cash_payment_events WHERE instruction_id=$1 LIMIT 1', [id]);
@@ -358,7 +522,12 @@ export type CashTransactionRow = {
   date_of_join: string | null;
   payout_number: string;
   amount_minor: string;
+  original_amount_minor: string;
+  adjustment_minor: string;
   total_paid_minor: string;
+  correction_count: number;
+  last_correction_id: string | null;
+  reversal_of: string | null;
   method: string;
   state: string;
   created_at: string;
@@ -397,26 +566,41 @@ export async function listCashTransactions(filters: CashTransactionFilters = {})
   if (filters.state) where.push(`i.state = ${bind(filters.state)}`);
   const employeeMobile = normalizedMobile(filters.employeeId);
   if (employeeMobile) where.push(`i.employee_mobile = ${bind(employeeMobile)}`);
-  if (Number.isFinite(Number(filters.amountMin)) && filters.amountMin !== undefined) where.push(`i.amount_minor >= ${bind(Number(filters.amountMin))}`);
-  if (Number.isFinite(Number(filters.amountMax)) && filters.amountMax !== undefined) where.push(`i.amount_minor <= ${bind(Number(filters.amountMax))}`);
+  if (Number.isFinite(Number(filters.amountMin)) && filters.amountMin !== undefined) where.push(`i.effective_amount_minor >= ${bind(Number(filters.amountMin))}`);
+  if (Number.isFinite(Number(filters.amountMax)) && filters.amountMax !== undefined) where.push(`i.effective_amount_minor <= ${bind(Number(filters.amountMax))}`);
   if (filters.from) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date >= ${bind(filters.from)}::date`);
   if (filters.to) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date <= ${bind(filters.to)}::date`);
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   params.push(limit, offset);
   return rows<CashTransactionRow>(
-    `WITH ordered AS (
+    `WITH adjustments AS (
+       SELECT correction_of,
+              sum(adjustment_minor) AS adjustment_minor,
+              count(*)::int AS correction_count,
+              max(id) AS last_correction_id
+         FROM cash_transaction_adjustments
+        GROUP BY correction_of
+     ), adjusted AS (
+       SELECT i.*,
+              coalesce(a.adjustment_minor, 0) AS adjustment_minor,
+              i.amount_minor + coalesce(a.adjustment_minor, 0) AS effective_amount_minor,
+              coalesce(a.correction_count, 0) AS correction_count,
+              a.last_correction_id
+         FROM cash_instructions i
+         LEFT JOIN adjustments a ON a.correction_of = i.id
+        WHERE i.state NOT IN ('VOID','REJECTED')
+     ), ordered AS (
        SELECT i.*,
               row_number() OVER (
                 PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
                 ORDER BY i.created_at, i.id
               )::text AS payout_number,
-              sum(i.amount_minor) OVER (
+              sum(CASE WHEN i.state = 'REVERSED' THEN 0 ELSE i.effective_amount_minor END) OVER (
                 PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
                 ORDER BY i.created_at, i.id
                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
               )::text AS total_paid_minor
-         FROM cash_instructions i
-        WHERE i.state NOT IN ('VOID','REJECTED')
+         FROM adjusted i
      )
      SELECT i.id,
             coalesce(i.employee_mobile, e.employee_mobile) AS employee_id,
@@ -424,8 +608,13 @@ export async function listCashTransactions(filters: CashTransactionFilters = {})
             e.designation,
             e.joined_on::text AS date_of_join,
             i.payout_number,
-            i.amount_minor::text AS amount_minor,
+            i.effective_amount_minor::text AS amount_minor,
+            i.amount_minor::text AS original_amount_minor,
+            i.adjustment_minor::text AS adjustment_minor,
             i.total_paid_minor,
+            i.correction_count,
+            i.last_correction_id,
+            i.reversal_of,
             i.method,
             i.state,
             i.created_at::text AS created_at,
@@ -451,6 +640,13 @@ export function cashTransactionView(row: CashTransactionRow) {
     dateOfJoin: row.date_of_join,
     payoutNumber: Number(row.payout_number),
     amount: row.amount_minor,
+    originalAmount: row.original_amount_minor,
+    originalAmountMinor: row.original_amount_minor,
+    adjustment: row.adjustment_minor,
+    adjustmentMinor: row.adjustment_minor,
+    correctionCount: row.correction_count,
+    lastCorrectionId: row.last_correction_id,
+    reversalOf: row.reversal_of,
     totalPaid: row.total_paid_minor,
     amountMinor: row.amount_minor,
     totalPaidMinor: row.total_paid_minor,
@@ -479,14 +675,18 @@ export async function countCashTransactions(filters: Omit<CashTransactionFilters
   if (filters.state) where.push(`i.state = ${bind(filters.state)}`);
   const employeeMobile = normalizedMobile(filters.employeeId);
   if (employeeMobile) where.push(`i.employee_mobile = ${bind(employeeMobile)}`);
-  if (Number.isFinite(Number(filters.amountMin)) && filters.amountMin !== undefined) where.push(`i.amount_minor >= ${bind(Number(filters.amountMin))}`);
-  if (Number.isFinite(Number(filters.amountMax)) && filters.amountMax !== undefined) where.push(`i.amount_minor <= ${bind(Number(filters.amountMax))}`);
+  if (Number.isFinite(Number(filters.amountMin)) && filters.amountMin !== undefined) where.push(`i.amount_minor + coalesce(a.adjustment_minor,0) >= ${bind(Number(filters.amountMin))}`);
+  if (Number.isFinite(Number(filters.amountMax)) && filters.amountMax !== undefined) where.push(`i.amount_minor + coalesce(a.adjustment_minor,0) <= ${bind(Number(filters.amountMax))}`);
   if (filters.from) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date >= ${bind(filters.from)}::date`);
   if (filters.to) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date <= ${bind(filters.to)}::date`);
   const result = await row<{n: number}>(
     `SELECT count(*)::int AS n
        FROM cash_instructions i
        LEFT JOIN employees e ON e.employee_mobile = i.employee_mobile
+       LEFT JOIN (
+         SELECT correction_of, sum(adjustment_minor) AS adjustment_minor
+           FROM cash_transaction_adjustments GROUP BY correction_of
+       ) a ON a.correction_of = i.id
       WHERE ${where.join(' AND ')}`,
     params,
   );

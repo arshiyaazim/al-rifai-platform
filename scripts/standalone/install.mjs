@@ -44,6 +44,7 @@ const EXTRA_SCHEMA_FILES = [
   join(APP_ROOT, 'db', 'standalone', '012_whatsapp_message_intelligence.sql'),
   join(APP_ROOT, 'db', 'standalone', '013_escort_workflow_authorization.sql'),
   join(APP_ROOT, 'db', 'standalone', '014_manual_programs.sql'),
+  join(APP_ROOT, 'db', 'standalone', '015_cash_corrections.sql'),
 ];
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;
@@ -59,6 +60,8 @@ const TARGET_TABLES = [
   'whatsapp_media',
   // Phase 3 Cash lifecycle
   'cash_reversals', 'cash_reconciliations',
+  // Cash correction/reversal adjustments (migration 015)
+  'cash_transaction_adjustments',
   // Phase 3 Business Paid Events (migration 011)
   'cash_payment_events', 'cash_payment_event_postings',
   // Phase 3 Vessel draft delivery queue (migration 010)

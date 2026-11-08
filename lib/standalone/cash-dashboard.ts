@@ -275,9 +275,14 @@ async function postedCashDashboardSummary(): Promise<CashDashboardSummary> {
     `WITH bounds AS (
         SELECT (now() AT TIME ZONE $1)::date AS business_date
      ), posted AS (
-        SELECT p.amount_minor, p.posted_at, i.source_channel
+        SELECT p.amount_minor + coalesce(a.adjustment_minor, 0) AS amount_minor,
+               p.posted_at, i.source_channel
           FROM cash_postings p
           JOIN cash_instructions i ON i.id = p.instruction_id
+          LEFT JOIN (
+            SELECT correction_of, sum(adjustment_minor) AS adjustment_minor
+              FROM cash_transaction_adjustments GROUP BY correction_of
+          ) a ON a.correction_of = i.id
          WHERE i.state = 'POSTED'
      )
      SELECT b.business_date::text AS as_of_date,
@@ -427,10 +432,15 @@ export async function cashPaymentTotals(input: CashPaymentFilterInput = {}): Pro
   const params: unknown[] = [];
   const where = paymentWhere(filters, params);
   const totals = await row<{n: number; total_minor: string}>(
-    `SELECT count(*)::int AS n, coalesce(sum(p.amount_minor), 0)::text AS total_minor
+    `SELECT count(*)::int AS n,
+            coalesce(sum(p.amount_minor + coalesce(a.adjustment_minor, 0)), 0)::text AS total_minor
        FROM cash_postings p
        JOIN cash_instructions i ON i.id = p.instruction_id
        LEFT JOIN employees e ON e.employee_mobile = i.employee_mobile
+       LEFT JOIN (
+         SELECT correction_of, sum(adjustment_minor) AS adjustment_minor
+           FROM cash_transaction_adjustments GROUP BY correction_of
+       ) a ON a.correction_of = i.id
       WHERE ${where}`,
     params,
   );
@@ -455,7 +465,7 @@ export async function listCashPayments(
   const items = await rows<CashPaymentRow>(
     `SELECT p.id AS posting_id,
             p.instruction_id,
-            p.amount_minor::text AS amount_minor,
+            (p.amount_minor + coalesce(a.adjustment_minor, 0))::text AS amount_minor,
             p.posted_at::text AS posted_at,
             i.employee_mobile,
             i.employee_name,
@@ -469,11 +479,15 @@ export async function listCashPayments(
             e.designation,
             e.joined_on::text AS joined_on,
             CASE
-              WHEN i.employee_mobile IS NULL THEN p.amount_minor::text
+              WHEN i.employee_mobile IS NULL THEN (p.amount_minor + coalesce(a.adjustment_minor, 0))::text
               ELSE (
-                SELECT coalesce(sum(p2.amount_minor), 0)::text
+                SELECT coalesce(sum(p2.amount_minor + coalesce(a2.adjustment_minor, 0)), 0)::text
                   FROM cash_postings p2
                   JOIN cash_instructions i2 ON i2.id = p2.instruction_id
+                  LEFT JOIN (
+                    SELECT correction_of, sum(adjustment_minor) AS adjustment_minor
+                      FROM cash_transaction_adjustments GROUP BY correction_of
+                  ) a2 ON a2.correction_of = i2.id
                  WHERE i2.state = 'POSTED'
                    AND i2.employee_mobile = i.employee_mobile
               )
@@ -481,6 +495,10 @@ export async function listCashPayments(
        FROM cash_postings p
        JOIN cash_instructions i ON i.id = p.instruction_id
        LEFT JOIN employees e ON e.employee_mobile = i.employee_mobile
+       LEFT JOIN (
+         SELECT correction_of, sum(adjustment_minor) AS adjustment_minor
+           FROM cash_transaction_adjustments GROUP BY correction_of
+       ) a ON a.correction_of = i.id
       WHERE ${where}
       ORDER BY p.posted_at DESC, p.id DESC
       LIMIT ${limitParam} OFFSET ${offsetParam}`,
@@ -488,10 +506,15 @@ export async function listCashPayments(
   );
 
   const count = await row<{n: number; total_minor: string}>(
-    `SELECT count(*)::int AS n, coalesce(sum(p.amount_minor), 0)::text AS total_minor
+    `SELECT count(*)::int AS n,
+            coalesce(sum(p.amount_minor + coalesce(a.adjustment_minor, 0)), 0)::text AS total_minor
        FROM cash_postings p
        JOIN cash_instructions i ON i.id = p.instruction_id
        LEFT JOIN employees e ON e.employee_mobile = i.employee_mobile
+       LEFT JOIN (
+         SELECT correction_of, sum(adjustment_minor) AS adjustment_minor
+           FROM cash_transaction_adjustments GROUP BY correction_of
+       ) a ON a.correction_of = i.id
       WHERE ${where}`,
     params,
   );

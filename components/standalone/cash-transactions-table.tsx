@@ -18,6 +18,11 @@ export type CashTransaction = {
   amount: string;
   totalPaid: string;
   amountMinor: string;
+  originalAmountMinor?: string;
+  adjustmentMinor?: string;
+  correctionCount?: number;
+  lastCorrectionId?: string | null;
+  reversalOf?: string | null;
   totalPaidMinor: string;
   method: string;
   state: string;
@@ -42,7 +47,7 @@ const amount = (minor: string | number | null | undefined) =>
 const localDate = (value: string | null | undefined) =>
   value ? new Date(value).toLocaleString('en-GB', {timeZone: 'Asia/Dhaka', dateStyle: 'medium', timeStyle: 'short'}) : '—';
 
-export function CashTransactionsTable({initial}: {initial: CashTransactionPage}) {
+export function CashTransactionsTable({initial, canManage = false}: {initial: CashTransactionPage; canManage?: boolean}) {
   const [data, setData] = useState<CashTransactionPage>(initial);
   const [page, setPage] = useState(initial.page);
   const [limit, setLimit] = useState(initial.limit);
@@ -191,18 +196,25 @@ export function CashTransactionsTable({initial}: {initial: CashTransactionPage})
                   <td colSpan={8}><span className="muted">Loading…</span></td>
                 </tr>
               )) : rows.map((item, index) => (
-                <tr key={item.id}>
+                <tr key={item.id} style={item.state === 'REVERSED' ? {opacity: 0.6} : undefined}>
                   <td>{offset + index + 1}</td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>
                     {item.employeeId
                       ? <Link href={`/employees/${encodeURIComponent(item.employeeId)}`}>{item.employeeId}</Link>
                       : <span className="muted">—</span>}
                   </td>
-                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{dash(item.nameOfEmployee)}</td>
+                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>
+                    {dash(item.nameOfEmployee)}
+                    {item.reversalOf ? <small className="muted" style={{display: 'block'}}>Reversal of #{item.reversalOf}</small> : null}
+                    {(item.correctionCount ?? 0) > 0 ? <small className="muted" style={{display: 'block'}}>Corrected ×{item.correctionCount}</small> : null}
+                  </td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{dash(item.designation)}</td>
                   <td>{dash(item.dateOfJoin)}</td>
                   <td>{item.payoutNumber}</td>
-                  <td className="cash-amount" style={{textAlign: 'right'}}>{amount(item.amountMinor)}</td>
+                  <td className="cash-amount" style={{textAlign: 'right', textDecoration: item.state === 'REVERSED' ? 'line-through' : undefined}} title={(item.correctionCount ?? 0) > 0 ? `Original ${amount(item.originalAmountMinor)} → effective ${amount(item.amountMinor)}` : undefined}>
+                    {amount(item.amountMinor)}
+                    {(item.correctionCount ?? 0) > 0 ? <small className="muted"> (corrected)</small> : null}
+                  </td>
                   <td className="cash-amount" style={{textAlign: 'right'}}>{amount(item.totalPaidMinor)}</td>
                   <td>
                     <Button
@@ -241,8 +253,10 @@ export function CashTransactionsTable({initial}: {initial: CashTransactionPage})
       </section>
 
       <CashTransactionSidebar
+        key={selected?.id ?? 'none'}
         transaction={selected}
         onClose={() => setSelected(null)}
+        canManage={canManage}
         onUpdated={(updated) => {
           setSelected(updated);
           setData((previous) => ({

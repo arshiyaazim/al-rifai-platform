@@ -119,7 +119,7 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
         <SummaryCard label="Last Month Paid" value={money(summary.lastMonthPaidMinor)} hint={paidBasis ? 'Business paid last month' : 'Posted last month'} href={rangeHref(lastMonthRange)} />
       </div>
 
-      <CashTransactionsTable initial={{
+      <CashTransactionsTable canManage={user.role === 'ADMIN' && canReview} initial={{
         transactions: initialTransactions,
         total: txTotal,
         page: 1,
