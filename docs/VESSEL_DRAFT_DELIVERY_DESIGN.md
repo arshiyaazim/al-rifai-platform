@@ -448,6 +448,10 @@ node ... --enqueue --program=<id> --confirm-enqueue
 
 # One controlled tick (real send only if all five gate blocks pass)
 node ... --tick --limit=1 --confirm-send
+
+# Bind the native WhatsApp message id from the WA-01 bridge store
+node --experimental-strip-types scripts/standalone/vessel-draft-verify-send.mjs \
+  --delivery=<vdd_...> [--bridge-db=/var/lib/vps/whatsapp/wa-01/store/messages.db]
 ```
 
 Identities are masked unless `--show-identities` is passed. No token, password

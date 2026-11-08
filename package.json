@@ -18,6 +18,7 @@
     "db:install": "node --experimental-strip-types scripts/standalone/install.mjs",
     "db:preflight": "node --experimental-strip-types scripts/standalone/install.mjs --preflight",
     "vessel:activation": "node --experimental-strip-types scripts/standalone/vessel-draft-activation.mjs",
+    "vessel:verify-send": "node --experimental-strip-types scripts/standalone/vessel-draft-verify-send.mjs",
     "test:domain": "node --experimental-strip-types --test --test-concurrency=1 tests/standalone/domain.test.ts",
     "test:whatsapp": "node --experimental-strip-types --test --test-concurrency=1 tests/standalone/whatsapp.test.ts",
     "test:standalone": "node --experimental-strip-types --test --test-concurrency=1 tests/standalone/domain.test.ts tests/standalone/whatsapp.test.ts tests/standalone/message-router.test.mjs tests/standalone/router-cutover.test.mjs tests/standalone/review-api.test.mjs tests/standalone/cash-lifecycle.test.mjs tests/standalone/cash-paid-events.test.mjs tests/standalone/business-paid-api.test.mjs tests/standalone/migration-integrity.test.mjs tests/standalone/cash-dashboard.test.mjs tests/standalone/users.test.mjs tests/standalone/ai-assistant.test.mjs tests/standalone/ai-sender.test.mjs tests/standalone/vessel-draft-delivery-store.test.mjs tests/standalone/vessel-draft-recipient.test.mjs tests/standalone/vessel-draft-delivery-worker.test.mjs",
