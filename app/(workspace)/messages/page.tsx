@@ -17,6 +17,7 @@ type SearchParams = Promise<{
   mediaStatus?: string;
   messageType?: string;
   reviewStatus?: string;
+  sourceRole?: string;
   sort?: string;
   page?: string;
 }>;
@@ -38,6 +39,7 @@ const DOMAINS = ['CASH', 'VESSEL', 'SECURITY', 'HR', 'PAYROLL', 'OPERATIONS', 'P
 const IDENTITIES = ['EXACT', 'VARIANT', 'AMBIGUOUS', 'UNRESOLVED'];
 const MEDIA = ['NOT_APPLICABLE', 'MISSING', 'STORED', 'FAILED', 'SKIPPED'];
 const TYPES = ['text', 'image', 'audio', 'video', 'document', 'sticker', 'reaction'];
+const SOURCE_ROLES = ['ORDER_INTAKE', 'CASH_ONLY', 'SUPPORT_ONLY', 'RELEASE_ONLY', 'OTHER_APPROVED', 'REVIEW_REQUIRED'];
 const REVIEWS = ['PENDING', 'PROCESSING', 'PROCESSED', 'REVIEW_REQUIRED', 'UNREVIEWED', 'CONFIRMED', 'CORRECTED', 'REJECTED'];
 const SORTS = [
   ['time_desc', 'Newest event first'],
@@ -67,6 +69,7 @@ export default async function MessagesPage({searchParams}: {searchParams: Search
       mediaStatus: params.mediaStatus,
       messageType: params.messageType,
       reviewStatus: params.reviewStatus,
+      sourceRole: params.sourceRole,
       sort: params.sort,
       limit,
       offset: (page - 1) * limit,
@@ -88,6 +91,7 @@ export default async function MessagesPage({searchParams}: {searchParams: Search
       mediaStatus: params.mediaStatus,
       messageType: params.messageType,
       reviewStatus: params.reviewStatus,
+      sourceRole: params.sourceRole,
       sort: params.sort,
       ...extra,
     })) {
@@ -233,6 +237,12 @@ export default async function MessagesPage({searchParams}: {searchParams: Search
           <label><span>Message type</span>
             <select name="messageType" defaultValue={params.messageType ?? ''}>
               <option value="">All</option>{TYPES.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label><span>Source role</span>
+            <select name="sourceRole" defaultValue={params.sourceRole ?? ''}>
+              <option value="">All source roles</option>
+              {SOURCE_ROLES.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </label>
           <label><span>Review status</span>

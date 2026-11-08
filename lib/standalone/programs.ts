@@ -46,7 +46,9 @@ export type ProgramRow = {
   release_account_id?: string | null;
   release_timestamp?: string | null;
   notes: string | null;
+  created_by?: string;
   created_at: string;
+  updated_at?: string;
 };
 
 export type ProgramListRow = ProgramRow & {
@@ -501,21 +503,53 @@ function lower(value: string): string {
   return value.trim().toLowerCase();
 }
 
-export async function listPrograms(filters: {q?: string; state?: string; escort?: string; limit?: number} = {}) {
-  const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 10000);
+export type ProgramListFilters = {
+  q?: string;
+  state?: string;
+  escort?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  offset?: number;
+};
+
+function programFilterSql(filters: ProgramListFilters): {clause: string; values: unknown[]} {
   const q = (filters.q ?? '').trim().toLowerCase();
-  return rows<ProgramListRow>(
-    `SELECT p.*, p.start_date::text AS start_date, p.end_date::text AS end_date, pp.state AS pay_state, pp.total_minor::text, pp.salary_minor::text, pp.conveyance_minor::text
-       FROM programs p LEFT JOIN program_pay pp ON pp.program_id = p.id
-      WHERE ($1 = '' OR lower(p.mother_vessel) LIKE '%' || $1 || '%'
+  return {
+    clause: `WHERE ($1 = '' OR lower(p.mother_vessel) LIKE '%' || $1 || '%'
              OR lower(p.lighter_vessel) LIKE '%' || $1 || '%'
-             OR lower(coalesce(p.escort_name,'')) LIKE '%' || $1 || '%')
+             OR lower(coalesce(p.escort_name,'')) LIKE '%' || $1 || '%'
+             OR p.master_mobile LIKE '%' || $1 || '%')
         AND ($2::text IS NULL OR p.state = $2)
         AND ($3::text IS NULL OR p.escort_mobile = $3)
+        AND ($4::date IS NULL OR p.start_date >= $4)
+        AND ($5::date IS NULL OR p.start_date <= $5)`,
+    values: [q, filters.state ?? null, filters.escort ?? null, filters.from ?? null, filters.to ?? null],
+  };
+}
+
+export async function listPrograms(filters: ProgramListFilters = {}) {
+  const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 10000);
+  const offset = Math.max(Number(filters.offset) || 0, 0);
+  const {clause, values} = programFilterSql(filters);
+  return rows<ProgramListRow>(
+    `SELECT p.*, p.start_date::text AS start_date, p.end_date::text AS end_date,
+            pp.state AS pay_state, pp.total_minor::text, pp.salary_minor::text, pp.conveyance_minor::text
+       FROM programs p LEFT JOIN program_pay pp ON pp.program_id = p.id
+       ${clause}
       ORDER BY p.start_date DESC, p.created_at DESC
-      LIMIT $4`,
-    [q, filters.state ?? null, filters.escort ?? null, limit],
+      LIMIT $6 OFFSET $7`,
+    [...values, limit, offset],
   );
+}
+
+export async function countPrograms(filters: ProgramListFilters = {}) {
+  const {clause, values} = programFilterSql(filters);
+  const counted = await row<{count: string}>(
+    `SELECT count(*)::text AS count FROM programs p ${clause}`,
+    values,
+  );
+  return Number(counted?.count ?? 0);
 }
 
 export async function getProgram(programIdValue: string) {

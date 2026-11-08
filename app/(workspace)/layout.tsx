@@ -9,7 +9,7 @@ const NAV = [
   {href: '/dashboard', label: 'Dashboard'},
   {href: '/insights', label: 'Insights'},
   {href: '/assistant', label: 'AI Assistant'},
-  {href: '/employees', label: 'Employees'},
+  {href: '/employees', label: 'Employees / Escorts'},
   {href: '/vessel', label: 'Vessel Register'},
   {href: '/vessel/drafts', label: 'Order Drafts'},
   {href: '/attendance', label: 'Attendance'},

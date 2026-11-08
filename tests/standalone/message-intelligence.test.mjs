@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import test, {after, before} from 'node:test';
 import {createPool} from '../../db/postgres.mjs';
 import {
-  listCalls, listMessages, messageStats, setMessageIntelligence,
+  getMessageEvidence, listCalls, listMessages, messageStats, setMessageIntelligence,
 } from '../../lib/standalone/messages.ts';
 
 const ACCOUNT = 'mi-test-account';
@@ -120,6 +120,7 @@ test('message view returns event time, identity, contact, group, media and call 
   assert.equal(direct.media_status, 'NOT_APPLICABLE');
   assert.equal(direct.call_status, 'NOT_AVAILABLE');
   assert.equal(direct.review_status, 'REVIEW_REQUIRED');
+  assert.equal(direct.source_role, 'ORDER_INTAKE');
 
   const group = result.items.find((item) => item.message_id === 'mi-group-1');
   assert.ok(group);
@@ -129,6 +130,7 @@ test('message view returns event time, identity, contact, group, media and call 
   assert.equal(group.media_status, 'STORED');
   assert.equal(group.business_domain, 'VESSEL');
   assert.equal(group.identity_role, 'ESCORT_CLIENT');
+  assert.equal(group.source_role, 'REVIEW_REQUIRED', 'an unclassified group is never an intake source');
 
   const admin = result.items.find((item) => item.message_id === 'mi-admin-1');
   assert.equal(admin.identity_role, 'OWNER');
@@ -145,6 +147,27 @@ test('actual call events are available separately and are never fabricated into 
   const stat = stats.find((entry) => entry.account === ACCOUNT);
   assert.equal(stat.calls, 1);
   assert.equal(stat.missedCalls, 1);
+});
+
+
+test('source role is filterable and an explicit role wins', async () => {
+  await owner.query(
+    "INSERT INTO whatsapp_chats (account_id,chat_jid,label,purpose,authorized,source_role) VALUES ($1,$2,'Release fixture','ORDERS',true,'RELEASE_ONLY')",
+    [ACCOUNT, '120363999999999998@g.us'],
+  );
+  await owner.query(
+    `INSERT INTO whatsapp_messages
+       (account_id,chat_jid,message_id,direction,sender_jid,source_timestamp,text_content,content_hash,processing_status,chat_kind)
+     VALUES ($1,$2,'mi-release-role-1','INCOMING',$3,$4,'release fixture','hash-role','COMPLETED','GROUP')`,
+    [ACCOUNT, '120363999999999998@g.us', OTHER_CLIENT, T0],
+  );
+  const intake = await listMessages({account: ACCOUNT, sourceRole: 'ORDER_INTAKE', limit: 20});
+  assert.equal(intake.total, 2, 'direct client order conversation plus its Admin reply');
+  assert.ok(intake.items.every((item) => item.source_role === 'ORDER_INTAKE'));
+  const release = await listMessages({account: ACCOUNT, sourceRole: 'RELEASE_ONLY', limit: 20});
+  assert.equal(release.total, 1);
+  assert.equal(release.items[0].source_role, 'RELEASE_ONLY');
+  assert.equal(await getMessageEvidence(ACCOUNT, DIRECT_CHAT, 'mi-direct-1') === null, false);
 });
 
 test('role/domain review is manual, audited and filterable', async () => {

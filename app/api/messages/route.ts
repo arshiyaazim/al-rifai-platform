@@ -42,6 +42,7 @@ export async function GET(request: Request) {
       mediaStatus: url.searchParams.get('mediaStatus') ?? undefined,
       messageType: url.searchParams.get('messageType') ?? undefined,
       reviewStatus: url.searchParams.get('reviewStatus') ?? undefined,
+      sourceRole: url.searchParams.get('sourceRole') ?? undefined,
       sort: url.searchParams.get('sort') ?? undefined,
       limit: Number(url.searchParams.get('limit') ?? 50),
       offset: Number(url.searchParams.get('offset') ?? 0),

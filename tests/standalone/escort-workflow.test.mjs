@@ -8,7 +8,8 @@ import test, {beforeEach} from 'node:test';
 import {createPool} from '../../db/postgres.mjs';
 import {row, rows} from '../../lib/standalone/db.ts';
 import {routePendingMessages} from '../../lib/message-router.ts';
-import {createProgram} from '../../lib/standalone/programs.ts';
+import {countPrograms, createProgram, getProgram, listPrograms} from '../../lib/standalone/programs.ts';
+import {getMessageEvidence} from '../../lib/standalone/messages.ts';
 
 process.env.ALRIFAI_VESSEL_PROCESSING_ENABLED = '1';
 
@@ -335,6 +336,13 @@ test('confirmation: verified Admin outgoing reply in the original client chat co
   assert.ok(saved.confirmation_timestamp);
   assert.equal(saved.escort_mobile, '+8801922222222');
   assert.equal(saved.start_date_text, '2026-11-17');
+
+  const detail = await getProgram(program.id);
+  assert.equal(detail.program.confirmation_sender_jid, ADMIN_JID);
+  assert.equal(detail.program.confirmation_account_id, 'wa-01');
+  assert.ok(detail.program.confirmation_timestamp);
+  const evidence = await getMessageEvidence('wa-01', CLIENT_PN_CHAT, 'c-confirm-1');
+  assert.match(String(evidence?.text_content), /Escort Name: Rahim/);
 });
 
 test('confirmation: spelling variant of the vessel name still matches (unique candidate)', async () => {
@@ -444,6 +452,23 @@ test('register: name formatting variation does not duplicate the row', async () 
   assert.equal(second.programs, 0);
   assert.match(second.byMessage[0].classification, /^VESSEL:DUPLICATE_PROGRAM:|^VESSEL:NO_VALID_BLOCK$|^DUPLICATE_PROGRAM:/);
   assert.equal((await row("SELECT count(*)::int AS n FROM programs WHERE start_date='2026-11-17'")).n, 1);
+});
+
+
+test('register list paginates and exposes the updated timestamp', async () => {
+  for (const [index, lighter] of ['P-1', 'P-2', 'P-3'].entries()) {
+    await createProgram(admin, {
+      motherVessel: 'MV Page', lighterVessel: lighter, masterMobile: '01911111111',
+      startDate: `2026-12-0${index + 1}`, startShift: 'D',
+    });
+  }
+  const first = await listPrograms({q: 'MV Page', limit: 2, offset: 0});
+  const second = await listPrograms({q: 'MV Page', limit: 2, offset: 2});
+  assert.equal(first.length, 2);
+  assert.equal(second.length, 1);
+  assert.equal(await countPrograms({q: 'MV Page'}), 3);
+  assert.ok(first[0].updated_at, 'updated timestamp is exposed for the list');
+  assert.notEqual(first[0].id, second[0].id);
 });
 
 test('register: unconfirmed Draft is not a confirmed program', async () => {

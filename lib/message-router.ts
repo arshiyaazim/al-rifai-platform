@@ -38,6 +38,7 @@ import {jidsMatch} from './whatsapp-identity.mjs';
 import {isAuthorizedCashConversation, isAuthorizedEscortClientConversation} from './authorized-contacts.ts';
 import {RULE_VERSION} from './business-rules.mjs';
 import {vesselKey} from './vessel-match.ts';
+import {approvedGroupRole, resolveSourceRole, type SourceRole} from './source-roles.ts';
 import type {WhatsAppAccount} from './standalone/whatsapp.ts';
 
 export type RouterResult = {
@@ -262,48 +263,6 @@ async function markOutcome(
   );
 }
 
-/**
- * Explicit business role of a conversation. This is independent of capture
- * authorization (`whatsapp_chats.authorized`), of the classifier gate (`purpose`)
- * and of identity (`identity_aliases`).
- *
- *   ORDER_INTAKE   verified direct Escort Client order conversation
- *   CASH_ONLY      authorised Cash/Accountant conversation
- *   SUPPORT_ONLY   Escort Support / operational group — never an order source
- *   RELEASE_ONLY   Escort Release Information group
- *   OTHER_APPROVED approved group with a context-only purpose
- *   REVIEW_REQUIRED unresolved role — state-changing work is blocked
- */
-export type SourceRole =
-  | 'ORDER_INTAKE'
-  | 'CASH_ONLY'
-  | 'SUPPORT_ONLY'
-  | 'RELEASE_ONLY'
-  | 'OTHER_APPROVED'
-  | 'REVIEW_REQUIRED';
-
-/**
- * The three approved groups, keyed by their stable group JID with the purpose
- * established from repository/configuration evidence. A display name is never
- * used as authorization. An explicit `whatsapp_chats.source_role` row always
- * wins over this default.
- *
- *   Office group              → operational support: order-shaped free text is
- *                               context only and must never become a Draft.
- *   Escort Release Slip       → release information only.
- *   Al-Aqsa Escort Program    → Admin assignment/notification context only; it
- *                               is not an Order Intake or Release source.
- */
-const APPROVED_GROUP_ROLES: Record<string, {role: SourceRole; purpose: string}> = {
-  '120363426895117693@g.us': {role: 'SUPPORT_ONLY', purpose: 'Escort support / operational office group'},
-  '120363408741101070@g.us': {role: 'RELEASE_ONLY', purpose: 'Escort release information'},
-  '120363428977781821@g.us': {role: 'OTHER_APPROVED', purpose: 'Escort program assignment notifications (context only)'},
-};
-
-export function approvedGroupRole(chatJid: string): {role: SourceRole; purpose: string} | null {
-  return APPROVED_GROUP_ROLES[chatJid] ?? null;
-}
-
 type ChatPolicy = {
   authorized: boolean;
   purpose: string | null;
@@ -316,7 +275,8 @@ type ChatPolicy = {
  * `whatsapp_chats.authorized`; the business role comes from the explicit
  * `source_role` column, the configured release-group setting, the approved
  * three-group map, or (for direct chats only) the operator-configured purpose.
- * Anything else fails closed as REVIEW_REQUIRED.
+ * Anything else fails closed as REVIEW_REQUIRED. The pure resolution rule is
+ * shared with the read models in `lib/source-roles.ts`.
  */
 async function loadChatPolicy(accountId: string, chatJid: string): Promise<ChatPolicy> {
   const chat = await row<{purpose: string | null; authorized: boolean; label: string | null; source_role: SourceRole | null}>(
@@ -329,15 +289,15 @@ async function loadChatPolicy(accountId: string, chatJid: string): Promise<ChatP
     return {authorized: false, purpose: chat?.purpose ?? null, label: chat?.label ?? null, sourceRole: null};
   }
   const purpose = chat.purpose ?? 'BOTH';
-  let sourceRole = chat.source_role ?? null;
-  if (!sourceRole && chatJid.endsWith('@g.us')) {
-    if (await isConfiguredReleaseGroup(accountId, chatJid)) sourceRole = 'RELEASE_ONLY';
-    else sourceRole = approvedGroupRole(chatJid)?.role ?? 'REVIEW_REQUIRED';
-  }
-  if (!sourceRole && !chatJid.endsWith('@g.us')) {
-    if (purpose === 'ORDERS') sourceRole = 'ORDER_INTAKE';
-    else if (purpose === 'CASH') sourceRole = 'CASH_ONLY';
-  }
+  const releaseConfigured = chatJid.endsWith('@g.us')
+    ? await isConfiguredReleaseGroup(accountId, chatJid)
+    : false;
+  const sourceRole = resolveSourceRole({
+    chatJid,
+    purpose,
+    storedRole: chat.source_role,
+    releaseConfigured,
+  });
   return {authorized: true, purpose, label: chat.label ?? null, sourceRole};
 }
 

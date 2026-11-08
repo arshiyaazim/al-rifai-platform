@@ -4,6 +4,7 @@ import Link from 'next/link';
 import {useMemo, useState, type ReactNode} from 'react';
 import {ActionForm} from '@/components/standalone/action-form';
 import type {CallRow, MessageRow} from '@/lib/standalone/messages';
+import {sourceRoleTone} from '@/lib/source-roles';
 
 type Column = {
   key: string;
@@ -57,6 +58,7 @@ const columns: Column[] = [
   {key: 'sender_mobile', label: 'Mobile Number', group: 'Identity', defaultVisible: true, value: (r) => unavailable(r.sender_mobile), text: (r) => dash(r.sender_mobile)},
   {key: 'sender_country_code', label: 'Country Code', group: 'Identity', value: (r) => unavailable(r.sender_country_code), text: (r) => r.sender_country_code},
   {key: 'sender_identity_status', label: 'Sender Identity Status', group: 'Identity', value: (r) => pill(r.sender_identity_status, r.sender_identity_status === 'EXACT' ? 'ok' : r.sender_identity_status === 'UNRESOLVED' ? 'bad' : ''), text: (r) => r.sender_identity_status},
+  {key: 'source_role', label: 'Source Role', group: 'Conversation', defaultVisible: true, value: (r) => pill(r.source_role, sourceRoleTone(r.source_role)), text: (r) => r.source_role},
   {key: 'identity_role', label: 'Identity Role', group: 'Business', defaultVisible: true, value: (r) => pill(r.identity_role), text: (r) => r.identity_role},
   {key: 'identity_role_source', label: 'Role Source', group: 'Business', value: (r) => r.identity_role_source, text: (r) => r.identity_role_source},
   {key: 'sender_canonical_jid', label: 'Canonical JID', group: 'Identity', value: (r) => unavailable(r.sender_canonical_jid), text: (r) => dash(r.sender_canonical_jid)},

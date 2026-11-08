@@ -510,3 +510,5 @@ a.cash-dashboard-card:focus-visible { outline: 2px solid var(--accent); outline-
   .cash-payment-summary { flex-direction: column; }
   .cash-payment-total { align-items: flex-start; text-align: left; }
 }
+
+.pill.info { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }

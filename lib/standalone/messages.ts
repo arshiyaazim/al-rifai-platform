@@ -2,6 +2,7 @@ import {rows, row, tx, DomainError} from './db.ts';
 import {recordAudit} from './audit.ts';
 import {normalizeMobile} from '../business-rules.mjs';
 import {phoneFromJid} from '../whatsapp-identity.mjs';
+import {approvedGroupRoleMap, isSourceRole, type SourceRole} from '../source-roles.ts';
 
 export type MessageQuery = {
   account?: string;
@@ -15,6 +16,7 @@ export type MessageQuery = {
   mediaStatus?: string;
   messageType?: string;
   reviewStatus?: string;
+  sourceRole?: string;
   sort?: string;
   limit?: number;
   offset?: number;
@@ -90,6 +92,7 @@ export type MessageRow = {
   source_rowid: string | null;
   import_run_id: string | null;
   source_sha256: string | null;
+  source_role: SourceRole;
 };
 
 export type ChatRow = {
@@ -231,6 +234,7 @@ function viewRowToMessage(item: Record<string, unknown>): MessageRow {
     source_rowid: item.source_rowid === null || item.source_rowid === undefined ? null : String(item.source_rowid),
     import_run_id: item.import_run_id ? String(item.import_run_id) : null,
     source_sha256: item.source_sha256 ? String(item.source_sha256) : null,
+    source_role: isSourceRole(item.source_role) ? item.source_role : 'REVIEW_REQUIRED',
   };
 }
 
@@ -247,7 +251,9 @@ export async function listMessages(query: MessageQuery = {}) {
   const limit = Math.min(Math.max(Number(query.limit ?? 50), 1), 200);
   const offset = Math.max(Number(query.offset ?? 0), 0);
   const where: string[] = [];
-  const params: unknown[] = [];
+  // Parameter 1 is the approved group JID → role map used to compute the
+  // effective role without relying on a display name.
+  const params: unknown[] = [JSON.stringify(approvedGroupRoleMap())];
   const bind = (value: unknown) => {
     params.push(value);
     return `$${params.length}`;
@@ -267,6 +273,7 @@ export async function listMessages(query: MessageQuery = {}) {
   if (query.mediaStatus) where.push(`media_status = ${bind(query.mediaStatus)}`);
   if (query.messageType) where.push(`message_type = ${bind(query.messageType)}`);
   if (query.reviewStatus) where.push(`review_status = ${bind(query.reviewStatus)}`);
+  if (query.sourceRole) where.push(`source_role = ${bind(query.sourceRole)}`);
   if (query.q) {
     const term = `%${query.q}%`;
     const p = bind(term);
@@ -276,16 +283,30 @@ export async function listMessages(query: MessageQuery = {}) {
   }
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const order = SORTABLE[query.sort ?? 'time_desc'] ?? SORTABLE.time_desc;
+  // Effective source role: explicit DB role wins; approved group JIDs are
+  // resolved from the shared map; direct chats fall back to their configured
+  // purpose. A group is never inferred from a display name.
+  const base = `SELECT v.*,
+      COALESCE(c.source_role,
+        CASE
+          WHEN v.chat_type = 'GROUP' THEN COALESCE($1::jsonb->>v.chat_jid, 'REVIEW_REQUIRED')
+          WHEN v.chat_purpose = 'ORDERS' THEN 'ORDER_INTAKE'
+          WHEN v.chat_purpose = 'CASH' THEN 'CASH_ONLY'
+          ELSE 'REVIEW_REQUIRED'
+        END) AS source_role
+    FROM whatsapp_message_intelligence_view v
+    LEFT JOIN whatsapp_chats c
+           ON c.account_id = v.account_id AND c.chat_jid = v.chat_jid`;
   params.push(limit, offset);
   const items = await rows<Record<string, unknown>>(
-    `SELECT * FROM whatsapp_message_intelligence_view
+    `SELECT * FROM (${base}) m
       ${clause}
       ORDER BY ${order}
       LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
   );
   const total = await row<{count: string}>(
-    `SELECT count(*)::text AS count FROM whatsapp_message_intelligence_view ${clause}`,
+    `SELECT count(*)::text AS count FROM (${base}) m ${clause}`,
     params.slice(0, params.length - 2),
   );
   return {
@@ -429,6 +450,27 @@ export async function messageStats() {
     calls: callStats.get(item.account_id)?.calls ?? 0,
     missedCalls: callStats.get(item.account_id)?.missed ?? 0,
   }));
+}
+
+export type MessageEvidenceRow = {
+  message_id: string;
+  account_id: string;
+  chat_jid: string;
+  direction: string;
+  sender_jid: string | null;
+  source_timestamp: string;
+  text_content: string | null;
+};
+
+/** One mirrored message by stable identity, for provenance display. */
+export async function getMessageEvidence(account: string, chat: string, messageId: string) {
+  return row<MessageEvidenceRow>(
+    `SELECT message_id, account_id, chat_jid, direction, sender_jid,
+            source_timestamp::text AS source_timestamp, text_content
+       FROM whatsapp_messages
+      WHERE account_id=$1 AND chat_jid=$2 AND message_id=$3`,
+    [account, chat, messageId],
+  );
 }
 
 export type MediaRow = {

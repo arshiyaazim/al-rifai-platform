@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import {listPrograms} from '@/lib/standalone/programs';
+import {countPrograms, listPrograms} from '@/lib/standalone/programs';
 import {listProgramSourcesForPrograms, listReviewQueue} from '@/lib/standalone/review';
-import {money, pageUser} from '@/lib/standalone/session';
+import {money, pageUser, when} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
 import {
@@ -16,17 +16,32 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-export default async function VesselPage({searchParams}: {searchParams: Promise<{q?: string; state?: string}>}) {
+export default async function VesselPage({searchParams}: {searchParams: Promise<{q?: string; state?: string; page?: string}>}) {
   const filters = await searchParams;
   const user = await pageUser();
   const canCommand = can(user as never, 'vessel.command');
   const canRelease = can(user as never, 'vessel.release');
   const q = (filters.q ?? '').trim();
   const state = filters.state ?? '';
-  const [programs, vesselReviews] = await Promise.all([
-    listPrograms({q, state: state || undefined}),
+  const page = Math.max(Number(filters.page ?? 1), 1);
+  const pageSize = 25;
+  const [programs, totalPrograms, vesselReviews] = await Promise.all([
+    listPrograms({q, state: state || undefined, limit: pageSize, offset: (page - 1) * pageSize}),
+    countPrograms({q, state: state || undefined}),
     listReviewQueue({domain: 'PROGRAM', state: 'PENDING', limit: 100}),
   ]);
+  const pages = Math.max(Math.ceil(totalPrograms / pageSize), 1);
+  const pageHref = (next: number) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (state) params.set('state', state);
+    if (next > 1) params.set('page', String(next));
+    const text = params.toString();
+    return text ? `/vessel?${text}` : '/vessel';
+  };
+  const stateTone = (value: string) => value === 'RELEASED' || value === 'COMPLETED' ? 'ok'
+    : value === 'CONFIRMED' || value === 'ASSIGNED' || value === 'IN_DUTY' ? 'info'
+      : value === 'VOIDED' ? 'bad' : '';
   const active = programs.filter((program) => !['VOIDED', 'COMPLETED'].includes(program.state));
   const programSources = await listProgramSourcesForPrograms(programs.map((program) => program.id));
   const sourcesByProgram = new Map<string, typeof programSources>();
@@ -56,7 +71,7 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
           <label><span>State</span>
             <select name="state" defaultValue={state}>
               <option value="">All states</option>
-              {['DRAFT','ASSIGNED','IN_DUTY','RELEASED','COMPLETED','VOIDED'].map((value) => (
+              {['DRAFT','CONFIRMED','ASSIGNED','IN_DUTY','RELEASED','COMPLETED','VOIDED'].map((value) => (
                 <option key={value} value={value}>{value}</option>
               ))}
             </select>
@@ -90,23 +105,35 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
       />
 
       <section className="card">
-        <h3>Programs ({programs.length} · {active.length} active)</h3>
+        <h3>Programs ({totalPrograms} · {active.length} active on this page)</h3>
+        <div style={{overflowX: 'auto'}}>
         <table>
-          <thead><tr><th>Mother → Lighter</th><th>Escort</th><th>Start</th><th>End</th><th>State</th><th>Pay</th></tr></thead>
+          <thead><tr><th>Mother Vessel</th><th>Lighter Name</th><th>Master Mobile</th><th>Escort</th><th>Start Date / Shift</th><th>End Date / Shift</th><th>State</th><th>Updated</th><th>Pay</th></tr></thead>
           <tbody>
             {programs.map((program) => (
               <tr key={program.id}>
-                <td><Link href={`/vessel/${encodeURIComponent(program.id)}`}>{program.mother_vessel} → {program.lighter_vessel}</Link><div className="muted" style={{fontFamily: 'ui-monospace, monospace'}}>{program.id}</div></td>
+                <td><Link href={`/vessel/${encodeURIComponent(program.id)}`}>{program.mother_vessel}</Link><div className="muted" style={{fontFamily: 'ui-monospace, monospace'}}>{program.id}</div></td>
+                <td><Link href={`/vessel/${encodeURIComponent(program.id)}`}>{program.lighter_vessel}</Link></td>
+                <td style={{whiteSpace: 'nowrap'}}>{program.master_mobile ?? '—'}</td>
                 <td>{program.escort_name ?? '—'}<div className="muted">{program.escort_mobile ?? ''}</div></td>
-                <td>{program.start_date} · {program.start_shift}</td>
-                <td>{program.end_date ? `${program.end_date} · ${program.end_shift}` : '—'}</td>
-                <td><span className={`pill ${['RELEASED','COMPLETED'].includes(program.state) ? 'ok' : program.state === 'VOIDED' ? 'bad' : ''}`}>{program.state}</span></td>
+                <td style={{whiteSpace: 'nowrap'}}>{program.start_date} · {program.start_shift}</td>
+                <td style={{whiteSpace: 'nowrap'}}>{program.end_date ? `${program.end_date} · ${program.end_shift}` : '—'}</td>
+                <td><span className={`pill ${stateTone(program.state)}`}>{program.state}</span></td>
+                <td style={{whiteSpace: 'nowrap'}}>{program.updated_at ? when(program.updated_at) : '—'}</td>
                 <td>{money(program.total_minor)}{program.pay_state === 'UNRESOLVED' ? <div className="muted">unresolved</div> : null}</td>
               </tr>
             ))}
-            {!programs.length ? <tr><td colSpan={6} className="muted">No programs yet.</td></tr> : null}
+            {!programs.length ? <tr><td colSpan={9} className="muted">No programs yet.</td></tr> : null}
           </tbody>
         </table>
+        </div>
+        <div className="table-footer">
+          <span>{totalPrograms.toLocaleString()} program(s) · page {page} of {pages}</span>
+          <span className="paging">
+            {page > 1 ? <Link href={pageHref(page - 1)}>← Previous</Link> : null}
+            {page < pages ? <Link href={pageHref(page + 1)}>Next →</Link> : null}
+          </span>
+        </div>
       </section>
 
       <section className="card" style={{marginBottom: 18}}>
