@@ -386,7 +386,7 @@ tables). No new migration is required by the activation branch.
 pnpm test:unit        # pure functions (149 assertions)
 pnpm test:standalone  # all DB suites: domain, WhatsApp adapter, router,
                       # cutover, Review Queue, Cash lifecycle, users, AI,
-                      # Vessel Draft recipient/store/worker, message mirror and Message Intelligence (190 integration tests)
+                      # Vessel Draft recipient/store/worker, message mirror, Message Intelligence, Escort workflow (231 integration tests)
 ```
 
 The integration tests are destructive to their schema: run them against a
@@ -445,6 +445,40 @@ Identity Role, Business Domain, Direction, Message Content and Media Status.
   pending Owner approval.
 
 See `docs/WHATSAPP_MESSAGE_INTELLIGENCE.md`.
+
+## 7.3 Escort Order → Admin Confirmation → Vessel Register → Release
+
+The live WhatsApp workflow now enforces distinct source roles instead of treating
+all allowlisted chats as interchangeable:
+
+- **Order intake**: WA-01 only, DIRECT conversations only, `source_role =
+  ORDER_INTAKE`, INCOMING only, and a sender/conversation that resolves to the
+  same EXACT canonical PN in `identity_aliases` (or an active `ESCORT_CLIENT`
+  registry entry). A group never creates an Order Draft.
+- **Support / Office group**: support-only context. Order-shaped text is not a
+  Draft. **Release group**: release-only. The remaining approved vessel group is
+  context-only. Unclassified groups are `REVIEW_REQUIRED` and blocked.
+- **Order fields**: Mother Vessel, Lighter Vessel and Master Mobile are
+  mandatory; one Lighter produces one Draft. Missing fields go to review.
+  A bounded merge joins complementary fragments only inside the same authorized
+  client conversation.
+- **Confirmation**: a verified Admin OUTGOING WA-01 reply in the SAME original
+  client chat. It is matched to exactly one Draft by normalized vessel names,
+  Master Mobile, shift and chronology, and persists
+  `confirmation_message_id`, `confirmation_chat_jid`,
+  `confirmation_sender_jid`, `confirmation_account_id` and
+  `confirmation_timestamp`. Groups, other clients, WA-02, incoming messages and
+  unverified senders are rejected.
+- **Release**: only the approved Release Information group. The exact existing
+  program is updated with `end_date`, `end_shift` and full `release_*`
+  provenance; `start_date`/`start_shift` are preserved. Release never creates a
+  program. Replays are idempotent; ambiguity/conflict/completed duty goes to
+  review.
+- Migration `013_escort_workflow_authorization.sql` is additive (schema 1.8.0,
+  51 tables) and follows 012. Production migration/deployment is pending Owner
+  approval.
+
+Full rules and evidence: `docs/ESCORT_ORDER_RELEASE_WORKFLOW.md`.
 
 ---
 

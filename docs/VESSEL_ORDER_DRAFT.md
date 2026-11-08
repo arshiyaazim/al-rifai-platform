@@ -163,3 +163,19 @@ UI/logic-only change. The pre-import backup
 `/var/lib/vps/al-rifai/backups/phase3-pre-import-20261106T224024Z.dump`
 (SHA-256 `83dfe6d0284a1f16d1109aee0cb0b29273bbc3a739955194bada2fd8c8daaad9`)
 remains verified but is not needed for a UI rollback.
+
+---
+
+## 6. Authorized source and release rules (2026-11-08)
+
+The intake/confirmation/release workflow now enforces distinct conversation
+roles. A group is never an Order Intake source; the Support group is
+support-only, the Release Information group is release-only, and the remaining
+approved vessel group is context-only. Order Drafts require WA-01, a DIRECT
+`ORDER_INTAKE` conversation, an INCOMING message and a verified canonical PN
+identity. Admin confirmation must be an OUTGOING reply in the same original
+client conversation. Release updates only the exact existing program and
+preserves Start Date/Shift.
+
+See `docs/ESCORT_ORDER_RELEASE_WORKFLOW.md` for the full rules, provenance
+columns, migration 013 and test evidence.

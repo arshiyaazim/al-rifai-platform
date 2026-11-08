@@ -42,6 +42,7 @@ const EXTRA_SCHEMA_FILES = [
   join(APP_ROOT, 'db', 'standalone', '010_vessel_draft_delivery.sql'),
   join(APP_ROOT, 'db', 'standalone', '011_cash_payment_events.sql'),
   join(APP_ROOT, 'db', 'standalone', '012_whatsapp_message_intelligence.sql'),
+  join(APP_ROOT, 'db', 'standalone', '013_escort_workflow_authorization.sql'),
 ];
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;

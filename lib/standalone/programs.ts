@@ -2,6 +2,7 @@ import type {PoolClient} from 'pg';
 import {row, rows, tx, text, optionalText, isoDate, shift, mobile, optionalMobile, DomainError, type Actor} from './db.ts';
 import {recordAudit, stableId} from './audit.ts';
 import {assertCapability} from './authz.ts';
+import {vesselKey} from '../vessel-match.ts';
 
 export type ProgramInput = {
   motherVessel: string;
@@ -33,7 +34,17 @@ export type ProgramRow = {
   state: string;
   source_channel: string;
   source_message_id: string | null;
+  source_chat_jid?: string | null;
   confirmation_message_id: string | null;
+  confirmation_chat_jid?: string | null;
+  confirmation_sender_jid?: string | null;
+  confirmation_account_id?: string | null;
+  confirmation_timestamp?: string | null;
+  release_message_id?: string | null;
+  release_chat_jid?: string | null;
+  release_sender_jid?: string | null;
+  release_account_id?: string | null;
+  release_timestamp?: string | null;
   notes: string | null;
   created_at: string;
 };
@@ -48,17 +59,27 @@ export type ProgramListRow = ProgramRow & {
 const programId = (mother: string, lighter: string, startDate: string, startShift: string) =>
   stableId('prog', ['vessel-program', mother.toLowerCase(), lighter.toLowerCase(), startDate, startShift]);
 
-/** ±1 calendar day potential-duplicate check (never blocks; it warns). */
+/**
+ * ±1 calendar day potential-duplicate check (never blocks; it warns).
+ *
+ * Vessel comparison uses the shared normalized key (`vesselKey`), so prefix,
+ * punctuation, spacing and case differences ("M.V. Banglar-Modhumoti-1" vs
+ * "MV Banglar Modhumoti 1") describe one vessel. Raw values are never rewritten
+ * on the stored row.
+ */
 export async function potentialDuplicates(input: {motherVessel: string; lighterVessel: string; startDate: string; excludeId?: string}) {
-  return rows<{id: string; start_date: string}>(
-    `SELECT id, start_date::text AS start_date FROM programs
-      WHERE lower(btrim(mother_vessel)) = lower(btrim($1))
-        AND lower(btrim(lighter_vessel)) = lower(btrim($2))
-        AND abs(start_date - $3::date) <= 1
+  const candidates = await rows<{id: string; start_date: string; mother_vessel: string; lighter_vessel: string}>(
+    `SELECT id, start_date::text AS start_date, mother_vessel, lighter_vessel FROM programs
+      WHERE abs(start_date - $1::date) <= 1
         AND state <> 'VOIDED'
-        AND ($4::text IS NULL OR id <> $4)`,
-    [input.motherVessel, input.lighterVessel, input.startDate, input.excludeId ?? null],
+        AND ($2::text IS NULL OR id <> $2)`,
+    [input.startDate, input.excludeId ?? null],
   );
+  const mother = vesselKey(input.motherVessel);
+  const lighter = vesselKey(input.lighterVessel);
+  return candidates
+    .filter((candidate) => vesselKey(candidate.mother_vessel) === mother && vesselKey(candidate.lighter_vessel) === lighter)
+    .map((candidate) => ({id: candidate.id, start_date: candidate.start_date}));
 }
 
 export type ProgramSource = {
@@ -245,20 +266,59 @@ async function releaseProgramOn(
   client: Pick<PoolClient, 'query'>,
   actor: Actor,
   programIdValue: string,
-  input: {endDate: string; endShift: string; note?: string},
+  input: {
+    endDate: string;
+    endShift: string;
+    note?: string;
+    release?: {
+      messageId?: string | null;
+      chatJid?: string | null;
+      senderJid?: string | null;
+      accountId?: string | null;
+      timestamp?: string | null;
+    } | null;
+  },
 ) {
   const endDate = isoDate(input.endDate, 'endDate');
   const endShift = shift(input.endShift, 'endShift');
+  const release = input.release ?? null;
   {
     const program = await client.query<ProgramRow>('SELECT * FROM programs WHERE id = $1 FOR UPDATE', [programIdValue]);
     if (!program.rowCount) throw new DomainError('PROGRAM_NOT_FOUND', 404);
     const current = program.rows[0];
     if (current.state === 'VOIDED') throw new DomainError('PROGRAM_VOIDED', 409);
-    if (endDate < current.start_date) throw new DomainError('END_BEFORE_START');
+    if (current.state === 'COMPLETED') throw new DomainError('PROGRAM_COMPLETED', 409);
+    // DATE is returned as a Date object by `SELECT *`; compare the text form.
+    const dates = await client.query<{start_date: string; end_date: string | null}>(
+      'SELECT start_date::text AS start_date, end_date::text AS end_date FROM programs WHERE id = $1',
+      [programIdValue],
+    );
+    const startDate = dates.rows[0]?.start_date ?? String(current.start_date);
+    const currentEnd = dates.rows[0]?.end_date ?? null;
+    if (endDate < startDate) throw new DomainError('END_BEFORE_START');
+    // Re-applying the same release is idempotent: no new revision, event or
+    // duplicate release record. A correction with different values is still an
+    // explicit authorised update.
+    if (current.state === 'RELEASED' && currentEnd === endDate && current.end_shift === endShift) {
+      return {programId: current.id, idempotent: true};
+    }
     await client.query(
-      `UPDATE programs SET end_date = $2, end_shift = $3, state = 'RELEASED', revision = revision + 1
+      `UPDATE programs
+          SET end_date = $2,
+              end_shift = $3,
+              state = 'RELEASED',
+              revision = revision + 1,
+              release_message_id = COALESCE($4, release_message_id),
+              release_chat_jid = COALESCE($5, release_chat_jid),
+              release_sender_jid = COALESCE($6, release_sender_jid),
+              release_account_id = COALESCE($7, release_account_id),
+              release_timestamp = COALESCE($8, release_timestamp)
         WHERE id = $1`,
-      [current.id, endDate, endShift],
+      [
+        current.id, endDate, endShift,
+        release?.messageId ?? null, release?.chatJid ?? null, release?.senderJid ?? null,
+        release?.accountId ?? null, release?.timestamp ?? null,
+      ],
     );
     await client.query(
       `UPDATE program_assignments SET end_date = $2, end_shift = $3
@@ -268,17 +328,42 @@ async function releaseProgramOn(
     await client.query(
       `INSERT INTO program_events (program_id, action, actor, payload)
        VALUES ($1,'RELEASE_PROGRAM',$2,$3::jsonb)`,
-      [current.id, actor.id, JSON.stringify({endDate, endShift, note: optionalText(input.note, 'note', 500)})],
+      [current.id, actor.id, JSON.stringify({
+        endDate, endShift, note: optionalText(input.note, 'note', 500),
+        releaseMessageId: release?.messageId ?? null,
+        releaseChatJid: release?.chatJid ?? null,
+        releaseSenderJid: release?.senderJid ?? null,
+        releaseAccountId: release?.accountId ?? null,
+        releaseTimestamp: release?.timestamp ?? null,
+      })],
     );
-    await recordAudit({actor, action: 'PROGRAM_RELEASED', entity: 'program', entityId: current.id, detail: {endDate, endShift}}, client);
-    return {programId: current.id};
+    await recordAudit({actor, action: 'PROGRAM_RELEASED', entity: 'program', entityId: current.id,
+      detail: {
+        endDate, endShift,
+        releaseMessageId: release?.messageId ?? null,
+        releaseChatJid: release?.chatJid ?? null,
+        releaseSenderJid: release?.senderJid ?? null,
+        releaseAccountId: release?.accountId ?? null,
+      }}, client);
+    return {programId: current.id, idempotent: false};
   }
 }
 
 export async function releaseProgram(
   actor: Actor,
   programIdValue: string,
-  input: {endDate: string; endShift: string; note?: string},
+  input: {
+    endDate: string;
+    endShift: string;
+    note?: string;
+    release?: {
+      messageId?: string | null;
+      chatJid?: string | null;
+      senderJid?: string | null;
+      accountId?: string | null;
+      timestamp?: string | null;
+    } | null;
+  },
   client?: Pick<PoolClient, 'query'>,
 ) {
   assertCapability(actor, 'vessel.release');
@@ -438,7 +523,10 @@ export async function getProgram(programIdValue: string) {
     `SELECT id, revision, mother_vessel, lighter_vessel, master_mobile, destination,
             escort_name, escort_mobile, start_date::text AS start_date, start_shift,
             end_date::text AS end_date, end_shift, state, source_channel,
-            source_message_id, source_chat_jid, confirmation_message_id, notes,
+            source_message_id, source_chat_jid, confirmation_message_id,
+            confirmation_chat_jid, confirmation_sender_jid, confirmation_account_id,
+            confirmation_timestamp, release_message_id, release_chat_jid,
+            release_sender_jid, release_account_id, release_timestamp, notes,
             created_by, created_at, updated_at
        FROM programs WHERE id = $1`,
     [programIdValue],

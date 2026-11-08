@@ -35,8 +35,9 @@ import {createProgram, potentialDuplicates, releaseProgram} from './standalone/p
 import {submitForReview} from './standalone/review.ts';
 import {classifyDomain, type Domain} from './message-classifier.ts';
 import {jidsMatch} from './whatsapp-identity.mjs';
-import {isAuthorizedCashConversation} from './authorized-contacts.ts';
+import {isAuthorizedCashConversation, isAuthorizedEscortClientConversation} from './authorized-contacts.ts';
 import {RULE_VERSION} from './business-rules.mjs';
+import {vesselKey} from './vessel-match.ts';
 import type {WhatsAppAccount} from './standalone/whatsapp.ts';
 
 export type RouterResult = {
@@ -185,7 +186,7 @@ async function claimMessages(
     const claimed = await client.query<MessageToProcess>(
       `SELECT m.id::text, m.account_id, m.chat_jid, m.message_id::text, m.direction,
               m.sender_jid, to_char(m.source_timestamp AT TIME ZONE 'UTC',
-              'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS source_timestamp, m.text_content,
+              'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS source_timestamp, m.text_content,
               m.processing_status, m.retry_count, m.last_error
          FROM whatsapp_messages m
         WHERE (
@@ -262,39 +263,94 @@ async function markOutcome(
 }
 
 /**
+ * Explicit business role of a conversation. This is independent of capture
+ * authorization (`whatsapp_chats.authorized`), of the classifier gate (`purpose`)
+ * and of identity (`identity_aliases`).
+ *
+ *   ORDER_INTAKE   verified direct Escort Client order conversation
+ *   CASH_ONLY      authorised Cash/Accountant conversation
+ *   SUPPORT_ONLY   Escort Support / operational group — never an order source
+ *   RELEASE_ONLY   Escort Release Information group
+ *   OTHER_APPROVED approved group with a context-only purpose
+ *   REVIEW_REQUIRED unresolved role — state-changing work is blocked
+ */
+export type SourceRole =
+  | 'ORDER_INTAKE'
+  | 'CASH_ONLY'
+  | 'SUPPORT_ONLY'
+  | 'RELEASE_ONLY'
+  | 'OTHER_APPROVED'
+  | 'REVIEW_REQUIRED';
+
+/**
+ * The three approved groups, keyed by their stable group JID with the purpose
+ * established from repository/configuration evidence. A display name is never
+ * used as authorization. An explicit `whatsapp_chats.source_role` row always
+ * wins over this default.
+ *
+ *   Office group              → operational support: order-shaped free text is
+ *                               context only and must never become a Draft.
+ *   Escort Release Slip       → release information only.
+ *   Al-Aqsa Escort Program    → Admin assignment/notification context only; it
+ *                               is not an Order Intake or Release source.
+ */
+const APPROVED_GROUP_ROLES: Record<string, {role: SourceRole; purpose: string}> = {
+  '120363426895117693@g.us': {role: 'SUPPORT_ONLY', purpose: 'Escort support / operational office group'},
+  '120363408741101070@g.us': {role: 'RELEASE_ONLY', purpose: 'Escort release information'},
+  '120363428977781821@g.us': {role: 'OTHER_APPROVED', purpose: 'Escort program assignment notifications (context only)'},
+};
+
+export function approvedGroupRole(chatJid: string): {role: SourceRole; purpose: string} | null {
+  return APPROVED_GROUP_ROLES[chatJid] ?? null;
+}
+
+type ChatPolicy = {
+  authorized: boolean;
+  purpose: string | null;
+  label: string | null;
+  sourceRole: SourceRole | null;
+};
+
+/**
+ * Read the conversation policy. Authorization still comes from
+ * `whatsapp_chats.authorized`; the business role comes from the explicit
+ * `source_role` column, the configured release-group setting, the approved
+ * three-group map, or (for direct chats only) the operator-configured purpose.
+ * Anything else fails closed as REVIEW_REQUIRED.
+ */
+async function loadChatPolicy(accountId: string, chatJid: string): Promise<ChatPolicy> {
+  const chat = await row<{purpose: string | null; authorized: boolean; label: string | null; source_role: SourceRole | null}>(
+    `SELECT purpose, authorized, label, source_role
+       FROM whatsapp_chats
+      WHERE account_id = $1 AND chat_jid = $2`,
+    [accountId, chatJid],
+  );
+  if (!chat || !chat.authorized) {
+    return {authorized: false, purpose: chat?.purpose ?? null, label: chat?.label ?? null, sourceRole: null};
+  }
+  const purpose = chat.purpose ?? 'BOTH';
+  let sourceRole = chat.source_role ?? null;
+  if (!sourceRole && chatJid.endsWith('@g.us')) {
+    if (await isConfiguredReleaseGroup(accountId, chatJid)) sourceRole = 'RELEASE_ONLY';
+    else sourceRole = approvedGroupRole(chatJid)?.role ?? 'REVIEW_REQUIRED';
+  }
+  if (!sourceRole && !chatJid.endsWith('@g.us')) {
+    if (purpose === 'ORDERS') sourceRole = 'ORDER_INTAKE';
+    else if (purpose === 'CASH') sourceRole = 'CASH_ONLY';
+  }
+  return {authorized: true, purpose, label: chat.label ?? null, sourceRole};
+}
+
+/**
  * Check whether a chat is authorized for the given domain and direction.
  * Uses whatsapp_chats.authorized + purpose (existing contract).
- * Vessel domain requires WA-01 account only.
  */
 async function isChatAuthorized(
   accountId: string,
   chatJid: string,
-  direction: 'INCOMING' | 'OUTGOING',
-): Promise<{authorized: boolean; purpose: string | null}> {
-  const chat = await row<{purpose: string | null; authorized: boolean}>(
-    `SELECT purpose, authorized
-           FROM whatsapp_chats
-          WHERE account_id = $1 AND chat_jid = $2`,
-    [accountId, chatJid],
-  );
-  if (!chat || !chat.authorized) {
-    return {authorized: false, purpose: chat?.purpose ?? null};
-  }
-  const purpose = chat.purpose ?? 'BOTH';
-  // The domain classifier enforces the chat purpose after this gate. A CASH
-  // chat must therefore admit INCOMING messages so the classifier can see
-  // them; it returns UNKNOWN for a purpose mismatch instead of dropping the
-  // message before classification.
-  if (direction === 'INCOMING') {
-    return {
-      authorized: purpose === 'ORDERS' || purpose === 'CASH' || purpose === 'BOTH',
-      purpose,
-    };
-  }
-  return {
-    authorized: purpose === 'ORDERS' || purpose === 'CASH' || purpose === 'BOTH',
-    purpose,
-  };
+): Promise<{authorized: boolean; purpose: string | null; sourceRole: SourceRole | null}> {
+  const policy = await loadChatPolicy(accountId, chatJid);
+  return {authorized: policy.authorized, purpose: policy.purpose, sourceRole: policy.sourceRole};
 }
 
 /**
@@ -570,18 +626,21 @@ async function handleCash(
     reasons: [...new Set(reasons)]};
 }
 
-/** Release groups are recognised by the approved setting or their configured label. */
-async function isReleaseGroup(accountId: string, chatJid: string): Promise<boolean> {
+/**
+ * Release groups are recognised only by an explicit approved source:
+ *   - the configured `phase3_release_groups:<account>` setting, or
+ *   - the approved group JID constant, or
+ *   - an explicit `whatsapp_chats.source_role = 'RELEASE_ONLY'`.
+ * A display-name keyword is never used: a group called "Release Slip" is not
+ * authorization.
+ */
+async function isConfiguredReleaseGroup(accountId: string, chatJid: string): Promise<boolean> {
   const setting = await row<{value: unknown}>(
     "SELECT value FROM app_settings WHERE key = 'phase3_release_groups:' || $1",
     [accountId],
   );
   if (Array.isArray(setting?.value) && setting.value.includes(chatJid)) return true;
-  const chat = await row<{label: string | null}>(
-    'SELECT label FROM whatsapp_chats WHERE account_id = $1 AND chat_jid = $2',
-    [accountId, chatJid],
-  );
-  return /release/i.test(chat?.label ?? '');
+  return approvedGroupRole(chatJid)?.role === 'RELEASE_ONLY';
 }
 
 /**
@@ -631,8 +690,9 @@ async function handleReleaseSlip(
   message: MessageToProcess,
   text: string,
   blocks: Array<{blockKey: string; fields: Record<string, string | number | null>; reasons: string[]}>,
-): Promise<{created: boolean; reviewSubmitted: boolean; reasons: string[]; programsCreated?: number; releases?: number}> {
+): Promise<{created: boolean; reviewSubmitted: boolean; reasons: string[]; programsCreated?: number; releases?: number; idempotent?: number; blocked?: boolean}> {
   let released = 0;
+  let idempotent = 0;
   let reviewSubmitted = false;
   const reasons: string[] = [];
   for (const block of blocks) {
@@ -660,18 +720,29 @@ async function handleReleaseSlip(
       reasons.push(...(block.reasons.length ? block.reasons : ['RELEASE_INCOMPLETE']));
       continue;
     }
-    const candidates = await rows<{id: string; start_date: string; end_date: string | null}>(
-      `SELECT id, start_date::text AS start_date, end_date::text AS end_date
+    // Strong match: the existing program for this Escort with the released
+    // Lighter/Mother on or before the release date. A completed program is
+    // included so an already-finished duty is reported, never silently matched.
+    // Vessel comparison uses the shared normalized key, so "M.V. Release",
+    // "MV Release" and "Release" are the same vessel.
+    const candidateRows = await rows<{
+      id: string; state: string; start_date: string; end_date: string | null;
+      end_shift: string | null; release_message_id: string | null;
+      mother_vessel: string; lighter_vessel: string;
+    }>(
+      `SELECT id, state, start_date::text AS start_date, end_date::text AS end_date,
+              end_shift, release_message_id, mother_vessel, lighter_vessel
          FROM programs
         WHERE escort_mobile = $1
-          AND state NOT IN ('VOIDED','COMPLETED')
+          AND state <> 'VOIDED'
           AND start_date <= $2
-          AND (end_date IS NULL OR end_date <= $2)
-          AND ($3::text IS NULL OR lower(btrim(lighter_vessel)) = lower(btrim($3)))
-          AND ($4::date IS NULL OR start_date = $4)
+          AND ($3::date IS NULL OR start_date = $3)
         ORDER BY start_date DESC`,
-      [escortMobile, fields.endDate, fields.lighterVessel ?? null, fields.startDate ?? null],
+      [escortMobile, fields.endDate, fields.startDate ?? null],
     );
+    const candidates = candidateRows.filter((candidate) =>
+      (!fields.lighterVessel || vesselKey(candidate.lighter_vessel) === vesselKey(fields.lighterVessel))
+      && (!fields.motherVessel || vesselKey(candidate.mother_vessel) === vesselKey(fields.motherVessel)));
     if (candidates.length !== 1) {
       const submitted = await submitReviewItem(actor, 'PROGRAM', 'UPDATE', message.message_id,
         'UNMATCHED_VESSEL_ASSIGNMENT', {
@@ -691,11 +762,64 @@ async function handleReleaseSlip(
       continue;
     }
     const candidate = candidates[0];
+    if (candidate.state === 'COMPLETED') {
+      const submitted = await submitReviewItem(actor, 'PROGRAM', 'UPDATE', message.message_id,
+        'UNMATCHED_VESSEL_ASSIGNMENT', {
+          sourceMessageId: message.message_id,
+          sourceChatJid: message.chat_jid,
+          sourceAccountId: message.account_id,
+          sourceTimestamp: message.source_timestamp,
+          senderJid: message.sender_jid,
+          rawText: text,
+          fields,
+          programId: candidate.id,
+          releaseCategory: 'RELEASE_PROGRAM_ALREADY_COMPLETED',
+          parser: 'release-slip', ruleVersion: RULE_VERSION,
+        });
+      if (submitted.submitted) reviewSubmitted = true;
+      reasons.push('RELEASE_PROGRAM_ALREADY_COMPLETED');
+      continue;
+    }
+    if (candidate.state === 'RELEASED') {
+      const sameValues = candidate.end_date === fields.endDate && candidate.end_shift === fields.endShift;
+      if (sameValues) {
+        // Replayed release: record the source evidence once and change nothing.
+        await recordProgramSource(candidate.id, message.account_id, message.chat_jid, message.message_id, 'contributor');
+        idempotent += 1;
+        reasons.push('RELEASE_ALREADY_APPLIED');
+        continue;
+      }
+      const submitted = await submitReviewItem(actor, 'PROGRAM', 'UPDATE', message.message_id,
+        'UNMATCHED_VESSEL_ASSIGNMENT', {
+          sourceMessageId: message.message_id,
+          sourceChatJid: message.chat_jid,
+          sourceAccountId: message.account_id,
+          sourceTimestamp: message.source_timestamp,
+          senderJid: message.sender_jid,
+          rawText: text,
+          fields,
+          programId: candidate.id,
+          existingEndDate: candidate.end_date,
+          existingEndShift: candidate.end_shift,
+          releaseCategory: 'RELEASE_CONFLICT_EXISTING_RELEASE',
+          parser: 'release-slip', ruleVersion: RULE_VERSION,
+        });
+      if (submitted.submitted) reviewSubmitted = true;
+      reasons.push('RELEASE_CONFLICT_EXISTING_RELEASE');
+      continue;
+    }
     try {
       await releaseProgram(actor, candidate.id, {
         endDate: fields.endDate,
         endShift: fields.endShift,
         note: `WhatsApp release slip ${message.message_id}`,
+        release: {
+          messageId: message.message_id,
+          chatJid: message.chat_jid,
+          senderJid: message.sender_jid,
+          accountId: message.account_id,
+          timestamp: message.source_timestamp,
+        },
       });
       await recordProgramSource(candidate.id, message.account_id, message.chat_jid, message.message_id, 'contributor');
       released += 1;
@@ -719,7 +843,80 @@ async function handleReleaseSlip(
       reasons.push(`RELEASE_APPLY_FAILED:${code}`);
     }
   }
-  return {created: false, reviewSubmitted, reasons, programsCreated: 0, releases: released};
+  return {created: false, reviewSubmitted, reasons, programsCreated: 0, releases: released, idempotent};
+}
+
+/**
+ * Bounded, source-bound multi-message order merge.
+ *
+ * A client sometimes sends the Mother/Lighter in one message and the Master
+ * Mobile in the next. An incomplete block may merge with a PENDING
+ * INCOMPLETE_VESSEL_ORDER review item only when all of these hold:
+ *   - same account and the same authorised client conversation;
+ *   - created within the last 30 minutes;
+ *   - shares the same Lighter Vessel or the same Mother Vessel;
+ *   - never contradicts an already-present field.
+ * The earlier review item is withdrawn after the merged Draft is committed.
+ * Nothing is merged across conversations, accounts, clients or vessel families.
+ */
+async function findMergeableIncompleteOrder(
+  accountId: string,
+  chatJid: string,
+  messageId: string,
+  fields: {motherVessel: string | null; lighterVessel: string | null; masterMobile: string | null;
+    destination: string | null; assignmentDate: string | null; shift: string | null},
+): Promise<{reviewId: string; priorMessageId: string | null; fields: typeof fields} | null> {
+  const items = await rows<{id: string; target_ref: string | null; payload: Record<string, unknown>}>(
+    `SELECT id, target_ref, payload
+       FROM review_items
+      WHERE domain = 'PROGRAM'
+        AND state = 'PENDING'
+        AND category = 'INCOMPLETE_VESSEL_ORDER'
+        AND coalesce(target_ref, '') <> $3
+        AND payload->>'sourceChatJid' = $2
+        AND payload->>'sourceAccountId' = $1
+        AND created_at > now() - interval '30 minutes'
+      ORDER BY created_at DESC
+      LIMIT 20`,
+    [accountId, chatJid, messageId],
+  );
+  for (const item of items) {
+    const prior = (item.payload.fields ?? {}) as Record<string, unknown>;
+    const priorFields = {
+      motherVessel: typeof prior.motherVessel === 'string' ? prior.motherVessel : null,
+      lighterVessel: typeof prior.lighterVessel === 'string' ? prior.lighterVessel : null,
+      masterMobile: typeof prior.masterMobile === 'string' ? prior.masterMobile : null,
+      destination: typeof prior.destination === 'string' ? prior.destination : null,
+      assignmentDate: typeof prior.assignmentDate === 'string' ? prior.assignmentDate : null,
+      shift: typeof prior.shift === 'string' ? prior.shift : null,
+    };
+    const sameLighter = Boolean(fields.lighterVessel && priorFields.lighterVessel
+      && vesselKey(fields.lighterVessel) === vesselKey(priorFields.lighterVessel));
+    const sameMother = Boolean(fields.motherVessel && priorFields.motherVessel
+      && vesselKey(fields.motherVessel) === vesselKey(priorFields.motherVessel));
+    // A Lighter is the strongest anchor: when both fragments name one they must
+    // be the same Lighter. The Mother is only an anchor when one side omits the
+    // Lighter entirely (e.g. a Mother+Masters fragment).
+    if (fields.lighterVessel && priorFields.lighterVessel) {
+      if (!sameLighter) continue;
+    } else if (!sameMother) {
+      continue;
+    }
+    const merged = {...fields};
+    let conflict = false;
+    for (const key of ['motherVessel', 'lighterVessel', 'masterMobile', 'destination', 'assignmentDate', 'shift'] as const) {
+      const current = merged[key];
+      const incoming = priorFields[key];
+      if (current && incoming && current !== incoming) {
+        if (key === 'shift' || key === 'masterMobile' || key === 'motherVessel' || key === 'lighterVessel') conflict = true;
+        continue;
+      }
+      if (!current && incoming) merged[key] = incoming;
+    }
+    if (conflict) continue;
+    return {reviewId: item.id, priorMessageId: item.target_ref, fields: merged};
+  }
+  return null;
 }
 
 /**
@@ -727,33 +924,41 @@ async function handleReleaseSlip(
  * Supports multiple lighter vessels per message and multi-message correlation.
  * Reuses createProgram() (verified business rule: DRAFT state only).
  * Duplicates and missing fields go to Review Queue (PROGRAM domain).
- * WA-01 only; WA-02 rejected. Group participants must be authorized.
+ *
+ * Source enforcement (added 2026-11-08):
+ *   - ORDER_INTAKE: verified DIRECT Escort Client conversation only; incoming.
+ *   - RELEASE_ONLY: the approved release group only; release processing only.
+ *   - SUPPORT_ONLY / OTHER_APPROVED / REVIEW_REQUIRED / CASH_ONLY: never an
+ *     order or release source. Order-shaped text is context, not a Draft.
  */
 async function handleVessel(
   actor: Actor,
   message: MessageToProcess,
   text: string,
-): Promise<{created: boolean; reviewSubmitted: boolean; reasons: string[]; programsCreated?: number; releases?: number}> {
+  sourceRole: SourceRole | null,
+): Promise<{created: boolean; reviewSubmitted: boolean; reasons: string[]; programsCreated?: number; releases?: number; idempotent?: number; blocked?: boolean}> {
   // Vessel authorization: WA-01 only
   const vesselAuth = await isVesselAuthorized(message.account_id);
   if (!vesselAuth.authorized) {
     return {created: false, reviewSubmitted: false, reasons: [vesselAuth.reason as string]};
   }
 
-  // Group participant authorization for group chats
-  const groupAuth = await isGroupParticipantAuthorized(
-    message.account_id,
-    message.chat_jid,
-    message.sender_jid,
-  );
-  if (!groupAuth.authorized) {
-    return {created: false, reviewSubmitted: false, reasons: [groupAuth.reason as string]};
-  }
-
   const {parseReleaseSlips, parseUnstructuredRelease} = await import('./release-slip.ts');
-  const releaseBlocks = parseReleaseSlips(text);
-  const releaseGroup = await isReleaseGroup(message.account_id, message.chat_jid);
-  if (releaseGroup) {
+
+  // ── Release Information Group: release-only processing ────────────────────
+  if (sourceRole === 'RELEASE_ONLY') {
+    if (message.direction !== 'INCOMING') {
+      return {created: false, reviewSubmitted: false, reasons: ['RELEASE_GROUP_OUTGOING_CONTEXT'], blocked: true};
+    }
+    const groupAuth = await isGroupParticipantAuthorized(
+      message.account_id,
+      message.chat_jid,
+      message.sender_jid,
+    );
+    if (!groupAuth.authorized) {
+      return {created: false, reviewSubmitted: false, reasons: [groupAuth.reason as string], blocked: true};
+    }
+    const releaseBlocks = parseReleaseSlips(text);
     if (!releaseBlocks.length) {
       // Unstructured release-group traffic (cancellation, replacement, food
       // bill, empty message) is evidence, not an instruction. Extract fields,
@@ -795,12 +1000,48 @@ async function handleVessel(
         reasons: [releaseCategory],
         programsCreated: 0,
         releases: 0,
+        blocked: true,
       };
     }
     return handleReleaseSlip(actor, message, text, releaseBlocks);
   }
-  if (releaseBlocks.length) {
-    return handleReleaseSlip(actor, message, text, releaseBlocks);
+
+  // A release slip arriving anywhere other than the Release Information Group
+  // is never applied. This prevents an order/support conversation from
+  // releasing an unrelated program.
+  if (parseReleaseSlips(text).length) {
+    return {created: false, reviewSubmitted: false, reasons: ['RELEASE_SOURCE_NOT_AUTHORIZED'], blocked: true};
+  }
+
+  // ── Non-order sources ─────────────────────────────────────────────────────
+  if (sourceRole === 'SUPPORT_ONLY') {
+    return {created: false, reviewSubmitted: false, reasons: ['SUPPORT_GROUP_ORDER_BLOCKED'], blocked: true};
+  }
+  if (sourceRole === 'OTHER_APPROVED') {
+    return {created: false, reviewSubmitted: false, reasons: ['OTHER_APPROVED_GROUP_CONTEXT_ONLY'], blocked: true};
+  }
+  if (sourceRole === 'REVIEW_REQUIRED' || sourceRole === null) {
+    return {created: false, reviewSubmitted: false, reasons: ['SOURCE_ROLE_REVIEW_REQUIRED'], blocked: true};
+  }
+  if (sourceRole !== 'ORDER_INTAKE') {
+    return {created: false, reviewSubmitted: false, reasons: ['CHAT_NOT_ORDER_INTAKE'], blocked: true};
+  }
+  if (message.chat_jid.endsWith('@g.us')) {
+    return {created: false, reviewSubmitted: false, reasons: ['GROUP_ORDER_INTAKE_BLOCKED'], blocked: true};
+  }
+  if (message.direction !== 'INCOMING') {
+    return {created: false, reviewSubmitted: false, reasons: ['ORDER_REQUIRES_INCOMING'], blocked: true};
+  }
+
+  // Verified Escort Client identity: registry when configured, otherwise the
+  // EXACT canonical PN link in identity_aliases. Display names never authorize.
+  const clientAuth = await isAuthorizedEscortClientConversation(
+    message.account_id,
+    message.chat_jid,
+    message.sender_jid,
+  );
+  if (!clientAuth.authorized) {
+    return {created: false, reviewSubmitted: false, reasons: [clientAuth.reason ?? 'ESCORT_CLIENT_NOT_AUTHORIZED'], blocked: true};
   }
 
   const {parseEscortOrder} = await import('./escort-intake-candidate.mjs');
@@ -855,12 +1096,39 @@ async function handleVessel(
     const lighterVesselRaw = fields.lighterVessel ?? null;
     const masterMobileRaw = (block.masterMobile as string | undefined) ?? fields.masterMobile ?? null;
 
+    // Bounded multi-message merge inside this same verified client conversation.
+    let effectiveMother = motherVesselRaw;
+    let effectiveLighter = lighterVesselRaw;
+    let effectiveMaster = masterMobileRaw;
+    let mergedReviewId: string | null = null;
+    let mergedPriorMessageId: string | null = null;
+    if (!effectiveMother || !effectiveLighter || !effectiveMaster) {
+      const merge = await findMergeableIncompleteOrder(message.account_id, message.chat_jid, message.message_id, {
+        motherVessel: motherVesselRaw,
+        lighterVessel: lighterVesselRaw,
+        masterMobile: masterMobileRaw,
+        destination: fields.destination ?? null,
+        assignmentDate: fields.assignmentDate ?? null,
+        shift: fields.shift ?? null,
+      });
+      if (merge) {
+        effectiveMother = merge.fields.motherVessel;
+        effectiveLighter = merge.fields.lighterVessel;
+        effectiveMaster = merge.fields.masterMobile;
+        if (!fields.destination && merge.fields.destination) fields.destination = merge.fields.destination;
+        if (!fields.assignmentDate && merge.fields.assignmentDate) fields.assignmentDate = merge.fields.assignmentDate;
+        if (!fields.shift && merge.fields.shift) fields.shift = merge.fields.shift;
+        mergedReviewId = merge.reviewId;
+        mergedPriorMessageId = merge.priorMessageId;
+      }
+    }
+
     // Minimum order requirements: Mother Vessel + Lighter Vessel + Master Mobile
-    if (!motherVesselRaw || !lighterVesselRaw || !masterMobileRaw) {
+    if (!effectiveMother || !effectiveLighter || !effectiveMaster) {
       const missing: string[] = [];
-      if (!motherVesselRaw) missing.push('MISSING_MOTHER_VESSEL');
-      if (!lighterVesselRaw) missing.push('MISSING_LIGHTER_VESSEL');
-      if (!masterMobileRaw) missing.push('MISSING_MASTER_MOBILE');
+      if (!effectiveMother) missing.push('MISSING_MOTHER_VESSEL');
+      if (!effectiveLighter) missing.push('MISSING_LIGHTER_VESSEL');
+      if (!effectiveMaster) missing.push('MISSING_MASTER_MOBILE');
       // Submit to Review Queue with what we have — do not discard
       const missingSubmitted = await submitReviewItem(actor, 'PROGRAM', 'CREATE', message.message_id,
         'INCOMPLETE_VESSEL_ORDER', {
@@ -870,7 +1138,7 @@ async function handleVessel(
           sourceTimestamp: message.source_timestamp,
           senderJid: message.sender_jid,
           rawText: text,
-          fields: {motherVessel: motherVesselRaw, lighterVessel: lighterVesselRaw, masterMobile: masterMobileRaw,
+          fields: {motherVessel: effectiveMother, lighterVessel: effectiveLighter, masterMobile: effectiveMaster,
             destination: fields.destination ?? null,
             assignmentDate: fields.assignmentDate ?? null,
             shift: fields.shift ?? null},
@@ -884,9 +1152,35 @@ async function handleVessel(
     }
 
     // At this point all three are non-null strings
-    const motherVessel = motherVesselRaw;
-    const lighterVessel = lighterVesselRaw;
-    const masterMobile = masterMobileRaw;
+    const motherVessel = effectiveMother;
+    const lighterVessel = effectiveLighter;
+    const masterMobile = effectiveMaster;
+
+    // A client may not assign the Escort. Assignment belongs to the verified
+    // Admin confirmation. An incoming client message that carries Escort
+    // Name/Mobile is preserved for review, never turned into a Draft.
+    if (fields.escortName || fields.escortMobile || fields.employeeMobile) {
+      const submitted = await submitReviewItem(actor, 'PROGRAM', 'CREATE', message.message_id,
+        'INCOMPLETE_VESSEL_ORDER', {
+          sourceMessageId: message.message_id,
+          sourceChatJid: message.chat_jid,
+          sourceAccountId: message.account_id,
+          sourceTimestamp: message.source_timestamp,
+          senderJid: message.sender_jid,
+          rawText: text,
+          fields: {motherVessel, lighterVessel, masterMobile,
+            destination: fields.destination ?? null,
+            escortName: fields.escortName ?? null,
+            escortMobile: fields.escortMobile ?? null},
+          missingFields: ['ADMIN_ASSIGNMENT_REQUIRED'],
+          reasons: ['CLIENT_ASSIGNMENT_FIELDS_REQUIRE_ADMIN'],
+          parser: 'parseEscortOrder',
+          parserVersion: 'escort-intake-candidate-v2',
+        });
+      if (submitted.submitted) reviewSubmitted = true;
+      allReasons.push('CLIENT_ASSIGNMENT_FIELDS_REQUIRE_ADMIN');
+      continue;
+    }
 
     // Check for multi-message correlation: if this message has a mother vessel
     // that matches a recently created program in the same chat, correlate
@@ -949,6 +1243,9 @@ async function handleVessel(
     }
 
     try {
+      const noteParts: string[] = [];
+      if (!block.assignmentDate) noteParts.push('START_DATE_DERIVED_FROM_MESSAGE_TIMESTAMP');
+      if (mergedPriorMessageId) noteParts.push(`MERGED_ORDER_FRAGMENT:${mergedPriorMessageId}`);
       const result = await createProgram(actor, {
         motherVessel,
         lighterVessel,
@@ -956,7 +1253,7 @@ async function handleVessel(
         destination: fields.destination ?? null,
         startDate,
         startShift: (block.shift as 'D' | 'N' | null) ?? derived?.shift ?? 'D',
-        notes: block.assignmentDate ? null : 'START_DATE_DERIVED_FROM_MESSAGE_TIMESTAMP',
+        notes: noteParts.length ? noteParts.join('; ') : null,
       }, {channel: 'WHATSAPP', messageId: message.message_id, chatJid: message.chat_jid});
 
       const programId = result.program.id;
@@ -969,6 +1266,33 @@ async function handleVessel(
         message.message_id,
         'primary',
       );
+
+      // The merged fragment is now part of this Draft. Withdraw its separate
+      // review item and keep the message as contributing provenance.
+      if (mergedReviewId) {
+        await row(
+          `UPDATE review_items SET state = 'WITHDRAWN', decided_at = now()
+            WHERE id = $1 AND state = 'PENDING'`,
+          [mergedReviewId],
+        );
+        if (mergedPriorMessageId) {
+          await recordProgramSource(
+            programId,
+            message.account_id,
+            message.chat_jid,
+            mergedPriorMessageId,
+            'contributor',
+          );
+        }
+        await recordAudit({
+          actor,
+          action: 'VESSEL_ORDER_FRAGMENTS_MERGED',
+          entity: 'program',
+          entityId: programId,
+          detail: {messageId: message.message_id, mergedMessageId: mergedPriorMessageId, reviewItemId: mergedReviewId},
+          source: 'SYSTEM',
+        });
+      }
 
       // If this was correlated with an existing program, also link as contributor
       if (correlatedProgramId && correlatedProgramId !== programId) {
@@ -1004,11 +1328,21 @@ async function handleConfirmation(
   message: MessageToProcess,
   text: string,
   accountAdminJids: string[],
+  sourceRole: SourceRole | null,
 ): Promise<{confirmed: boolean; classification: string}> {
   // Vessel authorization: WA-01 only
   const vesselAuth = await isVesselAuthorized(message.account_id);
   if (!vesselAuth.authorized) {
     return {confirmed: false, classification: vesselAuth.reason as string};
+  }
+
+  // The confirmation must be an Admin OUTGOING reply in the SAME original
+  // direct Order conversation. Groups are never a confirmation receiver.
+  if (sourceRole !== 'ORDER_INTAKE' || message.chat_jid.endsWith('@g.us')) {
+    return {confirmed: false, classification: 'CONFIRMATION_CHAT_NOT_ORDER_INTAKE'};
+  }
+  if (message.direction !== 'OUTGOING') {
+    return {confirmed: false, classification: 'CONFIRMATION_REQUIRES_OUTGOING'};
   }
 
   const isAdmin = accountAdminJids.some((jid) => jidsMatch(jid, message.sender_jid));
@@ -1020,10 +1354,18 @@ async function handleConfirmation(
   const classification = await applyConfirmation(actor, {
     message_id: message.message_id,
     chat_jid: message.chat_jid,
+    account_id: message.account_id,
+    sender_jid: message.sender_jid,
+    source_timestamp: message.source_timestamp,
   }, text);
 
-  // Ambiguous confirmations go to Review Queue instead of silently failing
-  if (classification === 'CONFIRMATION_AMBIGUOUS') {
+  // Ambiguous, unmatched, weak or already-confirmed evidence never silently
+  // confirms. It is preserved for a human reviewer.
+  if (
+    classification === 'CONFIRMATION_AMBIGUOUS' ||
+    classification === 'CONFIRMATION_ALREADY_CONFIRMED' ||
+    classification === 'CONFIRMATION_WEAK_EVIDENCE'
+  ) {
     await submitReviewItem(actor, 'PROGRAM', 'CREATE', message.message_id,
       'AMBIGUOUS_VESSEL_CONFIRMATION', {
         sourceMessageId: message.message_id,
@@ -1111,8 +1453,8 @@ export async function routePendingMessages(
       const chatAuth = await isChatAuthorized(
         message.account_id,
         message.chat_jid,
-        message.direction as 'INCOMING' | 'OUTGOING',
       );
+      const sourceRole = chatAuth.sourceRole;
 
       if (!chatAuth.authorized) {
         classification = 'UNAUTHORIZED_CHAT';
@@ -1121,15 +1463,54 @@ export async function routePendingMessages(
       } else {
         const cls = classifyDomain(text, chatAuth.purpose);
         domain = cls.domain;
-        // The approved release group is a release channel, not an order
-        // channel. Route every incoming message there through release handling
-        // so unstructured chatter can never become a vessel order.
-        if (await isReleaseGroup(message.account_id, message.chat_jid)) {
-          domain = 'VESSEL';
-        }
 
-        // Cash: only WA-01 Admin OUTGOING messages in Accountant conversation
-        if (domain === 'CASH' && message.direction === 'OUTGOING') {
+        // WA-02 is identity-only. Vessel-domain text is rejected before any
+        // source-role branch so an unconfigured WA-02 group cannot hide the
+        // account rejection behind a source-role gap.
+        if (message.account_id !== 'wa-01' && domain === 'VESSEL') {
+          classification = 'VESSEL_WA02_NOT_AUTHORIZED';
+          action = 'ignored';
+          result.ignored += 1;
+        } else if (sourceRole === 'SUPPORT_ONLY') {
+          // Escort Support / operational group: order-shaped text is context,
+          // never a Draft. Other approved group: context only. Unresolved
+          // source: block state-changing work and expose the gap.
+          classification = 'SUPPORT_GROUP_NO_ORDER_DRAFT';
+          action = 'support_group_context';
+          result.ignored += 1;
+        } else if (sourceRole === 'OTHER_APPROVED') {
+          classification = 'OTHER_APPROVED_GROUP_CONTEXT_ONLY';
+          action = 'other_group_context';
+          result.ignored += 1;
+        } else if (sourceRole === 'REVIEW_REQUIRED' || sourceRole === null) {
+          classification = 'SOURCE_ROLE_REVIEW_REQUIRED';
+          action = 'source_role_unresolved';
+          result.ignored += 1;
+        } else if (sourceRole === 'RELEASE_ONLY') {
+          if (message.direction !== 'INCOMING') {
+            classification = 'RELEASE_GROUP_OUTGOING_CONTEXT';
+            action = 'ignored';
+            result.ignored += 1;
+          } else if (process.env.ALRIFAI_VESSEL_PROCESSING_ENABLED === '0') {
+            classification = 'VESSEL:PROCESSING_DISABLED';
+            action = 'deferred';
+            deferred = true;
+          } else {
+            const vesselResult = await handleVessel(SYSTEM_ACTOR, message, text, sourceRole);
+            result.releases += vesselResult.releases ?? 0;
+            result.reviewItems += vesselResult.reviewSubmitted ? 1 : 0;
+            classification = vesselResult.releases
+              ? 'VESSEL:RELEASE_APPLIED'
+              : vesselResult.idempotent
+                ? 'VESSEL:RELEASE_ALREADY_APPLIED'
+                : vesselResult.reviewSubmitted
+                  ? `VESSEL:RELEASE_REVIEW_SUBMITTED:${vesselResult.reasons.join(',')}`
+                  : `VESSEL:${vesselResult.reasons[0] ?? 'RELEASE_NO_OP'}`;
+            action = vesselResult.releases ? 'program_released'
+              : vesselResult.idempotent ? 'release_idempotent_skip'
+                : vesselResult.reviewSubmitted ? 'release_review_submitted' : 'release_no_op';
+          }
+        } else if (domain === 'CASH' && message.direction === 'OUTGOING') {
           const isAdmin = adminJids.some((jid) => jidsMatch(jid, message.sender_jid));
           const isWa01 = message.account_id === 'wa-01';
           if (!isAdmin) {
@@ -1164,7 +1545,7 @@ export async function routePendingMessages(
           classification = 'CASH:INCOMING_NOT_PROCESSED';
           action = 'ignored';
           result.ignored += 1;
-        } else if (domain === 'VESSEL' && message.direction === 'INCOMING') {
+        } else if (sourceRole === 'ORDER_INTAKE' && message.direction === 'INCOMING') {
           // Deployment-level safety switch. The Live Router activation gate is
           // still required; this flag lets an installation enable Cash routing
           // while Vessel intake is not yet approved. An unset value is treated
@@ -1177,37 +1558,29 @@ export async function routePendingMessages(
             action = 'deferred';
             deferred = true;
           } else {
-            const vesselResult = await handleVessel(SYSTEM_ACTOR, message, text);
+            const vesselResult = await handleVessel(SYSTEM_ACTOR, message, text, sourceRole);
             result.programs += vesselResult.programsCreated ?? (vesselResult.created ? 1 : 0);
             result.releases += vesselResult.releases ?? 0;
             result.reviewItems += vesselResult.reviewSubmitted ? 1 : 0;
-            // Preserve the specific rejection reasons (WA-02 account and
-            // unauthorized group participant); every other no-op vessel outcome
-            // keeps the existing NO_VALID_BLOCK fallback.
-            const vesselRejection = vesselResult.reasons.find(
-              (reason) =>
-                reason === 'VESSEL_WA02_NOT_AUTHORIZED' ||
-                reason === 'GROUP_PARTICIPANT_NOT_AUTHORIZED',
-            );
             classification = vesselResult.created
               ? `VESSEL:PROGRAM_DRAFT`
               : vesselResult.reviewSubmitted
                 ? `VESSEL:REVIEW_SUBMITTED:${vesselResult.reasons.join(',')}`
-                : (vesselRejection ?? 'VESSEL:NO_VALID_BLOCK');
+                : (vesselResult.reasons[0] ?? 'VESSEL:NO_VALID_BLOCK');
             action = vesselResult.created ? 'program_draft_created'
               : vesselResult.reviewSubmitted ? 'vessel_review_submitted' : 'vessel_no_valid_block';
           }
-        } else if (
-          message.direction === 'OUTGOING' &&
-          (chatAuth.purpose === 'ORDERS' || chatAuth.purpose === 'BOTH')
-        ) {
-          const confResult = await handleConfirmation(SYSTEM_ACTOR, message, text, adminJids);
+        } else if (sourceRole === 'ORDER_INTAKE' && message.direction === 'OUTGOING') {
+          const confResult = await handleConfirmation(SYSTEM_ACTOR, message, text, adminJids, sourceRole);
           result.confirmations += confResult.confirmed ? 1 : 0;
-          result.reviewItems += confResult.classification === 'CONFIRMATION_AMBIGUOUS' || confResult.classification === 'CONFIRMATION_UNMATCHED' ? 1 : 0;
+          result.reviewItems += confResult.classification === 'CONFIRMATION_AMBIGUOUS'
+            || confResult.classification === 'CONFIRMATION_UNMATCHED'
+            || confResult.classification === 'CONFIRMATION_ALREADY_CONFIRMED'
+            || confResult.classification === 'CONFIRMATION_WEAK_EVIDENCE' ? 1 : 0;
           classification = confResult.classification;
           action = confResult.confirmed ? 'confirmation_matched' : 'outgoing_no_confirmation';
         } else {
-          classification = 'IGNORED';
+          classification = domain === 'VESSEL' ? 'VESSEL:CHAT_NOT_ORDER_INTAKE' : 'IGNORED';
           action = 'ignored';
           result.ignored += 1;
         }

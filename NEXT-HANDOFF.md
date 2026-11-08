@@ -9,11 +9,43 @@ BLOCKED, not complete.** A README or source change does not complete it.
 `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`, `docs/MAIN_RECONCILIATION_PLAN.md`,
 `docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`,
 `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`, `docs/BUSINESS_WORKFLOW_BACKLOG.md`,
-`docs/PHASE3_GO_NO_GO_7da17f1.md`, `docs/WHATSAPP_MESSAGE_MIRROR.md`, `docs/WHATSAPP_MESSAGE_INTELLIGENCE.md`.
+`docs/PHASE3_GO_NO_GO_7da17f1.md`, `docs/WHATSAPP_MESSAGE_MIRROR.md`, `docs/WHATSAPP_MESSAGE_INTELLIGENCE.md`, `docs/ESCORT_ORDER_RELEASE_WORKFLOW.md`.
 
 **Report language:** English only. Always state whether a finding is
 **implemented**, **clone-tested**, **production-deployed**, **live-verified**,
 **OWNER-CONFIRMED** or **BLOCKED**.
+
+---
+
+## 2026-11-08 — Escort order → confirmation → register → release workflow
+
+**Branch:** `feature/phase3-010-011-activation`
+**Status:** implemented, clone-tested and runtime-verified on a disposable
+database; **production migration 013 and deployment pending Owner approval.**
+
+- Added explicit conversation source roles (`whatsapp_chats.source_role`):
+  direct verified Escort Client chats are `ORDER_INTAKE`; the Accountant chat is
+  `CASH_ONLY`; the approved Support group is `SUPPORT_ONLY`; the Release
+  Information group is `RELEASE_ONLY`; the remaining approved vessel group is
+  `OTHER_APPROVED`; unclassified groups are `REVIEW_REQUIRED`.
+- Order Drafts now require WA-01 + DIRECT + ORDER_INTAKE + INCOMING + an EXACT
+  canonical PN identity match. Groups never create Drafts; Cash/WA-02 never
+  enter the vessel workflow.
+- Admin confirmation is restricted to a verified Admin OUTGOING reply in the same
+  original client chat, matched through `lib/vessel-match.ts`, and persists
+  confirmation message/chat/sender/account/timestamp.
+- Release is restricted to the approved Release Information group; it updates
+  the exact existing program with `end_date`, `end_shift` and release
+  provenance, preserves start date/shift, and is idempotent.
+- Migration `013_escort_workflow_authorization.sql` (additive, schema 1.8.0).
+- Tests: `pnpm test:standalone` **231/231** (40 new workflow tests), unit
+  **149/149**, typecheck clean, lint 0 errors. Fresh install and 1.7.0 → 1.8.0
+  upgrade verified on the disposable database.
+- Runtime: order → DRAFT, Admin reply → CONFIRMED, Release group → RELEASED with
+  End Date/Release Shift while Start Date/Shift were preserved; `/vessel`,
+  `/vessel/{id}`, `/messages` and `/api/programs` returned HTTP 200.
+- No production migration, deployment, restart, WhatsApp send or Cash/Ledger
+  write. No Git push.
 
 ---
 

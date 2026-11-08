@@ -26,25 +26,30 @@ async function withOwner(fn) {
   }
 }
 
-test('010, 011 and 012 are installed in order with the exact file checksums', async () => {
+test('010, 011, 012 and 013 are installed in order with the exact file checksums', async () => {
   const installed = await withOwner(async (owner) =>
     (await owner.query('SELECT version, name, checksum FROM schema_migrations ORDER BY version')).rows);
   const byVersion = new Map(installed.map((entry) => [entry.version, entry]));
   const ten = byVersion.get('010');
   const eleven = byVersion.get('011');
   const twelve = byVersion.get('012');
+  const thirteen = byVersion.get('013');
   assert.ok(ten, 'migration 010 is recorded');
   assert.ok(eleven, 'migration 011 is recorded');
   assert.ok(twelve, 'migration 012 is recorded');
+  assert.ok(thirteen, 'migration 013 is recorded');
   assert.equal(ten.name, '010_vessel_draft_delivery.sql');
   assert.equal(eleven.name, '011_cash_payment_events.sql');
   assert.equal(ten.checksum, sha256(sqlFile('010_vessel_draft_delivery.sql')));
   assert.equal(eleven.checksum, sha256(sqlFile('011_cash_payment_events.sql')));
   assert.equal(twelve.name, '012_whatsapp_message_intelligence.sql');
   assert.equal(twelve.checksum, sha256(sqlFile('012_whatsapp_message_intelligence.sql')));
+  assert.equal(thirteen.name, '013_escort_workflow_authorization.sql');
+  assert.equal(thirteen.checksum, sha256(sqlFile('013_escort_workflow_authorization.sql')));
   const order = installed.map((entry) => entry.version);
   assert.ok(order.indexOf('010') < order.indexOf('011'), '010 must be applied before 011');
   assert.ok(order.indexOf('011') < order.indexOf('012'), '011 must be applied before 012');
+  assert.ok(order.indexOf('012') < order.indexOf('013'), '012 must be applied before 013');
 });
 
 
@@ -72,6 +77,33 @@ test('012 message-intelligence tables, view, call trace and mirrored time exist'
     'identity_role', 'business_domain', 'media_status', 'call_trace_id', 'review_status', 'mirrored_at']) {
     assert.ok(viewColumns.includes(required), `view.${required} exists`);
   }
+});
+
+test('013 conversation roles and confirmation/release provenance exist', async () => {
+  const chatColumns = (await rows(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='whatsapp_chats'`,
+  )).map((entry) => entry.column_name);
+  assert.ok(chatColumns.includes('source_role'), 'whatsapp_chats.source_role exists');
+  const programColumns = (await rows(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='programs'`,
+  )).map((entry) => entry.column_name);
+  for (const required of [
+    'confirmation_chat_jid', 'confirmation_sender_jid', 'confirmation_account_id', 'confirmation_timestamp',
+    'release_message_id', 'release_chat_jid', 'release_sender_jid', 'release_account_id', 'release_timestamp',
+  ]) {
+    assert.ok(programColumns.includes(required), `programs.${required} exists`);
+  }
+  const constraint = await row(
+    `SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
+      WHERE conrelid='whatsapp_chats'::regclass AND conname='whatsapp_chats_source_role_check'`,
+  );
+  assert.ok(constraint?.definition?.includes('ORDER_INTAKE'));
+  // A group role is never inferred from a display name by this migration.
+  const sql = sqlFile('013_escort_workflow_authorization.sql').toString('utf8');
+  assert.ok(!/label\s*~\*/i.test(sql), '013 must not map a group role from its label');
+  assert.ok(!/regexp.*label/i.test(sql), '013 must not map a group role from its label');
 });
 
 test('010 vessel draft delivery schema is additive and intact', async () => {
@@ -172,7 +204,8 @@ test('duplicate WhatsApp source and invalid event values are rejected', async ()
   );
 });
 
-test('011 and 010 re-apply safely in the same database', async () => {
+test('013, 012, 011 and 010 re-apply safely in the same database', async () => {
+  const thirteen = sqlFile('013_escort_workflow_authorization.sql').toString('utf8');
   const twelve = sqlFile('012_whatsapp_message_intelligence.sql').toString('utf8');
   const eleven = sqlFile('011_cash_payment_events.sql').toString('utf8');
   const ten = sqlFile('010_vessel_draft_delivery.sql').toString('utf8');
@@ -182,23 +215,25 @@ test('011 and 010 re-apply safely in the same database', async () => {
       await owner.query(ten);
       await owner.query(eleven);
       await owner.query(twelve);
+      await owner.query(thirteen);
       await owner.query('COMMIT');
     } catch (error) {
       await owner.query('ROLLBACK');
       throw error;
     }
   });
-  // A second independent re-application of 011.
+  // A second independent re-application of 011/012/013.
   await withOwner(async (owner) => {
     await owner.query('BEGIN');
     try {
       await owner.query(eleven);
       await owner.query(twelve);
+      await owner.query(thirteen);
       await owner.query('COMMIT');
     } catch (error) {
       await owner.query('ROLLBACK');
       throw error;
     }
   });
-  assert.equal((await row("SELECT value FROM schema_meta WHERE key='schema_version'")).value, '1.7.0');
+  assert.equal((await row("SELECT value FROM schema_meta WHERE key='schema_version'")).value, '1.8.0');
 });

@@ -151,6 +151,36 @@ in `docs/` and the Phase 3 reports.
   Vessel state.
 - Migration 012 is additive and must be applied before deploying this code.
 
+## Escort order / confirmation / release workflow
+
+- An Order Draft requires **both** source authority and identity: WA-01, a DIRECT
+  conversation with `whatsapp_chats.source_role = ORDER_INTAKE`, an INCOMING
+  message, and a sender/conversation that resolves to the same EXACT canonical
+  PN in `identity_aliases` (or an active `ESCORT_CLIENT` registry entry). A
+  display name never authorizes intake.
+- Groups are never an Order Intake source. The approved Support group is
+  support-only, the approved Release group is release-only, and the remaining
+  approved vessel group is context-only. Group roles come from an explicit
+  `source_role` or the approved group-JID map — never from a display name or a
+  message keyword. An unclassified group is `REVIEW_REQUIRED` and blocked.
+- Mandatory order fields: Mother Vessel, Lighter Vessel, Master Mobile. One
+  Lighter → one Draft. Missing fields go to review; nothing is fabricated.
+  Client-supplied Escort assignment fields are reviewed, never drafted.
+- The Admin confirmation is a verified Admin OUTGOING WA-01 reply in the SAME
+  original direct client chat, linked to exactly one Draft by conversation,
+  normalized vessel names, Master Mobile, shift and chronology. Persist
+  `confirmation_message_id`, `confirmation_chat_jid`, `confirmation_sender_jid`,
+  `confirmation_account_id` and `confirmation_timestamp`. Never confirm from a
+  group, a different client, WA-02, an incoming message or an unverified sender.
+- Release processing is limited to the approved Release Information group and an
+  authorized participant. It updates the exact existing program; it never
+  creates one. Persist `end_date`, `end_shift` and the `release_*` provenance.
+  Never overwrite `start_date` or `start_shift`.
+- Release and confirmation are idempotent. Ambiguous, conflicting or
+  already-completed cases go to the Review Queue; prior values are preserved.
+- Migration 013 is additive (schema 1.8.0) and must follow 012.
+- Full data contract: `docs/ESCORT_ORDER_RELEASE_WORKFLOW.md`.
+
 ## Verification commands (isolated test DB only)
 
 ```bash

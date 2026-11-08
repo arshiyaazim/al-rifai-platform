@@ -65,6 +65,13 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
               <tr><th>Pay</th><td>{money(payable?.total_minor ?? null)} {payable?.state === 'UNRESOLVED' ? '(unresolved)' : ''}</td></tr>
               <tr><th>Source</th><td>{program.source_channel}{program.source_message_id ? ` · ${program.source_message_id}` : ''}</td></tr>
               <tr><th>Confirmation</th><td>{program.confirmation_message_id ?? '—'}</td></tr>
+              <tr><th>Confirmation chat</th><td>{program.confirmation_chat_jid ?? '—'}</td></tr>
+              <tr><th>Confirmation sender</th><td>{program.confirmation_sender_jid ?? '—'}</td></tr>
+              <tr><th>Confirmation time</th><td>{program.confirmation_timestamp ? when(program.confirmation_timestamp) : '—'}</td></tr>
+              <tr><th>Release message</th><td>{program.release_message_id ?? '—'}</td></tr>
+              <tr><th>Release chat</th><td>{program.release_chat_jid ?? '—'}</td></tr>
+              <tr><th>Release sender</th><td>{program.release_sender_jid ?? '—'}</td></tr>
+              <tr><th>Release time</th><td>{program.release_timestamp ? when(program.release_timestamp) : '—'}</td></tr>
               <tr><th>Notes</th><td>{program.notes ?? '—'}</td></tr>
             </tbody>
           </table>
