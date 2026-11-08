@@ -44,15 +44,15 @@ export async function grantRuntime(client, {schema, runtimeUser}) {
   if (!IDENT.test(schema)) throw new Error('INVALID_SCHEMA');
   if (!IDENT.test(runtimeUser)) throw new Error('INVALID_RUNTIME_ROLE');
   await client.query(`GRANT USAGE ON SCHEMA "${schema}" TO "${runtimeUser}"`);
-  for (const table of READ_WRITE) {
-    await client.query(`GRANT SELECT, INSERT, UPDATE ON "${schema}"."${table}" TO "${runtimeUser}"`);
-  }
-  for (const table of APPEND_ONLY) {
-    await client.query(`GRANT SELECT, INSERT ON "${schema}"."${table}" TO "${runtimeUser}"`);
-  }
-  for (const table of DELETE_ONLY) {
-    await client.query(`GRANT DELETE ON "${schema}"."${table}" TO "${runtimeUser}"`);
-  }
+  const grant = async (table, privileges) => {
+    const present = await client.query('SELECT to_regclass($1) IS NOT NULL AS present', [`${schema}.${table}`]);
+    if (present.rows[0]?.present === true) {
+      await client.query(`GRANT ${privileges} ON "${schema}"."${table}" TO "${runtimeUser}"`);
+    }
+  };
+  for (const table of READ_WRITE) await grant(table, 'SELECT, INSERT, UPDATE');
+  for (const table of APPEND_ONLY) await grant(table, 'SELECT, INSERT');
+  for (const table of DELETE_ONLY) await grant(table, 'DELETE');
   await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA "${schema}" TO "${runtimeUser}"`);
   await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".compute_program_pay(text) TO "${runtimeUser}"`);
   await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".normalize_mobile(text) TO "${runtimeUser}"`);

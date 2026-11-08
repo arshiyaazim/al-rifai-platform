@@ -14,6 +14,7 @@ import {
   runtimeDeliveryGate,
 } from '@/lib/standalone/vessel-draft-delivery-store';
 import {CONFIRMATION_RULE} from '@/lib/vessel-draft-delivery';
+import {vesselDraftWorkerStatus} from '@/lib/vessel-draft-delivery-worker';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,7 @@ export default async function VesselDraftsPage() {
   const deliveryStatus = await deliveryStatusForPrograms(
     programDrafts.map(({program}) => program.id),
   );
+  const workerStatus = vesselDraftWorkerStatus();
   const reviewDrafts = programReviews
     .map((item) => ({item, draft: ownerDraftFromReviewPayload(item.payload)}))
     .filter(({draft}) => !(draft.gaps.includes('MISSING_MOTHER_VESSEL')
@@ -113,6 +115,12 @@ export default async function VesselDraftsPage() {
                 <tr><th>Outbound gate</th><td>{gate.gate.enabled
                   ? <span className="pill ok">enabled</span>
                   : <span className="pill warn">disabled — {gate.gate.reasons.join(', ')}</span>}</td></tr>
+                <tr><th>Worker</th><td>{workerStatus.started
+                  ? <span className="pill ok">started · {workerStatus.intervalMs}ms</span>
+                  : <span className="pill warn">not started · {workerStatus.enabled ? 'gate/status check' : 'disabled'}</span>}</td></tr>
+                <tr><th>Last worker run</th><td>{workerStatus.lastResult
+                  ? `${workerStatus.lastResult.at} · claimed ${workerStatus.lastResult.claimed} · sent ${workerStatus.lastResult.sent} · failed ${workerStatus.lastResult.failed} · unknown ${workerStatus.lastResult.unknown}`
+                  : '—'}</td></tr>
                 <tr><th>Durable records</th><td>{deliveryStatus.length} for the programs above</td></tr>
                 <tr><th>Confirmation authority</th><td>{CONFIRMATION_RULE}</td></tr>
               </tbody>

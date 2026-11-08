@@ -133,10 +133,31 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
   return {program: inserted.rows[0], potentialDuplicates: duplicates};
 }
 
+/**
+ * Connect the optional draft-delivery queue after a committed DRAFT program.
+ * No recipient approval means no queue record. Queue failure never rolls back
+ * or hides the business program; it is logged for operator follow-up.
+ */
+async function enqueueDraftIfApproved(program: ProgramRow): Promise<void> {
+  if (program.state !== 'DRAFT') return;
+  try {
+    const {runtimeDeliveryConfig} = await import('./vessel-draft-delivery-store.ts');
+    const config = await runtimeDeliveryConfig();
+    if (!config.ownerApprovedRecipient) return;
+    const {enqueueDraftForProgram} = await import('./vessel-draft-delivery-store.ts');
+    await enqueueDraftForProgram(program, config);
+  } catch (error) {
+    const code = error instanceof Error ? error.message.slice(0, 120) : 'DRAFT_QUEUE_FAILED';
+    console.error(`Vessel draft queue hook failed (${code}).`);
+  }
+}
+
 export async function createProgram(actor: Actor, input: ProgramInput, source: ProgramSource = {}, client?: Pick<PoolClient, 'query'>) {
   assertCapability(actor, 'vessel.command');
   if (client) return createProgramOn(client, actor, input, source);
-  return tx((txClient) => createProgramOn(txClient, actor, input, source));
+  const result = await tx((txClient) => createProgramOn(txClient, actor, input, source));
+  await enqueueDraftIfApproved(result.program);
+  return result;
 }
 
 async function assignEscortOn(
