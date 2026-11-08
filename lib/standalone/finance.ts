@@ -279,6 +279,10 @@ export async function updateCashTransaction(
     if (current.state === 'POSTED' && input.amount !== undefined && input.amount !== null) {
       throw new DomainError('CASH_AMOUNT_LOCKED_AFTER_POSTING', 409);
     }
+    if (input.amount !== undefined && input.amount !== null) {
+      const paidEvent = await client.query('SELECT 1 FROM cash_payment_events WHERE instruction_id=$1 LIMIT 1', [id]);
+      if (paidEvent.rowCount) throw new DomainError('CASH_AMOUNT_LOCKED_AFTER_PAID_EVENT', 409);
+    }
     const before = {designation: null as string | null, amountMinor: current.amount_minor, notes: current.purpose};
     if (input.designation !== undefined && input.designation !== null) {
       if (!current.employee_mobile) throw new DomainError('EMPLOYEE_NOT_REGISTERED', 409);
