@@ -17,6 +17,77 @@ BLOCKED, not complete.** A README or source change does not complete it.
 
 ---
 
+## 2026-11-08 — Vessel Draft activation deployed; first send awaiting exact approval
+
+**Branch:** `feature/phase3-010-011-activation`
+**Source commit:** `44c6c9c`
+**Image:** `local/al-rifai-platform:phase3-ai-rc-vd-44c6c9c`
+**Image ID / digest:** `sha256:9d21e59dd834e01e5a36d1857a31a607c419e3c60bfc73c02b19f058f4be10e5`
+**Rollback image:** `local/al-rifai-platform:phase3-ai-rc-8a6c2c6`
+**Backup:** `/var/backups/al-rifai/vessel-activation-20261108T110032Z.dump`
+(SHA-256 `c093ec2d…aaee8`, 8.7 MB, 382 TOC entries)
+**App:** recreated only; healthy. Sync remains on `phase3-ai-rc-8a6c2c6`.
+**Schema:** unchanged `1.6.0`, 49 tables, migrations 002–011.
+
+### Recipient correction
+
+The previous Admin-participant fallback was removed. Delivery now targets the
+**same original authorised order-giving conversation**:
+
+- direct Escort Client chat → that exact direct JID/LID;
+- approved ORDERS group → that exact group JID;
+- source message must be unique; program source chat must match it exactly;
+- chat must be in `app_settings.phase3_business_chats:wa-01` and authorised
+  `ORDERS`/`BOTH`;
+- group sender must be an active approved participant; direct sender must match
+  the chat identity;
+- missing/ambiguous/mismatched evidence blocks and audits.
+
+The worker re-runs this resolution before every send.
+
+### WA-01 transport
+
+One new WA-01 consumer was added to the existing Bridge policy:
+
+| Item | Value |
+|---|---|
+| Consumer | `alrifai-wa-01-send` |
+| Capabilities | `messages.send`, `native.identity.read` |
+| Token | `/etc/vps/apps/al-rifai/auth/wa-01-send.token` (0400, uid 10001) |
+| Policy | `/etc/vps/services/whatsapp/wa-01-consumer-policy.json` (0600, uid 10002) |
+| Native profile | identity-only entry `epoch:1, chats:[]` |
+| App mount | `/var/lib/vps/whatsapp/wa-01/control` → `/wa-01-control` (ro), token → `/etc/alrifai/wa-01-send.token` (ro) |
+| App group | supplementary GID 10002 |
+| Verified | identity `8801880446111:27@s.whatsapp.net`; `send_message` capability probe returned “Recipient must be provided” without sending |
+
+The secured MCP broker requires the standard lifecycle (`initialize`, then
+`notifications/initialized`, then `tools/call`); `lib/standalone/whatsapp.ts` now
+does this.
+
+### Live gate and queue
+
+- `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=1`
+- `app_settings.vessel_draft_outbound_enabled=true`
+- `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED=0` (intentionally disabled until the
+  first approved send is verified)
+- 9 Owner-approved business conversations; 8 unqueued DRAFTs; 0 delivery rows.
+- Host preflight: `mode=OUTBOUND_APPROVED`, no gate reasons, sender verified.
+
+### Duplicate disposition
+
+The five programs from the multi-lighter direct order are five distinct
+lighters, not duplicates. `prog_b349…` and `prog_df6a…` are the only duplicate
+conflict (same mother/lighter/date/mobile, different shift/source); both were
+left out of the queue. Recommended unique candidate:
+`prog_412b6c5476ee4992e0db1c6e` (Beltokyo / Nil-Doria, 2026-11-07 D) to the
+original ORDERS group `120363426895117693@g.us`.
+
+No message has been sent. The exact candidate and message text are in
+`docs/VESSEL_DRAFT_ACTIVATION_APPROVAL_PACKAGE.md`; the first send requires the
+Owner's explicit approval of that exact delivery.
+
+---
+
 ## 2026-11-08 — Vessel Draft activation wiring + Cash eight-card verification
 
 **Branch:** `feature/phase3-010-011-activation` (new isolated worktree

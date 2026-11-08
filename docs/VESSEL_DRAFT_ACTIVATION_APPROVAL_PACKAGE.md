@@ -1,11 +1,13 @@
 # Vessel Draft activation — Owner approval package
 
 **Date:** 2026-11-08
-**Branch:** `feature/phase3-010-011-activation`
-**Production image (current):** `phase3-ai-rc-8a6c2c6`
+**Branch:** `feature/phase3-010-011-activation` (`44c6c9c`)
+**Deployed image:** `local/al-rifai-platform:phase3-ai-rc-vd-44c6c9c`
+**Image digest:** `sha256:9d21e59dd834e01e5a36d1857a31a607c419e3c60bfc73c02b19f058f4be10e5`
 **Production rollback image:** `phase3-ai-rc-8a6c2c6`
-**Production state before this release:** schema `1.6.0`, migrations 002–011,
-49 tables, 0 delivery rows, 0 Business Paid Events, 0 posting links.
+**Production state:** app healthy, schema `1.6.0`, migrations 002–011, 49 tables,
+0 delivery rows, 0 Business Paid Events, 0 posting links. Outbound gate enabled;
+delivery worker intentionally disabled until the first approved send is verified.
 
 > **No message has been sent yet.** This package documents the corrected
 > recipient rule, the duplicate investigation, the WA-01 transport, and the one

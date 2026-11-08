@@ -460,28 +460,30 @@ or message body is printed. `--tick` refuses when the gate is disabled.
 | `pnpm typecheck` | clean |
 | `pnpm lint` | 0 errors, 2 pre-existing warnings |
 | `pnpm test:unit` | 149/149 |
-| `pnpm test:standalone` | 180/180 |
+| `pnpm test:standalone` | 185/185 |
 | `pnpm test:paid-events` | 23/23 |
 | `pnpm build` | pass; `/cash/paid`, `/cash/paid/[id]`, `/vessel/drafts` emitted |
-| New recipient tests | explicit pin, group refusal, authorised sender, non-admin refusal, missing source, direct-chat fallback |
-| New worker tests | sender match, mismatch refusal (transport not called), identity-unavailable refusal, adapter mapping |
+| New recipient tests | exact direct chat, exact approved group, unapproved participant, outside allowlist, non-ORDERS chat, source-chat mismatch, ambiguous message rows, missing source |
+| New worker tests | source revalidation refusal, sender match, mismatch refusal (transport not called), identity-unavailable refusal, native identity shape |
 | Cash parity | flag OFF keeps POSTED-only totals; flag ON reconciles Business Paid + legacy POSTED; WhatsApp + Office cards equal the total card |
 
-### 10.5 Production blockers at the time of writing
+### 10.5 Production activation state (2026-11-08)
 
-| Blocker | Evidence |
+| Item | State |
 |---|---|
-| No `messages.send` capability | WA-01 consumer policy has read/native-read/call-policy capabilities only. |
-| App has no WA-01 bridge access | No WA-01 socket/token mount in `al-rifai-phase3-app-1`. |
-| No approved identities | `ALRIFAI_VESSEL_DRAFT_SENDER_JID` / `_RECIPIENT_JID` / socket / token env are absent. |
-| Kill switches off | `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED` and `_OUTBOUND_ENABLED` absent; `app_settings.vessel_draft_outbound_enabled` absent. |
-| Paid flag off | `PHASE3_PAID_EVENTS_ENABLED` absent; 0 events, 0 posting links. |
+| WA-01 `messages.send` | **Enabled** through a new `alrifai-wa-01-send` consumer with `messages.send` + `native.identity.read`. |
+| App bridge access | WA-01 control directory mounted read-only at `/wa-01-control`; token at `/etc/alrifai/wa-01-send.token`; app has supplementary GID 10002. |
+| Sender/recipient | Sender `8801880446111@s.whatsapp.net`; recipient resolved per program to the original conversation. No single pin. |
+| Outbound gate | `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=1` and `app_settings.vessel_draft_outbound_enabled=true`; preflight reports `OUTBOUND_APPROVED`. |
+| Worker | `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED=0` until the first exact Owner-approved send is verified. |
+| Controlled send | **Not sent yet.** The first message requires Owner approval of the exact program, conversation and text. |
+| Paid flag | `PHASE3_PAID_EVENTS_ENABLED` absent; 0 events, 0 posting links. |
 
-These are Owner-approval gates, not code gaps. The smallest activation is: one
-narrow WA-01 consumer token with `messages.send` scoped to the approved Admin,
-mount the socket/token read-only, set the sender/recipient and both kill
-switches, then run exactly one `--tick --limit=1 --confirm-send` and verify the
-bridge response, one `SENT` row, one audit row and no duplicate.
+The secured MCP broker requires the standard lifecycle; `lib/standalone/whatsapp.ts`
+now sends `initialize` and `notifications/initialized` before `tools/call`.
+Identity verification was read-only verified inside the app container, and a
+`send_message` capability probe with an empty recipient returned “Recipient must
+be provided” without contacting WhatsApp.
 
 ### 10.6 Paid Events activation (unchanged code, flag-gated)
 
