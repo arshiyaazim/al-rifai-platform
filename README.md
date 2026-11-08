@@ -386,7 +386,7 @@ tables). No new migration is required by the activation branch.
 pnpm test:unit        # pure functions (149 assertions)
 pnpm test:standalone  # all DB suites: domain, WhatsApp adapter, router,
                       # cutover, Review Queue, Cash lifecycle, users, AI,
-                      # Vessel Draft recipient/store/worker and message mirror (186 integration tests)
+                      # Vessel Draft recipient/store/worker, message mirror and Message Intelligence (190 integration tests)
 ```
 
 The integration tests are destructive to their schema: run them against a
@@ -419,6 +419,32 @@ parser and router read `whatsapp_messages`, never the bridge files.
   Bridge 1 workflow.
 
 See `docs/WHATSAPP_MESSAGE_MIRROR.md`.
+
+## 7.2 WhatsApp Message Intelligence
+
+The existing `/messages` page is the Message Data Table. It now exposes the
+mandatory message identity, event-time, contact/identity, conversation, media,
+call-trace, role/domain, processing and review columns. All required columns are
+available through the table's **Columns** control; the default view prioritises
+Message Time, Account, Sender Name, Owner Contact Name, Mobile Number, Group Name,
+Identity Role, Business Domain, Direction, Message Content and Media Status.
+
+- `source_timestamp` is the authoritative WhatsApp event time; `created_at` is
+  first ingestion; `mirrored_at` is the last synchronization. The UI displays
+  event time in Asia/Dhaka.
+- Contact names distinguish saved contact name, Owner contact name and WhatsApp
+  push name. Missing values are `NOT_AVAILABLE`, never fabricated.
+- Media status distinguishes `STORED`, `MISSING`, `FAILED`, `SKIPPED` and
+  `NOT_APPLICABLE`; every media message remains visible.
+- Actual bridge calls are mirrored into `whatsapp_calls` and shown in the
+  conversation Call trace panel. Calls are not fabricated into message rows.
+- Identity role/business domain are reviewable through `POST /api/messages`
+  (`whatsapp.manage`) and audited; they never grant permissions.
+- Migration `012_whatsapp_message_intelligence.sql` is additive (schema 1.7.0,
+  51 tables). Apply it to a disposable database first; production application is
+  pending Owner approval.
+
+See `docs/WHATSAPP_MESSAGE_INTELLIGENCE.md`.
 
 ---
 

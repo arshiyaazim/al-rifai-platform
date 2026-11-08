@@ -15,6 +15,8 @@ const READ_WRITE = [
   // Phase 2 ingestion.
   'whatsapp_import_runs', 'whatsapp_sync_state', 'identity_aliases',
   'whatsapp_media',
+  // Message intelligence / call trace (migration 012)
+  'whatsapp_calls', 'whatsapp_message_intelligence',
   // Phase 3 router / vessel correlation / authorization.
   'program_source_messages', 'escort_client_group_authorizations',
   'login_throttle_state',
@@ -40,6 +42,9 @@ const APPEND_ONLY = [
 
 const DELETE_ONLY = ['cash_portal_sessions', 'login_throttle_state'];
 
+// Read-only projections. Never grant INSERT/UPDATE through a view.
+const READ_ONLY_VIEWS = ['whatsapp_message_intelligence_view'];
+
 export async function grantRuntime(client, {schema, runtimeUser}) {
   if (!IDENT.test(schema)) throw new Error('INVALID_SCHEMA');
   if (!IDENT.test(runtimeUser)) throw new Error('INVALID_RUNTIME_ROLE');
@@ -53,9 +58,10 @@ export async function grantRuntime(client, {schema, runtimeUser}) {
   for (const table of READ_WRITE) await grant(table, 'SELECT, INSERT, UPDATE');
   for (const table of APPEND_ONLY) await grant(table, 'SELECT, INSERT');
   for (const table of DELETE_ONLY) await grant(table, 'DELETE');
+  for (const view of READ_ONLY_VIEWS) await grant(view, 'SELECT');
   await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA "${schema}" TO "${runtimeUser}"`);
   await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".compute_program_pay(text) TO "${runtimeUser}"`);
   await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".normalize_mobile(text) TO "${runtimeUser}"`);
 }
 
-export const GRANT_TABLES = {READ_WRITE, APPEND_ONLY, DELETE_ONLY};
+export const GRANT_TABLES = {READ_WRITE, APPEND_ONLY, DELETE_ONLY, READ_ONLY_VIEWS};

@@ -126,6 +126,31 @@ in `docs/` and the Phase 3 reports.
   Business processing scope is separate: Vessel/Cash currently processes WA-01
   only; enabling WA-02 is a separate approved workflow.
 
+
+## WhatsApp message intelligence
+
+- Keep event time, ingestion time and mirror time separate:
+  `source_timestamp` (authoritative WhatsApp event), `created_at` (first
+  ingestion), `mirrored_at` (last synchronization). Never substitute one for
+  another.
+- The canonical message is `whatsapp_messages`. `whatsapp_message_intelligence_view`
+  is a read-only projection; `whatsapp_message_intelligence` is review metadata,
+  not a second message table.
+- Do not fabricate names or phone numbers. Saved contact name, Owner contact
+  name and WhatsApp push name are distinct sources; unresolved identities stay
+  `UNRESOLVED`/`NOT_AVAILABLE`. A LID is never converted without a verified PN
+  link.
+- Media `STORED` requires a verified file. `MISSING`, `FAILED`, `SKIPPED` and
+  `NOT_APPLICABLE` are distinct; every media message remains visible.
+- Calls are separate bridge events (`whatsapp_calls`), not messages. Do not
+  invent a call ID or turn a message into a call; per-message call trace is
+  `NOT_AVAILABLE` when there is no link.
+- Identity role and business domain are classification only. They never grant
+  authorization. Manual review writes the intelligence side table and
+  `audit_events`; it must not alter chats, WhatsApp permissions, Cash, ledger or
+  Vessel state.
+- Migration 012 is additive and must be applied before deploying this code.
+
 ## Verification commands (isolated test DB only)
 
 ```bash

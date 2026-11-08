@@ -5,8 +5,8 @@
 // recording and the read-only verifier. No WhatsApp socket is opened.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {mkdtempSync, rmSync} from 'node:fs';
-import {join} from 'node:path';
+import {mkdirSync, mkdtempSync, rmSync} from 'node:fs';
+import {dirname, join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {DatabaseSync} from 'node:sqlite';
 import pg from 'pg';
@@ -18,11 +18,16 @@ const REPO = new URL('../..', import.meta.url).pathname;
 const A = 'mirror-test-a';
 const B = 'mirror-test-b';
 const tmp = mkdtempSync('/tmp/opencode/mirror-test-');
-const paths = {A: join(tmp, 'a.db'), B: join(tmp, 'b.db')};
+const paths = {A: join(tmp, 'a', 'messages.db'), B: join(tmp, 'b', 'messages.db')};
 
 function source(path, account) {
+  mkdirSync(dirname(path), {recursive: true});
   const db = new DatabaseSync(path);
   db.exec(`CREATE TABLE chats (jid TEXT PRIMARY KEY, name TEXT);
+    CREATE TABLE calls (
+      call_id TEXT, chat_jid TEXT, from_jid TEXT, timestamp TEXT, is_from_me INTEGER,
+      call_type TEXT, is_group INTEGER, result TEXT, duration_sec INTEGER, ended_at TEXT, reason TEXT,
+      PRIMARY KEY (call_id, chat_jid));
     CREATE TABLE messages (
       id TEXT, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT,
       is_from_me INTEGER, media_type TEXT, filename TEXT, url TEXT, media_key BLOB,
@@ -41,7 +46,17 @@ function source(path, account) {
     VALUES (?,?,?,?,?,0,'image','photo.jpg',?,123)`).run(
     `MSG-${account}-3`, chat, chat, '', '2026-11-08 10:02:00+00:00', Buffer.alloc(32, account === 'A' ? 1 : 2),
   );
+  db.prepare(`INSERT INTO calls (call_id,chat_jid,from_jid,timestamp,is_from_me,call_type,is_group,result,duration_sec,reason)
+    VALUES (?,?,?,?,0,'voice',0,'missed',0,'no answer')`).run(
+    `CALL-${account}-1`, chat, chat, '2026-11-08 10:03:00+00:00',
+  );
   db.close();
+  const contactDb = new DatabaseSync(join(dirname(path), 'whatsapp.db'));
+  contactDb.exec(`CREATE TABLE whatsmeow_contacts (their_jid TEXT, first_name TEXT, full_name TEXT, push_name TEXT, business_name TEXT);
+    CREATE TABLE whatsmeow_lid_map (lid TEXT, pn TEXT);
+    INSERT INTO whatsmeow_contacts (their_jid,first_name,full_name,push_name,business_name)
+      VALUES ('${chat}', NULL, 'Contact ${account}', 'Push ${account}', NULL);`);
+  contactDb.close();
 }
 
 function run(args) {
@@ -74,6 +89,8 @@ async function db() {
 async function cleanup(client) {
   for (const id of [A, B]) {
     await client.query('DELETE FROM whatsapp_media WHERE account_id=$1', [id]);
+    await client.query('DELETE FROM whatsapp_message_intelligence WHERE account_id=$1', [id]);
+    await client.query('DELETE FROM whatsapp_calls WHERE account_id=$1', [id]);
     await client.query('DELETE FROM whatsapp_messages WHERE account_id=$1', [id]);
     await client.query('DELETE FROM whatsapp_chats WHERE account_id=$1', [id]);
     await client.query('DELETE FROM identity_aliases WHERE account_id=$1', [id]);
@@ -93,7 +110,17 @@ test('bridge messages mirror exactly, late edits reconcile, and media status is 
     for (const id of [A, B]) {
       const count = await client.query('SELECT count(*)::int AS n FROM whatsapp_messages WHERE account_id=$1', [id]);
       assert.equal(count.rows[0].n, 3);
+      const mirrored = await client.query('SELECT count(*)::int AS n FROM whatsapp_messages WHERE account_id=$1 AND mirrored_at IS NOT NULL', [id]);
+      assert.equal(mirrored.rows[0].n, 3);
+      const calls = await client.query('SELECT count(*)::int AS n FROM whatsapp_calls WHERE account_id=$1', [id]);
+      assert.equal(calls.rows[0].n, 1);
     }
+    const contact = await client.query(
+      `SELECT metadata FROM identity_aliases
+        WHERE account_id=$1 AND jid='8801700000001@s.whatsapp.net'`, [A],
+    );
+    assert.equal(contact.rows[0]?.metadata?.my_contact_name, 'Contact A');
+    assert.equal(contact.rows[0]?.metadata?.push_name, 'Push A');
 
     // Late edit/revocation below the tail checkpoint must be reconciled.
     const sourceDb = new DatabaseSync(paths.A);

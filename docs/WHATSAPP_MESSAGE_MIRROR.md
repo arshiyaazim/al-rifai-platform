@@ -147,3 +147,23 @@ Bridge stores:
    need separate review.
 5. **Bridge 2 order processing / Bridge 1 draft delivery** remains blocked on the
    separate business/authorization change.
+
+## 8. Message Intelligence extension (migration 012)
+
+The message mirror is the foundation for the unified Message Data Table. A new
+additive migration `012_whatsapp_message_intelligence.sql` adds:
+
+- `whatsapp_messages.mirrored_at` — synchronization time, separate from the
+  original `source_timestamp` and first `created_at`;
+- `whatsapp_calls` — actual bridge call events;
+- `whatsapp_message_intelligence` — authorized role/domain/review metadata;
+- `whatsapp_message_intelligence_view` — the read-only projection used by
+  `/messages` and `/api/messages`.
+
+Disposable DB evidence: schema `1.7.0`, **51 tables**, migration `012` applied;
+`/messages` returns HTTP 200 with all required column labels; `/api/messages`
+returns all fields; identity/domain review POST is audited. Production remains
+schema `1.6.0` and the new code/migration are **not deployed** pending the
+separate Owner approval described in §7.
+
+Full data contract and rollback: `docs/WHATSAPP_MESSAGE_INTELLIGENCE.md`.

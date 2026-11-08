@@ -9,11 +9,59 @@ BLOCKED, not complete.** A README or source change does not complete it.
 `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`, `docs/MAIN_RECONCILIATION_PLAN.md`,
 `docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`,
 `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`, `docs/BUSINESS_WORKFLOW_BACKLOG.md`,
-`docs/PHASE3_GO_NO_GO_7da17f1.md`, `docs/WHATSAPP_MESSAGE_MIRROR.md`.
+`docs/PHASE3_GO_NO_GO_7da17f1.md`, `docs/WHATSAPP_MESSAGE_MIRROR.md`, `docs/WHATSAPP_MESSAGE_INTELLIGENCE.md`.
 
 **Report language:** English only. Always state whether a finding is
 **implemented**, **clone-tested**, **production-deployed**, **live-verified**,
 **OWNER-CONFIRMED** or **BLOCKED**.
+
+---
+
+## 2026-11-08 — WhatsApp Message Intelligence (unified table) implemented
+
+**Branch:** `feature/phase3-010-011-activation`
+**Status:** implemented and runtime-verified on an isolated dev server against
+`alrifai_v2_test`; **production migration/deployment pending Owner approval.**
+
+### What was added
+
+- Migration `012_whatsapp_message_intelligence.sql` (additive, schema `1.7.0`,
+  51 tables): `whatsapp_messages.mirrored_at`, `whatsapp_calls`,
+  `whatsapp_message_intelligence`, read-only
+  `whatsapp_message_intelligence_view`, indexes and grants.
+- Sync worker: `mirrored_at`, bridge `calls` mirror, `whatsapp.db` contact
+  evidence (saved name / Owner contact name / push name / lid↔pn), full reconcile
+  and explicit media status.
+- Existing `/messages` repository/API/table extended: all mandatory columns,
+  search/filter/sort/pagination, column visibility/pinning, row detail,
+  identity/domain review (`POST /api/messages`, `whatsapp.manage`, audited).
+- Calls panel shows actual `whatsapp_calls` events; per-message call columns are
+  `NOT_AVAILABLE` because calls have no message_id.
+- `docs/WHATSAPP_MESSAGE_INTELLIGENCE.md` records the data contract, sources,
+  timestamp rules, media/call semantics and rollback.
+
+### Verification
+
+- `pnpm typecheck` clean; `pnpm lint` 0 errors.
+- `pnpm test:unit` 149/149.
+- `pnpm test:standalone` **190/190**.
+- Isolated dev server against `alrifai_v2_test`:
+  - `/messages` HTTP **200** with the Message Intelligence table and all required
+    column labels.
+  - `/api/messages?limit=2` returned event/ingestion/mirror times, names, mobile,
+    identity, role, domain, media and call fields.
+  - `POST /api/messages` classification **200**; role filter returned exactly the
+    reviewed row; audit row present.
+- No production migration, build deploy, container restart or data write.
+
+### Remaining approvals
+
+1. Apply migration 012 to production (49 → 51 tables, schema 1.7.0).
+2. Deploy the app and updated sync worker; verify `/messages`, API, call panel
+   and role/domain review.
+3. Run the previously approved mirror reconcile/media-status steps after backup.
+4. Bridge 2 → Bridge 1 draft delivery remains the separate blocked business
+   workflow.
 
 ---
 

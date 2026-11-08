@@ -41,6 +41,7 @@ const EXTRA_SCHEMA_FILES = [
   // table itself is inert: no WhatsApp capability and no message is created.
   join(APP_ROOT, 'db', 'standalone', '010_vessel_draft_delivery.sql'),
   join(APP_ROOT, 'db', 'standalone', '011_cash_payment_events.sql'),
+  join(APP_ROOT, 'db', 'standalone', '012_whatsapp_message_intelligence.sql'),
 ];
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;
@@ -60,6 +61,8 @@ const TARGET_TABLES = [
   'cash_payment_events', 'cash_payment_event_postings',
   // Phase 3 Vessel draft delivery queue (migration 010)
   'vessel_draft_deliveries',
+  // WhatsApp message intelligence / call trace (migration 012)
+  'whatsapp_calls', 'whatsapp_message_intelligence',
   // Phase 3 AI communication foundation
   'ai_contacts', 'ai_admin_jids', 'ai_conversations', 'ai_messages',
   'ai_applicant_drafts', 'ai_job_catalog', 'ai_outbound_messages',

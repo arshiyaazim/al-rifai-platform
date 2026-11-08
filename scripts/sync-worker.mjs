@@ -26,7 +26,7 @@
 //     during --mode=import, and it never writes to the bridge SQLite stores.
 import {createHash, randomUUID} from 'node:crypto';
 import {readFileSync, existsSync, mkdirSync, rmSync, writeFileSync, chmodSync, chownSync, renameSync} from 'node:fs';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import pg from 'pg';
 import {loadEnv, secret, setting} from '../lib/env.mjs';
@@ -215,7 +215,7 @@ const INSERT_COLUMNS = [
   'text_content', 'content_hash', 'source_rowid', 'import_run_id', 'source_sha256',
   'chat_label', 'chat_kind', 'sender_resolved_jid', 'chat_resolved_jid', 'identity_state',
   'group_participant_jid', 'quoted_message_id', 'media_type', 'media_filename',
-  'media_sha256', 'media_length', 'deleted_at', 'raw_payload',
+  'media_sha256', 'media_length', 'deleted_at', 'raw_payload', 'mirrored_at',
 ];
 
 const UPDATE_SET = INSERT_COLUMNS
@@ -256,6 +256,7 @@ function toRow(account, runId, chatLabels, row) {
     clean(row.quoted_message_id || null), clean(row.media_type || null), clean(row.filename || null),
     hexOf(row.file_sha256), row.file_length ?? null,
     parseTimestamp(row.deleted_at), clean(JSON.stringify(payload)),
+    new Date().toISOString(),
   ];
 }
 
@@ -543,7 +544,7 @@ async function retryFailedMedia(client, account, db, columns) {
 
 // ────────────────────────────────────────────────── identity evidence ──
 
-async function upsertIdentity(client, accountId, jid, {displayName, nameSource, canonicalJid, evidence, metadata = {}}) {
+async function upsertIdentity(client, accountId, jid, {displayName, nameSource, canonicalJid, evidence, metadata = {}, preserveDisplayName = false}) {
   const value = String(jid ?? '').trim();
   if (!value) return;
   const kind = jidKind(value);
@@ -556,7 +557,9 @@ async function upsertIdentity(client, accountId, jid, {displayName, nameSource, 
      VALUES ($1,$2,$3,NULL,$4,$5,$6,$7,$8,$9,now(),now(),$10::jsonb)
      ON CONFLICT (account_id, jid) DO UPDATE SET
        kind = EXCLUDED.kind,
-       display_name = COALESCE(EXCLUDED.display_name, identity_aliases.display_name),
+       display_name = CASE WHEN $11::boolean
+         THEN COALESCE(identity_aliases.display_name, EXCLUDED.display_name)
+         ELSE COALESCE(EXCLUDED.display_name, identity_aliases.display_name) END,
        name_source = COALESCE(EXCLUDED.name_source, identity_aliases.name_source),
        canonical_jid = COALESCE(EXCLUDED.canonical_jid, identity_aliases.canonical_jid),
        person_key = COALESCE(EXCLUDED.person_key, identity_aliases.person_key),
@@ -572,9 +575,78 @@ async function upsertIdentity(client, accountId, jid, {displayName, nameSource, 
     [
       accountId, clean(value), kind, confidence, evidence ?? null,
       clean(displayName ?? null), nameSource ?? null, clean(canonicalJid ?? null),
-      personKey(canonicalJid, value), JSON.stringify(metadata),
+      personKey(canonicalJid, value), JSON.stringify(metadata), preserveDisplayName,
     ],
   );
+}
+
+
+/**
+ * Contact evidence from the bridge's whatsmeow session store.
+ *
+ * `messages.db` carries the event, but the owner's saved contact name and the
+ * sender's WhatsApp push name live in `whatsapp.db` (`whatsmeow_contacts`,
+ * `whatsmeow_lid_map`). The sync container mounts the whole store directory
+ * read-only, so this is a supported local read. Names are evidence only: they
+ * never grant authority and a LID is never converted into a phone number
+ * without the bridge's own lid_map link.
+ */
+async function syncContactEvidence(client, account) {
+  if (!account?.path) return null;
+  const path = join(dirname(account.path), 'whatsapp.db');
+  if (!existsSync(path)) return null;
+  let db;
+  try {
+    db = new DatabaseSync(path, {readOnly: true});
+    const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name));
+    if (!tables.has('whatsmeow_contacts')) return null;
+    const lidToPn = new Map();
+    const pnToLid = new Map();
+    if (tables.has('whatsmeow_lid_map')) {
+      for (const row of db.prepare('SELECT lid, pn FROM whatsmeow_lid_map').all()) {
+        const lid = clean(row.lid);
+        const pn = normalizeAccountJid(clean(row.pn));
+        if (lid && pn) {
+          lidToPn.set(lid, pn);
+          pnToLid.set(pn, lid);
+        }
+      }
+    }
+    const contacts = db.prepare(
+      'SELECT their_jid, first_name, full_name, push_name, business_name FROM whatsmeow_contacts',
+    ).all();
+    let written = 0;
+    for (const contact of contacts) {
+      const jid = clean(contact.their_jid);
+      if (!jid) continue;
+      const saved = clean(contact.full_name) || clean(contact.first_name) || clean(contact.business_name) || null;
+      const push = clean(contact.push_name) || null;
+      if (!saved && !push && !lidToPn.has(jid)) continue;
+      const pn = lidToPn.get(jid) || (jid.endsWith('@s.whatsapp.net') ? normalizeAccountJid(jid) : null);
+      const lid = jid.endsWith('@lid') ? jid : (pn ? pnToLid.get(pn) ?? null : null);
+      await upsertIdentity(client, account.id, jid, {
+        displayName: saved || push,
+        nameSource: 'CONTACT_STORE',
+        canonicalJid: pn,
+        evidence: 'bridge:whatsmeow_contacts',
+        metadata: {
+          saved_name: saved,
+          my_contact_name: saved,
+          push_name: push,
+          lid,
+          pn,
+        },
+        preserveDisplayName: true,
+      });
+      written += 1;
+    }
+    return {contacts: contacts.length, written, lidLinks: lidToPn.size};
+  } catch (error) {
+    log('CONTACT_EVIDENCE_ERROR', account.id, String(error?.message ?? error).slice(0, 200));
+    return null;
+  } finally {
+    try { db?.close(); } catch { /* already closed */ }
+  }
 }
 
 async function deriveIdentity(client, account, db, columns) {
@@ -702,15 +774,80 @@ async function deriveIdentity(client, account, db, columns) {
     }
   }
 
+  const contactEvidence = await syncContactEvidence(client, account);
   const counts = await client.query(
     `SELECT count(*)::text AS total, count(*) FILTER (WHERE confidence='EXACT')::text AS exact
        FROM identity_aliases WHERE account_id=$1`,
     [account.id],
   );
-  return {total: Number(counts.rows[0]?.total ?? 0), exact: Number(counts.rows[0]?.exact ?? 0)};
+  return {total: Number(counts.rows[0]?.total ?? 0), exact: Number(counts.rows[0]?.exact ?? 0), contactEvidence};
 }
 
 // ────────────────────────────────────────────────────────── the loop ──
+
+
+/** Mirror the bridge's actual call events. Calls have no message_id; they are
+ * a separate evidence stream keyed by (account, call_id, chat_jid). */
+async function syncCalls(client, account, db) {
+  const sourceTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='calls'").get();
+  if (!sourceTable) return {source: 0, written: 0, skipped: 'SOURCE_TABLE_ABSENT'};
+  const target = await client.query("SELECT to_regclass('public.whatsapp_calls') IS NOT NULL AS present");
+  if (!target.rows[0]?.present) return {source: 0, written: 0, skipped: 'MAIN_TABLE_ABSENT'};
+  const source = db.prepare(
+    `SELECT call_id, chat_jid, from_jid, timestamp, is_from_me, call_type, is_group,
+            result, duration_sec, ended_at, reason FROM calls`,
+  ).all();
+  let written = 0;
+  for (const call of source) {
+    const timestamp = parseTimestamp(call.timestamp);
+    const callId = clean(call.call_id);
+    const chatJid = clean(call.chat_jid);
+    if (!timestamp || !callId || !chatJid) continue;
+    const result = await client.query(
+      `INSERT INTO whatsapp_calls
+         (account_id, call_id, chat_jid, from_jid, source_timestamp, direction,
+          call_type, is_group, status, duration_sec, ended_at, reason, raw_payload)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb)
+       ON CONFLICT (account_id, call_id, chat_jid) DO UPDATE SET
+         from_jid = EXCLUDED.from_jid,
+         source_timestamp = EXCLUDED.source_timestamp,
+         direction = EXCLUDED.direction,
+         call_type = EXCLUDED.call_type,
+         is_group = EXCLUDED.is_group,
+         status = EXCLUDED.status,
+         duration_sec = EXCLUDED.duration_sec,
+         ended_at = EXCLUDED.ended_at,
+         reason = EXCLUDED.reason,
+         raw_payload = EXCLUDED.raw_payload,
+         updated_at = now()
+       WHERE whatsapp_calls.from_jid IS DISTINCT FROM EXCLUDED.from_jid
+          OR whatsapp_calls.source_timestamp IS DISTINCT FROM EXCLUDED.source_timestamp
+          OR whatsapp_calls.direction IS DISTINCT FROM EXCLUDED.direction
+          OR whatsapp_calls.call_type IS DISTINCT FROM EXCLUDED.call_type
+          OR whatsapp_calls.is_group IS DISTINCT FROM EXCLUDED.is_group
+          OR whatsapp_calls.status IS DISTINCT FROM EXCLUDED.status
+          OR whatsapp_calls.duration_sec IS DISTINCT FROM EXCLUDED.duration_sec
+          OR whatsapp_calls.ended_at IS DISTINCT FROM EXCLUDED.ended_at
+          OR whatsapp_calls.reason IS DISTINCT FROM EXCLUDED.reason
+          OR whatsapp_calls.raw_payload IS DISTINCT FROM EXCLUDED.raw_payload`,
+      [
+        account.id, callId, chatJid, clean(call.from_jid ?? null), timestamp,
+        call.is_from_me ? 'OUTGOING' : 'INCOMING',
+        clean(call.call_type ?? null), Boolean(call.is_group),
+        clean(call.result ?? null), Number.isFinite(Number(call.duration_sec)) ? Number(call.duration_sec) : null,
+        parseTimestamp(call.ended_at), clean(call.reason ?? null),
+        JSON.stringify({
+          call_id: call.call_id, chat_jid: call.chat_jid, from_jid: call.from_jid,
+          timestamp: call.timestamp, is_from_me: call.is_from_me, call_type: call.call_type,
+          is_group: call.is_group, result: call.result, duration_sec: call.duration_sec,
+          ended_at: call.ended_at, reason: call.reason,
+        }),
+      ],
+    );
+    written += result.rowCount ?? 0;
+  }
+  return {source: source.length, written};
+}
 
 async function syncAccount(client, account, options = {}) {
   const {db, columns, path} = openStore(account, {snapshot: Boolean(options.snapshot)});
@@ -732,10 +869,14 @@ async function syncAccount(client, account, options = {}) {
       await importChats(client, account, db);
     }
 
+    // Calls are a separate source stream; they can arrive without changing the
+    // message rowid checkpoint, so mirror them on every tick.
+    const calls = await syncCalls(client, account, db);
+
     let identity = null;
     if (!pending && !options.recent) {
       if (options.identity) identity = await deriveIdentity(client, account, db, columns);
-      return {account: account.id, pending: false, written: 0, identity};
+      return {account: account.id, pending: false, written: 0, calls, identity};
     }
 
     const since = reconcile
@@ -798,7 +939,7 @@ async function syncAccount(client, account, options = {}) {
     }
     if (MODE === 'tail' && options.recent && !reconcile) await retryFailedMedia(client, account, db, columns);
     if (options.identity) identity = await deriveIdentity(client, account, db, columns);
-    return {account: account.id, from: checkpoint, to: latest, seen, written, pending, reconcile, media, identity};
+    return {account: account.id, from: checkpoint, to: latest, seen, written, pending, reconcile, media, calls, identity};
   } finally {
     db.close();
   }
