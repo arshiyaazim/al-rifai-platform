@@ -15,6 +15,8 @@ import {existsSync} from 'node:fs';
 import {row, rows, tx} from './db.ts';
 import {listAudit, recordAudit} from './audit.ts';
 import {ownerDraftFromProgram} from '../order-draft-from-record.ts';
+import {jidsMatch} from '../whatsapp-identity.mjs';
+import {resolveDraftRecipient} from './vessel-draft-recipient.ts';
 import {
   CONFIRMATION_RULE,
   MAX_DELIVERY_ATTEMPTS,
@@ -124,7 +126,8 @@ export type EnqueueDraftResult =
   | {status: 'QUEUED'; record: DraftDeliveryRecord; duplicate: false}
   | {status: 'DUPLICATE'; record: DraftDeliveryRecord; duplicate: true}
   | {status: 'BLOCKED'; gaps: string[]; record: null}
-  | {status: 'RECIPIENT_NOT_APPROVED'; record: null};
+  | {status: 'RECIPIENT_NOT_APPROVED'; record: null; reason: string}
+  | {status: 'SOURCE_CONVERSATION_NOT_FOUND'; record: null; reason: string};
 
 /** Minimal program shape needed to render the Owner draft. */
 export type DraftProgramInput = {
@@ -136,6 +139,7 @@ export type DraftProgramInput = {
   start_date?: string | null;
   start_shift?: string | null;
   source_message_id?: string | null;
+  source_chat_jid?: string | null;
 };
 
 /**
@@ -152,7 +156,7 @@ export async function enqueueDraftForProgram(
   now = new Date().toISOString(),
 ): Promise<EnqueueDraftResult> {
   if (!(await deliveryTableAvailable())) {
-    return {status: 'RECIPIENT_NOT_APPROVED', record: null};
+    return {status: 'RECIPIENT_NOT_APPROVED', record: null, reason: 'DELIVERY_TABLE_ABSENT'};
   }
   const draft = ownerDraftFromProgram(program);
   if (!draft.text) {
@@ -166,15 +170,36 @@ export async function enqueueDraftForProgram(
     });
     return {status: 'BLOCKED', gaps: draft.gaps, record: null};
   }
-  if (!config.ownerApprovedRecipient) {
-    return {status: 'RECIPIENT_NOT_APPROVED', record: null};
+
+  // Explicit Owner pin wins; otherwise the recipient is the authorised Admin
+  // who sent the original order. A group or non-admin identity is refused.
+  const resolution = await resolveDraftRecipient({
+    programId: program.id,
+    sourceMessageId: program.source_message_id ?? draft.sourceMessageId ?? null,
+    sourceChatJid: program.source_chat_jid ?? null,
+    explicitRecipient: config.ownerApprovedRecipient,
+  });
+  if (resolution.status !== 'RESOLVED') {
+    await recordAudit({
+      actor: SYSTEM_ACTOR,
+      action: 'VESSEL_DRAFT_DELIVERY_RECIPIENT_BLOCKED',
+      entity: 'vessel_draft_delivery',
+      entityId: program.id,
+      detail: {
+        programId: program.id,
+        reason: resolution.reason,
+        confirmationRule: CONFIRMATION_RULE,
+      },
+      source: 'SYSTEM',
+    });
+    return {status: resolution.status, record: null, reason: resolution.reason};
   }
 
   const prepared = prepareDraftDelivery({
     programId: program.id,
     sourceMessageId: draft.sourceMessageId,
     text: draft.text,
-    recipientJid: config.ownerApprovedRecipient,
+    recipientJid: resolution.recipientJid,
     now,
   });
   const result = await enqueueDraftDelivery(new PostgresDraftDeliveryStore(), prepared, now);
@@ -190,6 +215,7 @@ export async function enqueueDraftForProgram(
       idempotencyKey: prepared.id,
       duplicate: result.duplicate,
       accountId: 'wa-01',
+      recipientBasis: resolution.basis,
       mode: VESSEL_DRAFT_DELIVERY_MODE,
       confirmationRule: CONFIRMATION_RULE,
     },
@@ -371,6 +397,21 @@ export async function runtimeDeliveryConfig(): Promise<DeliveryGateConfig> {
   config.transportConfigured = Boolean(
     socket && tokenFile && existsSync(socket) && existsSync(tokenFile),
   );
+
+  // Admin-only fallback when the Owner has not pinned one recipient. Groups and
+  // the sending account itself are excluded here, so a source-conversation
+  // resolution can never become a group send or a self-send.
+  const account = await row<{account_jid: string | null; admin_jids: unknown}>(
+    "SELECT account_jid, admin_jids FROM whatsapp_accounts WHERE id = 'wa-01'",
+  ).catch(() => null);
+  const admins = Array.isArray(account?.admin_jids)
+    ? account.admin_jids.filter((jid): jid is string => typeof jid === 'string' && jid.trim().length > 0)
+    : [];
+  const selfJids = [account?.account_jid, config.ownerApprovedSender]
+    .filter((jid): jid is string => typeof jid === 'string' && jid.trim().length > 0);
+  config.authorizedAdminJids = admins
+    .map((jid) => jid.trim())
+    .filter((jid) => !selfJids.some((self) => jidsMatch(self, jid)));
   return config;
 }
 

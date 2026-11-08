@@ -373,6 +373,11 @@ test('business reporting counts events plus legacy POSTED without double countin
 
     const summary = await cashDashboardSummary();
     assert.equal(summary.totalPaidMinor, '33000', '22000 business + 11000 legacy');
+    assert.equal(
+      Number(summary.viaWhatsAppPaidMinor) + Number(summary.byOfficePaidMinor),
+      Number(summary.totalPaidMinor),
+      'the WhatsApp and Office cards reconcile with the total card',
+    );
     const detail = await listBusinessPaidEvents({limit: 100});
     assert.equal(detail.count, 2);
     assert.equal(detail.totalMinor, '33000');

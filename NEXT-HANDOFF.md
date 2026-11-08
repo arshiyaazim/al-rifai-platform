@@ -17,6 +17,68 @@ BLOCKED, not complete.** A README or source change does not complete it.
 
 ---
 
+## 2026-11-08 — Vessel Draft activation wiring + Cash eight-card verification
+
+**Branch:** `feature/phase3-010-011-activation` (new isolated worktree
+`/opt/al-rifai-phase3-activation`, from deployed release `03df822`).
+**Production:** unchanged — image `phase3-ai-rc-8a6c2c6`, schema `1.6.0`,
+migrations 002–011, 49 tables, 0 delivery rows, 0 Paid Events, 0 posting links.
+**Status:** implemented, typechecked, linted, built and tested; **not deployed**
+and **no message sent**.
+
+Added:
+
+- `lib/standalone/vessel-draft-recipient.ts` — resolves the one recipient from
+  the explicit Owner pin or the Admin identity that participates in the original
+  order conversation (an OUTGOING sender in `programs.source_message_id`'s chat,
+  matched to `whatsapp_accounts.admin_jids`). The client sender is never the
+  recipient; groups, non-admin senders, the sending account's own phone-number
+  identity, ambiguous Admin sets and missing source messages are refused;
+  refusals are audited and never queued.
+- `lib/vessel-draft-delivery.ts` — gate accepts the WA-01 admin list only when
+  no recipient is pinned; group recipients are always refused;
+  `isApprovedDraftRecipient()` is the single recipient rule.
+- `lib/vessel-draft-transport.ts` — `verifyVesselDraftSender()` calls
+  `get_native_account_identity` and compares it with the approved sender.
+- `lib/vessel-draft-delivery-worker.ts` — verifies the bridge identity before
+  every `send_message`; mismatch/unreadable identity is a bounded `FAILED`
+  with no transport call.
+- `lib/standalone/vessel-draft-delivery-store.ts` + `programs.ts` — enqueue
+  resolves the recipient instead of requiring a hardcoded JID; runtime config
+  loads and filters the WA-01 admin list.
+- `scripts/standalone/vessel-draft-activation.mjs` — read-only preflight by
+  default, optional `--verify-sender`, controlled `--enqueue` / `--tick` behind
+  confirmation flags; identities masked.
+
+Verification (disposable `alrifai_v2_test`, schema 1.6.0):
+
+| Check | Result |
+|---|---|
+| `pnpm typecheck` | clean |
+| `pnpm lint` | 0 errors, 2 pre-existing warnings |
+| `pnpm test:unit` | 149/149 |
+| `pnpm test:standalone` | 180/180 |
+| `pnpm test:paid-events` | 23/23 |
+| `pnpm build` | pass |
+
+Cash: no code change. Flag OFF keeps POSTED-only totals; flag ON uses verified
+Paid Events plus legacy POSTED with no double count. All eight card values come
+from the same summary and their links route to `/cash/paid` with server-side
+filters; WhatsApp + Office equals the total card. `PHASE3_PAID_EVENTS_ENABLED`
+remains OFF.
+
+**Still blocked (Owner approval, not code):**
+
+1. WA-01 consumer policy has no `messages.send`; the app container mounts no
+   WA-01 socket/token. A narrow send token, mount and exact sender/recipient are
+   required before any real draft can leave.
+2. Production deployment of this branch.
+3. `PHASE3_PAID_EVENTS_ENABLED=1`.
+4. One controlled real send (`--tick --limit=1 --confirm-send`) with the exact
+   sender/recipient/message reported first.
+
+---
+
 ## 2026-11-08 — Migration 010/011 execution (staged, authorized)
 
 **Branch:** `feature/phase3-010-011-release` (from integration `0b309b2`).

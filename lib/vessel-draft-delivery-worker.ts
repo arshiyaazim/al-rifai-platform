@@ -26,9 +26,11 @@ import {
 } from './vessel-draft-delivery.ts';
 import {
   sendVesselDraft,
+  verifyVesselDraftSender,
   vesselDraftTransportPaths,
   type VesselDraftSend,
   type VesselDraftTransportPaths,
+  type VesselDraftVerifySender,
 } from './vessel-draft-transport.ts';
 
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -55,6 +57,7 @@ function limit(): number {
 export type VesselDraftTickOptions = {
   limit?: number;
   transport?: VesselDraftSend;
+  verifySender?: VesselDraftVerifySender;
   paths?: VesselDraftTransportPaths | null;
   gate?: {config: DeliveryGateConfig; gate: DeliveryGate};
 };
@@ -81,6 +84,7 @@ export async function runVesselDraftDeliveryTick(
   }
   const paths = options.paths === undefined ? vesselDraftTransportPaths() : options.paths;
   const transport = options.transport ?? sendVesselDraft;
+  const verifySender = options.verifySender ?? verifyVesselDraftSender;
   const claimed = await claimDueDeliveries(options.limit ?? limit());
   let sent = 0;
   let failed = 0;
@@ -102,6 +106,21 @@ export async function runVesselDraftDeliveryTick(
         error: `VESSEL_DRAFT_REQUEST_DENIED:${request.reasons.join(',')}`.slice(0, 300),
       });
       unknown += 1;
+      continue;
+    }
+    // Confirm the socket/token belongs to the approved sender BEFORE any
+    // message leaves the process. A mismatch or unreadable identity is a
+    // bounded failure, never a send.
+    const identity = await verifySender(
+      runtime.config.ownerApprovedSender ?? '',
+      paths,
+    );
+    if (!identity.ok) {
+      await applyDeliveryOutcomeToStore(row.id, {
+        kind: 'failed',
+        error: identity.reason,
+      });
+      failed += 1;
       continue;
     }
     const outcome = await transport(request.request, paths);

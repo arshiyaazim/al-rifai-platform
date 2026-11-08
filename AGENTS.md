@@ -92,6 +92,13 @@ in `docs/` and the Phase 3 reports.
   `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=0`, DB
   `vessel_draft_outbound_enabled=false`). Do not enable without the exact
   approved sender/recipient, socket/token and one-message verification.
+- Vessel Draft recipients are never invented. `resolveDraftRecipient()` uses the
+  explicit Owner pin or the authorised Admin who sent the original order; group
+  JIDs, non-admin senders and the sending account itself are refused. The worker
+  verifies the bridge identity (`get_native_account_identity`) before every
+  send. Use `scripts/standalone/vessel-draft-activation.mjs` for read-only
+  preflight; `--enqueue` and `--tick` require explicit confirmation flags and
+  `--tick` still requires all five gate blocks.
 - `cash_payment_events` and `cash_payment_event_postings` are append-only.
   Corrections/reversals are new rows; never UPDATE/DELETE financial history.
 

@@ -1,13 +1,13 @@
 # AL-RIFA'I — Standalone Business Management Application
 
-## Release status (verified 2026-11-07)
+## Release status (verified 2026-11-08)
 
 | Category | Value |
 |---|---|
-| **Current Production** | Image `local/al-rifai-platform:phase3-ai-rc-7da17f1` (digest `sha256:5f3de875…01fa`), database `alrifai_v2_phase3`, schema **1.5.0**, migrations **002–009** applied. Deployed 2026-11-07 with explicit Owner approval; `.env` `ALRIFAI_TAG` aligned. Router `PHASE3_ROUTER_WORKER_ENABLED=1`, Vessel `ALRIFAI_VESSEL_PROCESSING_ENABLED=1`, `ALRIFAI_LIVE_CASH_SYNC=0`; live WA-01 DRAFT programs exist. All `AI_*` flags `0` (WA-02 worker / outbound / auto-reply disabled; the AI Assistant page is deployed but its worker is off). |
-| **Historical Release** | `v1.4.0-phase3-rc2` / `phase3-rc-final5` / schema 1.4.0 (2026-11-06 cutover) — see the preserved historical section below. Tags, rollback instructions and cutover history are retained. |
-| **Built but Not Deployed** | `phase3-ai-rc-9e85e49`, `phase3-ai-rc-675a3ef` (verification image), and the current feature branch head (post-`7da17f1` workflow fixes: employee `PATCH`, payroll gating, TRANSFER classification, durable delivery store + Admin status UI). None of this is deployed. |
-| **Pending Migration / Activation** | Additive `010_vessel_draft_delivery.sql` (clone-tested, **NOT applied to production**); outbound WhatsApp draft delivery `MANUAL_COPY_ONLY`, no `messages.send` capability. Both require separate explicit Owner approval. |
+| **Current Production** | Image `local/al-rifai-platform:phase3-ai-rc-8a6c2c6` (digest `sha256:8b7ab534…e510`), database `alrifai_v2_phase3`, schema **1.6.0**, migrations **002–011** applied, 49 tables. Router `PHASE3_ROUTER_WORKER_ENABLED=1`, Vessel `ALRIFAI_VESSEL_PROCESSING_ENABLED=1`, `ALRIFAI_LIVE_CASH_SYNC=0`; 8 live WA-01 DRAFT programs exist. Draft worker/outbound and `PHASE3_PAID_EVENTS_ENABLED` remain **OFF**; 0 Business Paid Events and 0 posting links. All `AI_*` flags `0`. |
+| **Historical Release** | `v1.4.0-phase3-rc2` / `phase3-rc-final5` / schema 1.4.0 (2026-11-06 cutover); prior image `phase3-ai-rc-7da17f1` / schema 1.5.0 is the immediate rollback. Tags and rollback instructions are retained. |
+| **Built but Not Deployed** | `feature/phase3-010-011-activation`: recipient resolution from the original authorised order conversation (with explicit Owner pin and group refusal), pre-send WA-01 bridge identity verification, and a read-only preflight / controlled enqueue-tick CLI. Tested; production deployment requires separate Owner approval. |
+| **Pending Migration / Activation** | No new migration. Outbound draft delivery remains `MANUAL_COPY_ONLY`: WA-01 has **no `messages.send` capability**, the app container has no WA-01 socket/token mount, and no sender/recipient is configured. Business Paid activation (`PHASE3_PAID_EVENTS_ENABLED=1`) is also pending explicit Owner approval. |
 
 **Active goal: Authenticated Production UI Verification.** Login is
 **OWNER-CONFIRMED** for `Admin`, `officeassistant` and `officeazzistant2` with
@@ -62,7 +62,7 @@ its own administrator, accounts, rates, relay and authorized chats.
 | Package manager | pnpm 11.25.0 (or npm/npx) |
 | Database | PostgreSQL 16 (≥ 13 supported by the SQL used) |
 | Framework | Next.js 16.4.1 |
-| Schema | fresh baseline `db/standalone/schema.sql` + additive migrations 002–009 (version **1.5.0**); `010_vessel_draft_delivery.sql` is written but **pending Owner approval / not applied in production** |
+| Schema | fresh baseline `db/standalone/schema.sql` + additive migrations 002–011 (version **1.6.0**, 49 tables); no new migration is required by this branch |
 
 ---
 
@@ -375,19 +375,18 @@ sha256sum /var/backups/alrifai-*.dump > /var/backups/alrifai-$(date +%Y%m%d-%H%M
 Restore into a new database first, then switch `PGDATABASE`. Updates: back up,
 replace the source, `pnpm install --frozen-lockfile && pnpm build`, run
 `pnpm db:migrate` (additive, checksum-tracked), restart, verify `/api/health`.
-The current production schema is `1.5.0` (migrations 002–009 applied;
-additive `010_vessel_draft_delivery.sql` is pending Owner approval and not
-applied).
+The current production schema is `1.6.0` (migrations 002–011 applied, 49
+tables). No new migration is required by the activation branch.
 
 ---
 
 ## 7. Tests
 
 ```bash
-pnpm test:unit        # pure functions (133 assertions)
+pnpm test:unit        # pure functions (149 assertions)
 pnpm test:standalone  # all DB suites: domain, WhatsApp adapter, router,
-                      # cutover, Review Queue, Cash lifecycle, users, AI and
-                      # durable Vessel Draft delivery (133 integration tests)
+                      # cutover, Review Queue, Cash lifecycle, users, AI,
+                      # Vessel Draft recipient/store/worker (180 integration tests)
 ```
 
 The integration tests are destructive to their schema: run them against a
@@ -466,9 +465,11 @@ never point them at production.
   vessel writes; a future edit-reconciliation workflow is a separate design.
 * Vessel order drafts are **copy-only** (`MANUAL_COPY_ONLY`). The platform
   renders the exact Owner layout on `/vessel/drafts`, program detail and review
-  detail, but does not send it to WhatsApp: neither bridge has a `messages.send`
-  capability and no outbound sender is enabled. Automatic delivery requires an
-  explicit Owner decision. See `docs/VESSEL_ORDER_DRAFT.md`.
+  detail. The activation branch adds recipient resolution (explicit pin or the
+  authorised Admin from the original order conversation; groups are refused) and
+  pre-send bridge identity verification, but no message is sent: WA-01 has no
+  `messages.send` capability, the container has no WA-01 socket/token, and the
+  worker/outbound switches remain off. See `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`.
 * Unstructured release/cancel/food-bill/transfer messages **are now parsed**
   (`7da17f1`) into enriched, **pending** review evidence with read-only
   candidate-program matching; no program, release date, payment or Cash posting
@@ -504,14 +505,20 @@ It contains **no schema change**; schema remains `1.5.0`. Business counts were
 identical before/after deployment and WhatsApp checkpoints were preserved.
 See `docs/PHASE3_GO_NO_GO_7da17f1.md` and `NEXT-HANDOFF.md`.
 
-The feature branch beyond `7da17f1` (commits `8b9b779` onward — see `git log`) adds
-employee-update `PATCH`, payroll capability gating, `TRANSFER` classification,
-the pure + durable Vessel Draft delivery queue, Admin delivery status UI and the
-Owner-assisted verification script. All of it is implemented and tested
-(**Built but Not Deployed**); production still runs `7da17f1`. Outbound WhatsApp
-draft delivery remains `MANUAL_COPY_ONLY` and migration `010` is **pending**
-(`docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`). A new image build/deploy, the
-migration and outbound activation each require separate explicit Owner approval.
+The `feature/phase3-010-011-release` branch is deployed as
+`phase3-ai-rc-8a6c2c6` with migrations 010/011. The follow-up
+`feature/phase3-010-011-activation` branch adds the missing operational wiring
+for Vessel Draft delivery: recipient resolution from the original order
+conversation (explicit Owner pin wins; group and non-admin senders are refused),
+pre-send verification that the bridge socket/token is really the approved WA-01
+sender, and `scripts/standalone/vessel-draft-activation.mjs` (read-only
+preflight by default; `--enqueue` and `--tick` require explicit confirmation).
+It is implemented, typechecked, linted, built and tested (**Built but Not
+Deployed**). WA-01 still has **no `messages.send` capability** and the container
+has no WA-01 socket/token mount, so outbound delivery remains
+`MANUAL_COPY_ONLY`. Deploying this branch, granting `messages.send`, mounting the
+bridge and enabling the two kill switches each require separate explicit Owner
+approval (`docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`).
 
 The production `.env` `ALRIFAI_TAG` was aligned to `phase3-ai-rc-7da17f1` with
 explicit Owner approval (one line, no restart, owner/mode preserved;
@@ -578,7 +585,10 @@ informational and do not alter DNS or proxy routing. Current production flags:
 (`AI_WA02_ENABLED`, `AI_OUTBOUND_ENABLED`, `AI_AUTO_REPLY_ENABLED`,
 `AI_LLM_ENABLED`) are `0` — the AI Assistant page is deployed, but the WA-02
 worker, outbound messaging and automatic replies are **off**. Migration 009 /
-schema 1.5.0 **is applied** (it is no longer "AI development — not deployed").
+schema 1.5.0 **is applied**, and 010/011 are now applied too (schema 1.6.0, 49
+tables). `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED`,
+`ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED` and `PHASE3_PAID_EVENTS_ENABLED` are
+absent/OFF.
 
 ### Backup and rollback
 

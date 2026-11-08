@@ -141,10 +141,10 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
 async function enqueueDraftIfApproved(program: ProgramRow): Promise<void> {
   if (program.state !== 'DRAFT') return;
   try {
-    const {runtimeDeliveryConfig} = await import('./vessel-draft-delivery-store.ts');
+    const {runtimeDeliveryConfig, enqueueDraftForProgram} = await import('./vessel-draft-delivery-store.ts');
     const config = await runtimeDeliveryConfig();
-    if (!config.ownerApprovedRecipient) return;
-    const {enqueueDraftForProgram} = await import('./vessel-draft-delivery-store.ts');
+    // The store resolves either the explicit Owner pin or the authorised Admin
+    // from the original order conversation. No approval means no queue row.
     await enqueueDraftForProgram(program, config);
   } catch (error) {
     const code = error instanceof Error ? error.message.slice(0, 120) : 'DRAFT_QUEUE_FAILED';

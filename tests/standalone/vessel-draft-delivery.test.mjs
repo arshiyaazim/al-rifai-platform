@@ -136,6 +136,37 @@ test('recipient mismatch is refused even when the gate is enabled', () => {
   assert.ok(result.reasons.includes('VESSEL_DRAFT_RECIPIENT_MISMATCH'));
 });
 
+test('a group recipient is always refused, even with an enabled gate', () => {
+  const config = enabledConfig();
+  const record = {...prepared(), state: 'QUEUED', recipientJid: '120363426895117693@g.us'};
+  const result = buildOutboundRequest(record, deliveryGate(config), config);
+  assert.equal(result.allowed, false);
+  assert.ok(result.reasons.includes('VESSEL_DRAFT_GROUP_RECIPIENT_FORBIDDEN'));
+});
+
+test('without an explicit pin the recipient must be one authorised Admin JID', () => {
+  const admin = '8801555000001@s.whatsapp.net';
+  const config = {
+    ...enabledConfig(),
+    ownerApprovedRecipient: null,
+    authorizedAdminJids: [admin],
+  };
+  const gate = deliveryGate(config);
+  assert.equal(gate.enabled, true);
+
+  const approved = {...prepared(), state: 'QUEUED', recipientJid: admin};
+  assert.equal(buildOutboundRequest(approved, gate, config).allowed, true);
+
+  const stranger = {
+    ...prepared(),
+    state: 'QUEUED',
+    recipientJid: '8801555999999@s.whatsapp.net',
+  };
+  const denied = buildOutboundRequest(stranger, gate, config);
+  assert.equal(denied.allowed, false);
+  assert.ok(denied.reasons.includes('VESSEL_DRAFT_RECIPIENT_MISMATCH'));
+});
+
 test('SENT is terminal and cannot be sent again', () => {
   const config = enabledConfig();
   const gate = deliveryGate(config);

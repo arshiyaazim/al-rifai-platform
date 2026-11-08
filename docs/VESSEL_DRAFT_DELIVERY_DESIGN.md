@@ -366,3 +366,110 @@ audit, status, gate, template) already exists.
 
 Until then: `MANUAL_COPY_ONLY`, no `messages.send`, no WhatsApp message, no
 production migration, no new image.
+
+---
+
+## 10. Activation wiring — implemented 2026-11-08 (still no send)
+
+Branch `feature/phase3-010-011-activation` (from deployed release `03df822`).
+Migrations 010/011 are already applied in production; **no new migration was
+written or applied**.
+
+### 10.1 Recipient resolution (explicit pin or original order sender)
+
+`lib/standalone/vessel-draft-recipient.ts` resolves exactly one recipient:
+
+| Basis | Rule |
+|---|---|
+| `EXPLICIT` | `ALRIFAI_VESSEL_DRAFT_RECIPIENT_JID` is used verbatim. A group JID is always refused. |
+| `SOURCE_CONVERSATION` | Without a pin, the Admin identity that participates in the original order conversation is used: an `OUTGOING` sender in that chat (`programs.source_message_id` → its `chat_jid`), matched against `whatsapp_accounts.admin_jids` for WA-01. The client who sent the order is **not** the recipient; the order's group chat is never the recipient. If no Admin participates, an `INCOMING` order sender is used only when it is itself an authorised, non-self Admin. |
+| `SOURCE_CHAT` | If there is no source message, a direct source chat is used only when that chat JID is itself an authorised Admin identity. |
+
+The sending account's own phone-number identity is excluded. If two different
+Admin identities participate in the same conversation, the result is
+`ADMIN_AMBIGUOUS` rather than an arbitrary choice. A missing source message, a group
+sender, an unapproved sender or an empty admin list produces
+`RECIPIENT_NOT_APPROVED` / `SOURCE_CONVERSATION_NOT_FOUND` with a reason; no row is
+queued and the refusal is audited (`VESSEL_DRAFT_DELIVERY_RECIPIENT_BLOCKED`).
+`lib/standalone/programs.ts` now calls this resolver after a committed DRAFT
+instead of requiring a hardcoded recipient.
+
+The runtime gate also accepts the Owner-configured WA-01 admin list when no
+single recipient is pinned. The sending account's own JID and all group JIDs are
+removed from that list. A pinned recipient still wins and is matched exactly.
+
+### 10.2 Sender identity verification before every send
+
+`lib/vessel-draft-transport.ts` exports `verifyVesselDraftSender()`, which calls
+`get_native_account_identity` on the configured socket/token and compares the
+observed identity with `ALRIFAI_VESSEL_DRAFT_SENDER_JID` (device suffix
+normalised). The worker calls it **before** `send_message`:
+
+- identity matches → the single send proceeds;
+- identity is missing/different → `FAILED` with
+  `VESSEL_DRAFT_SENDER_MISMATCH` / `...IDENTITY_UNAVAILABLE`, and the transport is
+  never called;
+- unreadable socket/token → bounded failure, no send.
+
+`DELIVERY_UNKNOWN` remains reserved for an ambiguous transport outcome, never for
+a verified pre-send refusal.
+
+### 10.3 Controlled operator CLI
+
+`scripts/standalone/vessel-draft-activation.mjs` (also
+`pnpm vessel:activation`):
+
+```bash
+# Read-only preflight (default): gate, counts, candidate drafts, resolutions
+node --experimental-strip-types scripts/standalone/vessel-draft-activation.mjs --limit=10
+
+# Optional read-only bridge identity check
+node ... --verify-sender
+
+# One controlled enqueue (still no send)
+node ... --enqueue --program=<id> --confirm-enqueue
+
+# One controlled tick (real send only if all five gate blocks pass)
+node ... --tick --limit=1 --confirm-send
+```
+
+Identities are masked unless `--show-identities` is passed. No token, password
+or message body is printed. `--tick` refuses when the gate is disabled.
+
+### 10.4 Verification evidence (disposable DB only)
+
+| Check | Result |
+|---|---|
+| `pnpm typecheck` | clean |
+| `pnpm lint` | 0 errors, 2 pre-existing warnings |
+| `pnpm test:unit` | 149/149 |
+| `pnpm test:standalone` | 180/180 |
+| `pnpm test:paid-events` | 23/23 |
+| `pnpm build` | pass; `/cash/paid`, `/cash/paid/[id]`, `/vessel/drafts` emitted |
+| New recipient tests | explicit pin, group refusal, authorised sender, non-admin refusal, missing source, direct-chat fallback |
+| New worker tests | sender match, mismatch refusal (transport not called), identity-unavailable refusal, adapter mapping |
+| Cash parity | flag OFF keeps POSTED-only totals; flag ON reconciles Business Paid + legacy POSTED; WhatsApp + Office cards equal the total card |
+
+### 10.5 Production blockers at the time of writing
+
+| Blocker | Evidence |
+|---|---|
+| No `messages.send` capability | WA-01 consumer policy has read/native-read/call-policy capabilities only. |
+| App has no WA-01 bridge access | No WA-01 socket/token mount in `al-rifai-phase3-app-1`. |
+| No approved identities | `ALRIFAI_VESSEL_DRAFT_SENDER_JID` / `_RECIPIENT_JID` / socket / token env are absent. |
+| Kill switches off | `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED` and `_OUTBOUND_ENABLED` absent; `app_settings.vessel_draft_outbound_enabled` absent. |
+| Paid flag off | `PHASE3_PAID_EVENTS_ENABLED` absent; 0 events, 0 posting links. |
+
+These are Owner-approval gates, not code gaps. The smallest activation is: one
+narrow WA-01 consumer token with `messages.send` scoped to the approved Admin,
+mount the socket/token read-only, set the sender/recipient and both kill
+switches, then run exactly one `--tick --limit=1 --confirm-send` and verify the
+bridge response, one `SENT` row, one audit row and no duplicate.
+
+### 10.6 Paid Events activation (unchanged code, flag-gated)
+
+No Cash code changed. `PHASE3_PAID_EVENTS_ENABLED=1` switches the eight
+dashboard cards and `/cash/paid` to `businessPaidSummary()`; flag OFF keeps the
+POSTED-only basis. Activation is a single env change plus restart, and still
+requires explicit Owner approval. No historical backfill, `postInstruction()`,
+`cash_postings` or `ledger_entries` write is performed by a WhatsApp payment.

@@ -10,6 +10,7 @@
 
 import {existsSync} from 'node:fs';
 import {callSocketTool} from './standalone/whatsapp.ts';
+import {jidsMatch, normalizeAccountJid} from './whatsapp-identity.mjs';
 import type {OutboundRequest} from './vessel-draft-delivery.ts';
 
 export type VesselDraftTransportOutcome =
@@ -36,6 +37,55 @@ export function vesselDraftTransportPaths(): VesselDraftTransportPaths | null {
   if (!existsSync(socketPath) || !existsSync(tokenFile)) return null;
   return {socketPath, tokenFile};
 }
+
+/**
+ * Verify the bridge this socket/token actually belongs to before every send.
+ * A wrong account must never be able to deliver a vessel draft: an identity
+ * read failure or mismatch is a refusal, not a warning.
+ */
+export type VesselDraftSenderVerification =
+  | {ok: true; observed: string}
+  | {ok: false; reason: string; observed: string | null};
+
+export type VesselDraftVerifySender = (
+  expectedSender: string,
+  paths: VesselDraftTransportPaths,
+  callTool?: typeof callSocketTool,
+) => Promise<VesselDraftSenderVerification>;
+
+export const verifyVesselDraftSender: VesselDraftVerifySender = async (
+  expectedSender,
+  paths,
+  callTool = callSocketTool,
+) => {
+  try {
+    const result = await callTool(paths.socketPath, paths.tokenFile, 'get_native_account_identity', {});
+    const observed = typeof result.jid === 'string'
+      ? result.jid
+      : typeof result.accountJid === 'string'
+        ? result.accountJid
+        : null;
+    if (!observed) {
+      return {ok: false, reason: 'VESSEL_DRAFT_SENDER_IDENTITY_MISSING', observed: null};
+    }
+    const actual = normalizeAccountJid(observed);
+    const expected = normalizeAccountJid(expectedSender);
+    if (!actual || !expected) {
+      return {ok: false, reason: 'VESSEL_DRAFT_SENDER_IDENTITY_INVALID', observed};
+    }
+    if (!jidsMatch(actual, expected)) {
+      return {ok: false, reason: 'VESSEL_DRAFT_SENDER_MISMATCH', observed};
+    }
+    return {ok: true, observed};
+  } catch (error) {
+    const code = error instanceof Error ? error.message : 'VESSEL_DRAFT_SENDER_IDENTITY_ERROR';
+    return {
+      ok: false,
+      reason: `VESSEL_DRAFT_SENDER_IDENTITY_UNAVAILABLE:${code}`.slice(0, 300),
+      observed: null,
+    };
+  }
+};
 
 /**
  * One bridge send. The tool contract follows the existing WA-02 sender:

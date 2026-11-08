@@ -60,11 +60,13 @@ before(async () => {
 
 beforeEach(async () => {
   await owner.query('DELETE FROM vessel_draft_deliveries');
+  await owner.query("DELETE FROM whatsapp_messages WHERE account_id='wa-01' AND message_id LIKE 'vdd-test-order-%'");
   await cleanAudit();
 });
 
 after(async () => {
   await owner.query('DELETE FROM vessel_draft_deliveries');
+  await owner.query("DELETE FROM whatsapp_messages WHERE account_id='wa-01' AND message_id LIKE 'vdd-test-order-%'");
   await owner.query('DELETE FROM program_pay WHERE program_id IN ($1,$2)', [COMPLETE_PROGRAM, INCOMPLETE_PROGRAM]);
   await owner.query('DELETE FROM programs WHERE id IN ($1,$2)', [COMPLETE_PROGRAM, INCOMPLETE_PROGRAM]);
   await cleanAudit();
@@ -91,6 +93,47 @@ test('migration 010 table is present and runtime gate stays disabled', async () 
   assert.equal(config.ownerApprovedSender, null);
   assert.equal(config.transportConfigured, false);
   assert.ok(gate.reasons.length >= 4);
+});
+
+test('without an explicit pin, the authorised order sender becomes the recipient', async () => {
+  const admin = '8801880446111@s.whatsapp.net';
+  await owner.query(
+    `INSERT INTO whatsapp_messages
+       (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash)
+     VALUES ('wa-01',$1,$2,'INCOMING',$3,now(),'order','vdd-test-hash-1')
+     ON CONFLICT (account_id, chat_jid, message_id) DO UPDATE SET sender_jid=EXCLUDED.sender_jid`,
+    ['120363426895117799@g.us', 'vdd-test-order-1', admin],
+  );
+  const result = await enqueueDraftForProgram(completeProgram(), {
+    ...testConfig(),
+    ownerApprovedRecipient: null,
+    authorizedAdminJids: [admin],
+  }, T0);
+  assert.equal(result.status, 'QUEUED');
+  assert.equal(result.record.recipientJid, admin);
+  const audit = await owner.query(
+    "SELECT detail FROM audit_events WHERE entity='vessel_draft_delivery' AND action='VESSEL_DRAFT_DELIVERY_QUEUED' ORDER BY at DESC LIMIT 1",
+  );
+  assert.equal(audit.rows[0].detail.recipientBasis, 'SOURCE_CONVERSATION');
+});
+
+test('without an explicit pin, a non-admin order sender blocks the queue', async () => {
+  await owner.query(
+    `INSERT INTO whatsapp_messages
+       (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash)
+     VALUES ('wa-01',$1,$2,'INCOMING',$3,now(),'order','vdd-test-hash-2')
+     ON CONFLICT (account_id, chat_jid, message_id) DO UPDATE SET sender_jid=EXCLUDED.sender_jid`,
+    ['8801777000001@s.whatsapp.net', 'vdd-test-order-1', '8801777000001@s.whatsapp.net'],
+  );
+  const result = await enqueueDraftForProgram(completeProgram(), {
+    ...testConfig(),
+    ownerApprovedRecipient: null,
+    authorizedAdminJids: ['8801880446111@s.whatsapp.net'],
+  }, T0);
+  assert.equal(result.status, 'RECIPIENT_NOT_APPROVED');
+  assert.equal(result.reason, 'SOURCE_SENDER_NOT_ADMIN');
+  const count = await row('SELECT count(*)::int AS n FROM vessel_draft_deliveries');
+  assert.equal(count.n, 0);
 });
 
 test('complete draft creates exactly one durable QUEUED record with an audit trail', async () => {
