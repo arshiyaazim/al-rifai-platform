@@ -1,186 +1,249 @@
 // Vessel Draft recipient resolution — isolated disposable database only.
 //
-// Proves the owner rule: one direct Admin conversation, never a client or
-// release group, and never an invented identity. The reserved production shape
-// is reproduced: a client sends the order into a group and the Admin's own LID
-// appears as an OUTGOING sender in the same conversation.
+// The delivery target is the SAME original authorised order-giving
+// conversation. A direct client chat stays a direct client chat; an approved
+// group stays that same group. An Admin JID is never a fallback.
 import assert from 'node:assert/strict';
 import test, {after, before, beforeEach} from 'node:test';
 import {createPool} from '../../db/postgres.mjs';
 import {resolveDraftRecipient} from '../../lib/standalone/vessel-draft-recipient.ts';
 
-const PN = '8801880446111@s.whatsapp.net';
-const LID = '55000000000001@lid';
-const STRANGER = '8801777000001@s.whatsapp.net';
-const DIRECT = '8801777000099@s.whatsapp.net';
+const DIRECT = '55000000000002@lid';
+const DIRECT_SENDER = '55000000000002';
+const GROUP = '120363426895117701@g.us';
+const GROUP_OTHER = '120363426895117702@g.us';
+const CASH_CHAT = '8801777000003@s.whatsapp.net';
+const ADMIN_LID = '55000000000009@lid';
 const SUFFIX = `vdd-recipient-${process.pid}`;
-const GROUP_PARTICIPANT = '120363426895117701@g.us';
-const GROUP_ORDER = '120363426895117702@g.us';
-const GROUP_EMPTY = '120363426895117703@g.us';
-const GROUP_FALLBACK = '120363426895117704@g.us';
-
 const messageIds = [];
+
 let owner;
-let savedAccount;
+
+async function setSetting(value) {
+  await owner.query(
+    `INSERT INTO app_settings (key, value, updated_at)
+     VALUES ('phase3_business_chats:wa-01', $1::jsonb, now())
+     ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`,
+    [JSON.stringify(value)],
+  );
+}
+
+async function setChat(chatJid, {purpose = 'ORDERS', authorized = true} = {}) {
+  await owner.query(
+    `INSERT INTO whatsapp_chats (account_id, chat_jid, label, purpose, authorized)
+     VALUES ('wa-01',$1,'test',$2,$3)
+     ON CONFLICT (account_id, chat_jid) DO UPDATE
+       SET purpose=EXCLUDED.purpose, authorized=EXCLUDED.authorized`,
+    [chatJid, purpose, authorized],
+  );
+}
+
+async function authorizeParticipant(groupJid, participantJid, active = true) {
+  await owner.query(
+    `INSERT INTO escort_client_group_authorizations
+       (id, account_id, group_jid, participant_jid, client_contact_id, active)
+     VALUES ($1,'wa-01',$2,$3,'test-client',$4)
+     ON CONFLICT (id) DO UPDATE SET active=EXCLUDED.active`,
+    [`wga-${groupJid}-${participantJid}`, groupJid, participantJid, active],
+  );
+}
 
 async function insertMessage(id, {sender, chat, direction = 'INCOMING'}) {
-  messageIds.push(id);
+  messageIds.push({id, chat});
   await owner.query(
     `INSERT INTO whatsapp_messages
        (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash)
      VALUES ('wa-01',$1,$2,$3,$4,now(),'order placeholder',$5)
      ON CONFLICT (account_id, chat_jid, message_id) DO UPDATE
        SET sender_jid=EXCLUDED.sender_jid, direction=EXCLUDED.direction`,
-    [chat, id, direction, sender, `hash-${id}`],
+    [chat, id, direction, sender, `hash-${chat}-${id}`],
   );
-}
-
-async function withAdmins(adminJids, accountJid, fn) {
-  await owner.query(
-    "UPDATE whatsapp_accounts SET admin_jids=$1::jsonb, account_jid=$2 WHERE id='wa-01'",
-    [JSON.stringify(adminJids), accountJid],
-  );
-  try {
-    return await fn();
-  } finally {
-    await owner.query(
-      "UPDATE whatsapp_accounts SET admin_jids=$1::jsonb, account_jid=$2 WHERE id='wa-01'",
-      [JSON.stringify(savedAccount.admin_jids), savedAccount.account_jid],
-    );
-  }
 }
 
 before(async () => {
   owner = createPool({role: 'app', readOnly: false, applicationName: 'vessel-draft-recipient-test'});
-  const account = await owner.query("SELECT admin_jids, account_jid FROM whatsapp_accounts WHERE id='wa-01'");
-  assert.ok(Array.isArray(account.rows[0]?.admin_jids));
-  savedAccount = account.rows[0];
 });
 
 beforeEach(async () => {
-  if (messageIds.length) {
-    await owner.query('DELETE FROM whatsapp_messages WHERE account_id=$1 AND message_id = ANY($2::text[])', [
-      'wa-01', messageIds.splice(0),
+  for (const entry of messageIds.splice(0)) {
+    await owner.query('DELETE FROM whatsapp_messages WHERE account_id=$1 AND chat_jid=$2 AND message_id=$3', [
+      'wa-01', entry.chat, entry.id,
     ]);
   }
+  await owner.query("DELETE FROM app_settings WHERE key='phase3_business_chats:wa-01'");
+  await owner.query("DELETE FROM escort_client_group_authorizations WHERE group_jid LIKE '1203634268951177%'");
+  await owner.query("DELETE FROM whatsapp_chats WHERE chat_jid IN ($1,$2,$3,$4)", [
+    DIRECT, GROUP, GROUP_OTHER, CASH_CHAT,
+  ]);
 });
 
 after(async () => {
-  await owner.query('DELETE FROM whatsapp_messages WHERE account_id=$1 AND message_id = ANY($2::text[])', [
-    'wa-01', messageIds,
-  ]).catch(() => undefined);
+  await owner.query("DELETE FROM app_settings WHERE key='phase3_business_chats:wa-01'");
   await owner.end();
 });
 
-test('explicit Owner pin resolves verbatim and refuses a group', async () => {
-  const pinned = await resolveDraftRecipient({
-    programId: 'p',
-    explicitRecipient: STRANGER,
-  });
-  assert.equal(pinned.status, 'RESOLVED');
-  assert.equal(pinned.basis, 'EXPLICIT');
-  assert.equal(pinned.recipientJid, STRANGER);
+test('a direct client chat resolves to that exact conversation, never the Admin', async () => {
+  await setSetting([DIRECT]);
+  await setChat(DIRECT, {purpose: 'ORDERS'});
+  const id = `${SUFFIX}-direct`;
+  await insertMessage(id, {sender: DIRECT_SENDER, chat: DIRECT});
 
-  const group = await resolveDraftRecipient({
-    programId: 'p',
-    explicitRecipient: GROUP_EMPTY,
-  });
-  assert.equal(group.status, 'RECIPIENT_NOT_APPROVED');
-  assert.equal(group.reason, 'EXPLICIT_RECIPIENT_IS_GROUP');
-});
-
-test('the Admin participant in the original conversation is the recipient, not the client', async () => {
-  await withAdmins([PN, '55000000000001', LID], PN, async () => {
-    const client = `${SUFFIX}-client`;
-    const admin = `${SUFFIX}-admin-out`;
-    await insertMessage(client, {sender: '114109177684169', chat: GROUP_PARTICIPANT});
-    await insertMessage(admin, {
-      sender: '55000000000001', chat: GROUP_PARTICIPANT, direction: 'OUTGOING',
-    });
-    const result = await resolveDraftRecipient({
-      programId: 'p',
-      sourceMessageId: client,
-      sourceChatJid: GROUP_PARTICIPANT,
-    });
-    assert.equal(result.status, 'RESOLVED');
-    assert.equal(result.basis, 'SOURCE_CONVERSATION');
-    assert.equal(result.recipientJid, LID, 'the Admin LID, never the client or the group');
-  });
-});
-
-test('an authorised Admin who sent the original order is resolved', async () => {
-  const id = `${SUFFIX}-admin-in`;
-  await insertMessage(id, {sender: PN, chat: GROUP_ORDER});
   const result = await resolveDraftRecipient({
     programId: 'p',
     sourceMessageId: id,
-    sourceChatJid: GROUP_ORDER,
+    sourceChatJid: DIRECT,
   });
   assert.equal(result.status, 'RESOLVED');
+  assert.equal(result.recipientJid, DIRECT);
   assert.equal(result.basis, 'SOURCE_CONVERSATION');
-  assert.equal(result.recipientJid, PN, 'a group chat never becomes the recipient');
+
+  const pinned = await resolveDraftRecipient({
+    programId: 'p',
+    sourceMessageId: id,
+    sourceChatJid: DIRECT,
+    explicitRecipient: DIRECT,
+  });
+  assert.equal(pinned.status, 'RESOLVED');
+  assert.equal(pinned.basis, 'EXPLICIT_PIN_MATCH');
+
+  const wrongPin = await resolveDraftRecipient({
+    programId: 'p',
+    sourceMessageId: id,
+    sourceChatJid: DIRECT,
+    explicitRecipient: ADMIN_LID,
+  });
+  assert.equal(wrongPin.status, 'RECIPIENT_NOT_APPROVED');
+  assert.equal(wrongPin.reason, 'EXPLICIT_RECIPIENT_MISMATCH');
 });
 
-test('a non-admin order sender is refused rather than guessed', async () => {
-  const id = `${SUFFIX}-stranger`;
-  await insertMessage(id, {sender: STRANGER, chat: STRANGER});
+test('an approved group order resolves to that same group, not the client or Admin', async () => {
+  await setSetting([GROUP]);
+  await setChat(GROUP, {purpose: 'ORDERS'});
+  await authorizeParticipant(GROUP, '114109177684169');
+  const id = `${SUFFIX}-group`;
+  await insertMessage(id, {sender: '114109177684169', chat: GROUP});
+
   const result = await resolveDraftRecipient({
     programId: 'p',
     sourceMessageId: id,
-    sourceChatJid: STRANGER,
+    sourceChatJid: GROUP,
+  });
+  assert.equal(result.status, 'RESOLVED');
+  assert.equal(result.recipientJid, GROUP, 'the exact approved group');
+  assert.notEqual(result.recipientJid, ADMIN_LID);
+});
+
+test('a group order from an unapproved participant is refused', async () => {
+  await setSetting([GROUP]);
+  await setChat(GROUP, {purpose: 'ORDERS'});
+  const id = `${SUFFIX}-group-bad`;
+  await insertMessage(id, {sender: '114109177684169', chat: GROUP});
+  const result = await resolveDraftRecipient({
+    programId: 'p',
+    sourceMessageId: id,
+    sourceChatJid: GROUP,
   });
   assert.equal(result.status, 'RECIPIENT_NOT_APPROVED');
-  assert.equal(result.reason, 'SOURCE_SENDER_NOT_ADMIN');
+  assert.equal(result.reason, 'GROUP_PARTICIPANT_NOT_AUTHORIZED');
 });
 
-test('a missing source message is never replaced by the source group', async () => {
-  // Keep the reserved Admin list but use a chat with no messages.
-  await withAdmins([PN], null, async () => {
-    const result = await resolveDraftRecipient({
-      programId: 'p',
-      sourceMessageId: `${SUFFIX}-missing`,
-      sourceChatJid: GROUP_FALLBACK,
-    });
-    assert.equal(result.status, 'SOURCE_CONVERSATION_NOT_FOUND');
-    assert.equal(result.reason, 'SOURCE_MESSAGE_NOT_FOUND');
-  });
-});
-
-test('a direct source chat may resolve only when it is an authorised Admin', async () => {
-  await withAdmins([DIRECT], null, async () => {
-    const direct = await resolveDraftRecipient({
-      programId: 'p',
-      sourceMessageId: null,
-      sourceChatJid: DIRECT,
-    });
-    assert.equal(direct.status, 'RESOLVED');
-    assert.equal(direct.recipientJid, DIRECT);
-    assert.equal(direct.basis, 'SOURCE_CHAT');
-  });
-
-  const group = await resolveDraftRecipient({
+test('a source conversation outside the business allowlist is refused', async () => {
+  await setSetting([DIRECT]);
+  await setChat(GROUP, {purpose: 'ORDERS'});
+  await authorizeParticipant(GROUP, '114109177684169');
+  const id = `${SUFFIX}-outside`;
+  await insertMessage(id, {sender: '114109177684169', chat: GROUP});
+  const result = await resolveDraftRecipient({
     programId: 'p',
-    sourceMessageId: null,
-    sourceChatJid: GROUP_EMPTY,
+    sourceMessageId: id,
+    sourceChatJid: GROUP,
   });
-  assert.equal(group.status, 'SOURCE_CONVERSATION_NOT_FOUND');
-  assert.equal(group.reason, 'SOURCE_CHAT_NOT_ADMIN');
+  assert.equal(result.status, 'SOURCE_CONVERSATION_NOT_FOUND');
+  assert.equal(result.reason, 'SOURCE_CONVERSATION_NOT_IN_BUSINESS_SCOPE');
 });
 
-test('an ambiguous Admin set is refused instead of choosing one', async () => {
-  const otherAdmin = '8801777000088@s.whatsapp.net';
-  await withAdmins([PN, otherAdmin], null, async () => {
-    const chat = '120363426895117705@g.us';
-    const client = `${SUFFIX}-amb-client`;
-    await insertMessage(client, {sender: STRANGER, chat});
-    await insertMessage(`${SUFFIX}-amb-1`, {sender: PN, chat, direction: 'OUTGOING'});
-    await insertMessage(`${SUFFIX}-amb-2`, {sender: otherAdmin, chat, direction: 'OUTGOING'});
-    const result = await resolveDraftRecipient({
-      programId: 'p',
-      sourceMessageId: client,
-      sourceChatJid: chat,
-    });
-    assert.equal(result.status, 'RECIPIENT_NOT_APPROVED');
-    assert.equal(result.reason, 'ADMIN_AMBIGUOUS');
+test('an unauthorised or non-ORDERS chat is refused', async () => {
+  await setSetting([CASH_CHAT]);
+  await setChat(CASH_CHAT, {purpose: 'CASH'});
+  const id = `${SUFFIX}-cash`;
+  await insertMessage(id, {sender: CASH_CHAT, chat: CASH_CHAT});
+  const cash = await resolveDraftRecipient({
+    programId: 'p',
+    sourceMessageId: id,
+    sourceChatJid: CASH_CHAT,
   });
+  assert.equal(cash.status, 'SOURCE_CONVERSATION_NOT_FOUND');
+  assert.equal(cash.reason, 'SOURCE_CONVERSATION_NOT_ORDERS');
+
+  await setChat(CASH_CHAT, {purpose: 'ORDERS', authorized: false});
+  const disabled = await resolveDraftRecipient({
+    programId: 'p',
+    sourceMessageId: id,
+    sourceChatJid: CASH_CHAT,
+  });
+  assert.equal(disabled.status, 'SOURCE_CONVERSATION_NOT_FOUND');
+  assert.equal(disabled.reason, 'SOURCE_CONVERSATION_NOT_AUTHORIZED');
+});
+
+test('a program/source-chat mismatch blocks instead of alias-guessing', async () => {
+  await setSetting([DIRECT, GROUP_OTHER]);
+  await setChat(DIRECT, {purpose: 'ORDERS'});
+  const id = `${SUFFIX}-mismatch`;
+  await insertMessage(id, {sender: DIRECT_SENDER, chat: DIRECT});
+  const result = await resolveDraftRecipient({
+    programId: 'p',
+    sourceMessageId: id,
+    sourceChatJid: GROUP_OTHER,
+  });
+  assert.equal(result.status, 'SOURCE_CONVERSATION_NOT_FOUND');
+  assert.equal(result.reason, 'SOURCE_CHAT_MISMATCH');
+});
+
+test('a message found in two chats is ambiguous and is refused', async () => {
+  await setSetting([DIRECT, GROUP_OTHER]);
+  await setChat(DIRECT, {purpose: 'ORDERS'});
+  await setChat(GROUP_OTHER, {purpose: 'ORDERS'});
+  const id = `${SUFFIX}-ambiguous`;
+  await insertMessage(id, {sender: DIRECT_SENDER, chat: DIRECT});
+  await insertMessage(id, {sender: '114109177684169', chat: GROUP_OTHER});
+  const result = await resolveDraftRecipient({
+    programId: 'p',
+    sourceMessageId: id,
+    sourceChatJid: DIRECT,
+  });
+  assert.equal(result.status, 'SOURCE_CONVERSATION_NOT_FOUND');
+  assert.equal(result.reason, 'SOURCE_CONVERSATION_AMBIGUOUS');
+});
+
+test('a missing source message or missing source id blocks delivery', async () => {
+  await setSetting([DIRECT]);
+  await setChat(DIRECT, {purpose: 'ORDERS'});
+  const missing = await resolveDraftRecipient({
+    programId: 'p',
+    sourceMessageId: `${SUFFIX}-missing`,
+    sourceChatJid: DIRECT,
+  });
+  assert.equal(missing.status, 'SOURCE_CONVERSATION_NOT_FOUND');
+  assert.equal(missing.reason, 'SOURCE_MESSAGE_NOT_FOUND');
+
+  const noId = await resolveDraftRecipient({
+    programId: 'p',
+    sourceChatJid: DIRECT,
+  });
+  assert.equal(noId.status, 'SOURCE_CONVERSATION_NOT_FOUND');
+  assert.equal(noId.reason, 'SOURCE_MESSAGE_REQUIRED');
+});
+
+test('a direct chat whose sender is not the chat identity is refused', async () => {
+  await setSetting([DIRECT]);
+  await setChat(DIRECT, {purpose: 'ORDERS'});
+  const id = `${SUFFIX}-direct-sender`;
+  await insertMessage(id, {sender: ADMIN_LID, chat: DIRECT});
+  const result = await resolveDraftRecipient({
+    programId: 'p',
+    sourceMessageId: id,
+    sourceChatJid: DIRECT,
+  });
+  assert.equal(result.status, 'RECIPIENT_NOT_APPROVED');
+  assert.equal(result.reason, 'DIRECT_SENDER_CHAT_MISMATCH');
 });

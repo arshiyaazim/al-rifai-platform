@@ -28,24 +28,24 @@ and **no message sent**.
 
 Added:
 
-- `lib/standalone/vessel-draft-recipient.ts` — resolves the one recipient from
-  the explicit Owner pin or the Admin identity that participates in the original
-  order conversation (an OUTGOING sender in `programs.source_message_id`'s chat,
-  matched to `whatsapp_accounts.admin_jids`). The client sender is never the
-  recipient; groups, non-admin senders, the sending account's own phone-number
-  identity, ambiguous Admin sets and missing source messages are refused;
-  refusals are audited and never queued.
-- `lib/vessel-draft-delivery.ts` — gate accepts the WA-01 admin list only when
-  no recipient is pinned; group recipients are always refused;
+- `lib/standalone/vessel-draft-recipient.ts` — resolves the recipient as the
+  **same original authorised order-giving conversation**. It requires the
+  source message to be unique, `programs.source_chat_jid` to match it exactly,
+  the chat to be in the Owner-approved business allowlist and authorised for
+  ORDERS/BOTH, an INCOMING message, and an approved group participant or a
+  matching direct-chat sender. Admin JIDs are never a fallback; missing,
+  ambiguous or mismatched evidence is audited and never queued.
+- `lib/vessel-draft-delivery.ts` — the gate accepts only the Owner-approved
+  business conversation list (and an optional exact pin);
   `isApprovedDraftRecipient()` is the single recipient rule.
 - `lib/vessel-draft-transport.ts` — `verifyVesselDraftSender()` calls
   `get_native_account_identity` and compares it with the approved sender.
-- `lib/vessel-draft-delivery-worker.ts` — verifies the bridge identity before
-  every `send_message`; mismatch/unreadable identity is a bounded `FAILED`
-  with no transport call.
+- `lib/vessel-draft-delivery-worker.ts` — re-resolves the source
+  conversation and verifies the bridge identity before every `send_message`; a
+  mismatch is a bounded `FAILED` with no transport call.
 - `lib/standalone/vessel-draft-delivery-store.ts` + `programs.ts` — enqueue
   resolves the recipient instead of requiring a hardcoded JID; runtime config
-  loads and filters the WA-01 admin list.
+  loads the WA-01 business conversation allowlist.
 - `scripts/standalone/vessel-draft-activation.mjs` — read-only preflight by
   default, optional `--verify-sender`, controlled `--enqueue` / `--tick` behind
   confirmation flags; identities masked.

@@ -17,12 +17,14 @@ import {
   applyDeliveryOutcomeToStore,
   claimDueDeliveries,
   deliveryRowToRecord,
+  revalidateQueuedRecipient,
   runtimeDeliveryGate,
 } from './standalone/vessel-draft-delivery-store.ts';
 import {
   buildOutboundRequest,
   type DeliveryGateConfig,
   type DeliveryGate,
+  type DraftDeliveryRecord,
 } from './vessel-draft-delivery.ts';
 import {
   sendVesselDraft,
@@ -54,10 +56,16 @@ function limit(): number {
   return Math.min(Math.max(Math.floor(raw), 1), 100);
 }
 
+export type VesselDraftValidateRecipient = (
+  record: DraftDeliveryRecord,
+  config: DeliveryGateConfig,
+) => Promise<{ok: true} | {ok: false; reason: string}>;
+
 export type VesselDraftTickOptions = {
   limit?: number;
   transport?: VesselDraftSend;
   verifySender?: VesselDraftVerifySender;
+  validateRecipient?: VesselDraftValidateRecipient;
   paths?: VesselDraftTransportPaths | null;
   gate?: {config: DeliveryGateConfig; gate: DeliveryGate};
 };
@@ -85,6 +93,7 @@ export async function runVesselDraftDeliveryTick(
   const paths = options.paths === undefined ? vesselDraftTransportPaths() : options.paths;
   const transport = options.transport ?? sendVesselDraft;
   const verifySender = options.verifySender ?? verifyVesselDraftSender;
+  const validateRecipient = options.validateRecipient ?? revalidateQueuedRecipient;
   const claimed = await claimDueDeliveries(options.limit ?? limit());
   let sent = 0;
   let failed = 0;
@@ -106,6 +115,17 @@ export async function runVesselDraftDeliveryTick(
         error: `VESSEL_DRAFT_REQUEST_DENIED:${request.reasons.join(',')}`.slice(0, 300),
       });
       unknown += 1;
+      continue;
+    }
+    // Re-validate the original order conversation immediately before sending.
+    // A stale or tampered row must never redirect a draft to another chat.
+    const recipient = await validateRecipient(deliveryRowToRecord(row), runtime.config);
+    if (!recipient.ok) {
+      await applyDeliveryOutcomeToStore(row.id, {
+        kind: 'failed',
+        error: `VESSEL_DRAFT_RECIPIENT_INVALID:${recipient.reason}`.slice(0, 300),
+      });
+      failed += 1;
       continue;
     }
     // Confirm the socket/token belongs to the approved sender BEFORE any

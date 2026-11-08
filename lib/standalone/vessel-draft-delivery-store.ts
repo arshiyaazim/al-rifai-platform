@@ -15,7 +15,6 @@ import {existsSync} from 'node:fs';
 import {row, rows, tx} from './db.ts';
 import {listAudit, recordAudit} from './audit.ts';
 import {ownerDraftFromProgram} from '../order-draft-from-record.ts';
-import {jidsMatch} from '../whatsapp-identity.mjs';
 import {resolveDraftRecipient} from './vessel-draft-recipient.ts';
 import {
   CONFIRMATION_RULE,
@@ -366,8 +365,12 @@ export async function deliveryStatusForPrograms(programIds: string[]) {
   return rows<{
     id: string; program_id: string; state: DeliveryState; attempts: number;
     error: string | null; delivery_ref: string | null; updated_at: string;
+    source_message_id: string | null; recipient_jid: string;
+    next_attempt_at: string | null;
   }>(
     `SELECT id, program_id, state, attempts, error, delivery_ref,
+            source_message_id, recipient_jid,
+            next_attempt_at::text AS next_attempt_at,
             updated_at::text AS updated_at
        FROM ${TABLE}
       WHERE program_id = ANY($1::text[])
@@ -398,26 +401,58 @@ export async function runtimeDeliveryConfig(): Promise<DeliveryGateConfig> {
     socket && tokenFile && existsSync(socket) && existsSync(tokenFile),
   );
 
-  // Admin-only fallback when the Owner has not pinned one recipient. Groups and
-  // the sending account itself are excluded here, so a source-conversation
-  // resolution can never become a group send or a self-send.
-  const account = await row<{account_jid: string | null; admin_jids: unknown}>(
-    "SELECT account_jid, admin_jids FROM whatsapp_accounts WHERE id = 'wa-01'",
+  // The Owner-approved business conversation allowlist is the recipient scope.
+  // A delivery may only go to one of these exact original order conversations.
+  const chatSetting = await row<{value: unknown}>(
+    "SELECT value FROM app_settings WHERE key = 'phase3_business_chats:wa-01'",
   ).catch(() => null);
-  const admins = Array.isArray(account?.admin_jids)
-    ? account.admin_jids.filter((jid): jid is string => typeof jid === 'string' && jid.trim().length > 0)
+  config.authorizedRecipientJids = Array.isArray(chatSetting?.value)
+    ? chatSetting.value.filter((jid): jid is string => typeof jid === 'string' && jid.trim().length > 0)
     : [];
-  const selfJids = [account?.account_jid, config.ownerApprovedSender]
-    .filter((jid): jid is string => typeof jid === 'string' && jid.trim().length > 0);
-  config.authorizedAdminJids = admins
-    .map((jid) => jid.trim())
-    .filter((jid) => !selfJids.some((self) => jidsMatch(self, jid)));
   return config;
 }
 
 export async function runtimeDeliveryGate(): Promise<{config: DeliveryGateConfig; gate: DeliveryGate}> {
   const config = await runtimeDeliveryConfig();
   return {config, gate: deliveryGate(config)};
+}
+
+/**
+ * Re-validate a queued record at send time. The durable row is not trusted on
+ * its own: the program's source message must still resolve to exactly the same
+ * original conversation, and that conversation must still be in the
+ * Owner-approved business allowlist. This prevents a stale/tampered recipient
+ * from ever reaching the bridge.
+ */
+export async function revalidateQueuedRecipient(
+  record: DraftDeliveryRecord,
+  config: DeliveryGateConfig,
+): Promise<{ok: true} | {ok: false; reason: string}> {
+  const program = await row<{
+    source_message_id: string | null;
+    source_chat_jid: string | null;
+  }>(
+    'SELECT source_message_id, source_chat_jid FROM programs WHERE id = $1',
+    [record.programId],
+  ).catch(() => null);
+  if (!program) return {ok: false, reason: 'PROGRAM_NOT_FOUND'};
+
+  const resolution = await resolveDraftRecipient({
+    programId: record.programId,
+    sourceMessageId: program.source_message_id ?? record.sourceMessageId,
+    sourceChatJid: program.source_chat_jid,
+    explicitRecipient: config.ownerApprovedRecipient,
+  });
+  if (resolution.status !== 'RESOLVED') {
+    return {ok: false, reason: resolution.reason};
+  }
+  if (resolution.recipientJid !== record.recipientJid) {
+    return {ok: false, reason: 'RECORD_RECIPIENT_MISMATCH'};
+  }
+  if (!(config.authorizedRecipientJids ?? []).includes(record.recipientJid)) {
+    return {ok: false, reason: 'RECIPIENT_OUTSIDE_BUSINESS_SCOPE'};
+  }
+  return {ok: true};
 }
 
 /**

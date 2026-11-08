@@ -61,12 +61,13 @@ have `CHECK (account_id='wa-02')`, so they **cannot** carry a WA-01 draft.
 
 - **Sender account:** WA-01 only (`8801880446111@s.whatsapp.net`). WA-02 has no
   send capability and no admin JIDs.
-- **Recipient:** one explicitly Owner-approved WA-01 Admin JID (a direct chat,
-  NOT a client or release group). The exact JID is a configuration value, never
-  hardcoded here.
-- **Scope:** one message per DRAFT program, to that one Admin JID. Never to
-  client groups. The Admin then replies in the **original order chat**; that
-  reply remains the only confirmation (`applyConfirmation()` in
+- **Recipient:** the **same original authorised order-giving conversation** — an
+  approved Escort Client direct chat or an approved ORDERS group. Admin JIDs
+  are never a fallback. The exact JID is resolved from the source message and
+  the Owner-approved business allowlist, never hardcoded here.
+- **Scope:** one message per DRAFT program, to that one original conversation.
+  The Admin then replies in the **same original order chat**; that reply remains
+  the only confirmation (`applyConfirmation()` in
   `lib/standalone/whatsapp.ts`).
 
 This direction must be confirmed by the Owner before activation.
@@ -204,9 +205,11 @@ client acknowledgment or approval button.
 
 ## 6. Smallest possible outbound transport change (prepared, NOT enabled)
 
-1. Add one narrow WA-01 consumer token with `messages.send` scoped to the single
-   approved Admin JID. Do **not** widen the existing read token; do not touch
-   WA-02.
+1. Add one narrow WA-01 consumer token with `messages.send` (plus
+   `native.identity.read` for pre-send identity verification). Do **not** widen
+   the existing read token; do not touch WA-02. Recipient scope is enforced by
+   the application against the original conversation and the Owner-approved
+   business allowlist.
 2. Set `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=1`, an `app_settings` boolean
    `vessel_draft_outbound_enabled=true`, and explicit
    `ALRIFAI_VESSEL_DRAFT_SENDER_JID` / `ALRIFAI_VESSEL_DRAFT_RECIPIENT_JID` /
@@ -242,7 +245,8 @@ client acknowledgment or approval button.
 The Owner must explicitly approve all of:
 
 1. **Sending account** — WA-01 `8801880446111@s.whatsapp.net` (WA-02 has no role).
-2. **Recipient JID** — exact Admin JID (not currently configured anywhere).
+2. **Recipient scope** — the original order-giving conversation (direct client
+   chat or approved group), resolved per program. No Admin fallback.
 3. **Authorized chat scope** — one direct Admin chat; never client/release groups.
 4. **Message template** — the exact ten-line Owner draft in §5.
 5. **Delivery trigger** — one record per eligible, complete, unchanged draft.
@@ -334,7 +338,8 @@ test reset helpers, `package.json`.
 | Durable table in production | `vessel_draft_deliveries` ABSENT; migration 010 not applied. |
 
 The single smallest integration is: one narrow WA-01 consumer token with
-`messages.send` scoped to the approved Admin JID, plus one `send_message` socket
+`messages.send` plus `native.identity.read`, scoped by the application to the
+original order-giving conversation, plus one `send_message` socket
 call per claimed record driven by `claimDueDeliveries()` →
 `prepareDeliveryRequest()`, persisting the outcome with
 `applyDeliveryOutcomeToStore()`. Everything else (queue, idempotency, retry,
@@ -375,28 +380,40 @@ Branch `feature/phase3-010-011-activation` (from deployed release `03df822`).
 Migrations 010/011 are already applied in production; **no new migration was
 written or applied**.
 
-### 10.1 Recipient resolution (explicit pin or original order sender)
+### 10.1 Recipient resolution (the original order-giving conversation)
 
-`lib/standalone/vessel-draft-recipient.ts` resolves exactly one recipient:
+`lib/standalone/vessel-draft-recipient.ts` resolves exactly one recipient: the
+**same original authorised conversation** that gave the order.
 
-| Basis | Rule |
+| Order origin | Recipient |
 |---|---|
-| `EXPLICIT` | `ALRIFAI_VESSEL_DRAFT_RECIPIENT_JID` is used verbatim. A group JID is always refused. |
-| `SOURCE_CONVERSATION` | Without a pin, the Admin identity that participates in the original order conversation is used: an `OUTGOING` sender in that chat (`programs.source_message_id` → its `chat_jid`), matched against `whatsapp_accounts.admin_jids` for WA-01. The client who sent the order is **not** the recipient; the order's group chat is never the recipient. If no Admin participates, an `INCOMING` order sender is used only when it is itself an authorised, non-self Admin. |
-| `SOURCE_CHAT` | If there is no source message, a direct source chat is used only when that chat JID is itself an authorised Admin identity. |
+| Authorised Escort Client direct chat | That exact direct chat JID/LID. |
+| Approved ORDERS group | That exact group JID. |
+| Anything else, missing source, alias mismatch, duplicate message rows, unapproved participant | Blocked with an auditable reason. |
 
-The sending account's own phone-number identity is excluded. If two different
-Admin identities participate in the same conversation, the result is
-`ADMIN_AMBIGUOUS` rather than an arbitrary choice. A missing source message, a group
-sender, an unapproved sender or an empty admin list produces
-`RECIPIENT_NOT_APPROVED` / `SOURCE_CONVERSATION_NOT_FOUND` with a reason; no row is
-queued and the refusal is audited (`VESSEL_DRAFT_DELIVERY_RECIPIENT_BLOCKED`).
-`lib/standalone/programs.ts` now calls this resolver after a committed DRAFT
-instead of requiring a hardcoded recipient.
+The resolver requires all of:
 
-The runtime gate also accepts the Owner-configured WA-01 admin list when no
-single recipient is pinned. The sending account's own JID and all group JIDs are
-removed from that list. A pinned recipient still wins and is matched exactly.
+- the program has `source_message_id`;
+- exactly one `whatsapp_messages` row exists for that message id (multiple chats
+  = `SOURCE_CONVERSATION_AMBIGUOUS`);
+- `programs.source_chat_jid` matches that message's `chat_jid` **exactly** (no
+  alias guessing);
+- the chat is in `app_settings.phase3_business_chats:wa-01` (the Owner-approved
+  business conversation allowlist);
+- the `whatsapp_chats` row is authorised with purpose `ORDERS` or `BOTH`;
+- the message is `INCOMING`;
+- for a group, the sender is an active
+  `escort_client_group_authorizations` participant for that exact group;
+- for a direct chat, the incoming sender matches the chat identity.
+
+The Admin's JID/LID is **never** a fallback recipient. A single
+`ALRIFAI_VESSEL_DRAFT_RECIPIENT_JID` may be set only as an assertion: it must
+equal the resolved source conversation, otherwise the draft is blocked. This
+allows one recipient pin but never redirects a draft to a different chat.
+
+The runtime gate accepts the Owner-approved business conversation list as the
+recipient scope. The worker re-runs the resolver immediately before every send,
+so a stale or tampered durable row cannot redirect a draft.
 
 ### 10.2 Sender identity verification before every send
 

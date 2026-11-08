@@ -72,6 +72,7 @@ test('date and shift normalisation accepts the real order shapes', () => {
   assert.equal(normalizeDraftDate('03-11-2026'), '2026-11-03');
   assert.equal(normalizeDraftDate('3/11/26'), '2026-11-03');
   assert.equal(normalizeDraftDate('2026-11-03'), '2026-11-03');
+  assert.equal(normalizeDraftDate(new Date(2026, 10, 3)), '2026-11-03');
   assert.equal(normalizeDraftDate('31-02-2026'), '');
   assert.equal(normalizeDraftShift('day'), 'D');
   assert.equal(normalizeDraftShift('N'), 'N');

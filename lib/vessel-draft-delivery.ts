@@ -17,7 +17,7 @@
 // chat scope and delivery behavior (see docs/VESSEL_DRAFT_DELIVERY_DESIGN.md).
 
 import {createHash} from 'node:crypto';
-import {jidKind, jidsMatch} from './whatsapp-identity.mjs';
+import {jidsMatch} from './whatsapp-identity.mjs';
 
 /** Current transport mode. Outbound is not approved and must stay disabled. */
 export const VESSEL_DRAFT_DELIVERY_MODE = 'MANUAL_COPY_ONLY' as const;
@@ -256,12 +256,12 @@ export type DeliveryGateConfig = {
   ownerApprovedRecipient: string | null;
   transportConfigured: boolean;
   /**
-   * Admin JIDs authorised for the WA-01 account. When the Owner has not pinned
-   * one recipient with ALRIFAI_VESSEL_DRAFT_RECIPIENT_JID, a delivery may only
-   * go to an identity in this Owner-configured admin list. It is never a group
-   * and never the sending account itself (the runtime removes those).
+   * Owner-approved business conversation JIDs for WA-01
+   * (`app_settings.phase3_business_chats:wa-01`). A delivery may only go to one
+   * of these exact conversations. The recipient is the original order-giving
+   * conversation resolved by `resolveDraftRecipient()`, never an Admin fallback.
    */
-  authorizedAdminJids?: string[];
+  authorizedRecipientJids?: string[];
 };
 
 /** Read the env-side gate. No transport is opened and no secret is exposed. */
@@ -272,23 +272,27 @@ export function deliveryGateFromEnv(env: Record<string, string | undefined> = pr
     ownerApprovedSender: env.ALRIFAI_VESSEL_DRAFT_SENDER_JID?.trim() || null,
     ownerApprovedRecipient: env.ALRIFAI_VESSEL_DRAFT_RECIPIENT_JID?.trim() || null,
     transportConfigured: false, // socket/token existence checked by the runtime
-    authorizedAdminJids: [],
+    authorizedRecipientJids: [],
   };
 }
 
-/** True when a recipient is permitted by the Owner-pinned or admin-list rule. */
+/**
+ * True when a recipient is one of the Owner-approved business conversations and
+ * matches the optional explicit pin. Groups are valid here: the original order
+ * may have come from an approved group.
+ */
 export function isApprovedDraftRecipient(
   recipientJid: string,
   config: DeliveryGateConfig,
 ): boolean {
   const recipient = String(recipientJid ?? '').trim();
   if (!recipient) return false;
-  // Never deliver to a WhatsApp group, broadcast list or malformed identity.
-  if (jidKind(recipient) === 'GROUP') return false;
+  const allowed = config.authorizedRecipientJids ?? [];
+  if (!allowed.some((jid) => jidsMatch(jid, recipient))) return false;
   if (config.ownerApprovedRecipient) {
     return jidsMatch(config.ownerApprovedRecipient, recipient);
   }
-  return (config.authorizedAdminJids ?? []).some((jid) => jidsMatch(jid, recipient));
+  return true;
 }
 
 export type DeliveryGate = {
@@ -304,7 +308,7 @@ export function deliveryGate(config: DeliveryGateConfig): DeliveryGate {
   if (!config.ownerApprovedSender) reasons.push('VESSEL_DRAFT_SENDER_NOT_APPROVED');
   if (
     !config.ownerApprovedRecipient
-    && !(config.authorizedAdminJids ?? []).length
+    && !(config.authorizedRecipientJids ?? []).length
   ) reasons.push('VESSEL_DRAFT_RECIPIENT_NOT_APPROVED');
   if (!config.transportConfigured) reasons.push('VESSEL_DRAFT_TRANSPORT_NOT_CONFIGURED');
   return {
@@ -337,9 +341,6 @@ export function buildOutboundRequest(
   }
   if (record.state !== 'QUEUED' && record.state !== 'SENDING') {
     return {allowed: false, reasons: [`VESSEL_DRAFT_NOT_SENDABLE:${record.state}`]};
-  }
-  if (jidKind(record.recipientJid) === 'GROUP') {
-    return {allowed: false, reasons: ['VESSEL_DRAFT_GROUP_RECIPIENT_FORBIDDEN']};
   }
   if (!isApprovedDraftRecipient(record.recipientJid, config)) {
     return {allowed: false, reasons: ['VESSEL_DRAFT_RECIPIENT_MISMATCH']};

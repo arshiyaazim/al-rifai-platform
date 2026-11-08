@@ -48,6 +48,13 @@ function pad(value: number): string {
 
 /** Accept the date shapes that actually occur in WA-01 orders. */
 export function normalizeDraftDate(value: unknown): string {
+  // `pg` returns a DATE column as a JavaScript Date at local midnight. Use its
+  // calendar components; do not convert through UTC and risk changing the day.
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return validYmd(value.getFullYear(), value.getMonth() + 1, value.getDate())
+      ? `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
+      : '';
+  }
   const raw = clean(value);
   if (!raw) return '';
   const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);

@@ -4,11 +4,9 @@ import {can} from '@/lib/standalone/authz';
 import {listPrograms} from '@/lib/standalone/programs';
 import {listReviewQueue} from '@/lib/standalone/review';
 import {
-  OWNER_DRAFT_DELIVERY,
   ownerDraftFromProgram,
   ownerDraftFromReviewPayload,
-} from '@/lib/order-draft-from-record';
-import {OwnerDraftPanel} from '@/components/standalone/owner-draft-panel';
+} from '@/lib/order-draft-from-record';import {OwnerDraftPanel} from '@/components/standalone/owner-draft-panel';
 import {
   deliveryStatusForPrograms,
   runtimeDeliveryGate,
@@ -43,6 +41,11 @@ export default async function VesselDraftsPage() {
     programDrafts.map(({program}) => program.id),
   );
   const workerStatus = vesselDraftWorkerStatus();
+  const deliveryCounts = deliveryStatus.reduce<Record<string, number>>((counts, item) => {
+    counts[item.state] = (counts[item.state] ?? 0) + 1;
+    return counts;
+  }, {});
+  const pendingDeliveries = (deliveryCounts.QUEUED ?? 0) + (deliveryCounts.SENDING ?? 0);
   const reviewDrafts = programReviews
     .map((item) => ({item, draft: ownerDraftFromReviewPayload(item.payload)}))
     .filter(({draft}) => !(draft.gaps.includes('MISSING_MOTHER_VESSEL')
@@ -82,8 +85,13 @@ export default async function VesselDraftsPage() {
         </div>
         <div className="stat">
           <div className="label">Delivery</div>
-          <div className="value" style={{fontSize: 15}}>{OWNER_DRAFT_DELIVERY}</div>
-          <div className="muted">no outbound sender</div>
+          <div className="value" style={{fontSize: 15}}>{gate.gate.mode}</div>
+          <div className="muted">{gate.gate.enabled ? 'WA-01 outbound enabled' : 'gate disabled'}</div>
+        </div>
+        <div className="stat">
+          <div className="label">Pending deliveries</div>
+          <div className="value">{pendingDeliveries}</div>
+          <div className="muted">{deliveryCounts.SENT ?? 0} sent · {deliveryCounts.FAILED ?? 0} failed · {deliveryCounts.DELIVERY_UNKNOWN ?? 0} unknown</div>
         </div>
       </div>
 
@@ -101,7 +109,9 @@ export default async function VesselDraftsPage() {
                 <tr><th style={{width: 260}}>Router</th><td>Live WA-01 messages above the cutover rowid are processed; older messages stay historical by design.</td></tr>
                 <tr><th>Draft creation</th><td>An authorized order creates a vessel Program in state <code>DRAFT</code>.</td></tr>
                 <tr><th>Template</th><td>This page renders the exact Owner layout from the program or review record.</td></tr>
-                <tr><th>Transport</th><td>No outbound WhatsApp sender is enabled, so the platform cannot deliver the draft. <strong>MANUAL_COPY_ONLY</strong>.</td></tr>
+                <tr><th>Transport</th><td>{gate.gate.enabled
+                  ? <>WA-01 outbound is enabled for the original order conversation only. The worker verifies the bridge identity and re-resolves the source conversation before every send.</>
+                  : <>No outbound WhatsApp sender is enabled. <strong>{gate.gate.mode}</strong>.</>}</td></tr>
                 <tr><th>Confirmation</th><td>The Admin&apos;s outgoing reply (escort name/mobile/date/shift) is still applied by <code>applyConfirmation()</code>.</td></tr>
               </tbody>
             </table>
@@ -115,25 +125,34 @@ export default async function VesselDraftsPage() {
                 <tr><th>Outbound gate</th><td>{gate.gate.enabled
                   ? <span className="pill ok">enabled</span>
                   : <span className="pill warn">disabled — {gate.gate.reasons.join(', ')}</span>}</td></tr>
+                <tr><th>Sender account</th><td>{gate.config.ownerApprovedSender ?? '—'}</td></tr>
+                <tr><th>Transport configured</th><td>{gate.config.transportConfigured ? 'yes' : 'no'}</td></tr>
+                <tr><th>Approved conversations</th><td>{gate.config.authorizedRecipientJids?.length ?? 0} (original order chat must be one of them)</td></tr>
+                <tr><th>Worker enabled</th><td>{workerStatus.enabled ? 'yes' : 'no'}</td></tr>
                 <tr><th>Worker</th><td>{workerStatus.started
                   ? <span className="pill ok">started · {workerStatus.intervalMs}ms</span>
                   : <span className="pill warn">not started · {workerStatus.enabled ? 'gate/status check' : 'disabled'}</span>}</td></tr>
                 <tr><th>Last worker run</th><td>{workerStatus.lastResult
                   ? `${workerStatus.lastResult.at} · claimed ${workerStatus.lastResult.claimed} · sent ${workerStatus.lastResult.sent} · failed ${workerStatus.lastResult.failed} · unknown ${workerStatus.lastResult.unknown}`
                   : '—'}</td></tr>
-                <tr><th>Durable records</th><td>{deliveryStatus.length} for the programs above</td></tr>
+                <tr><th>Last idle reason</th><td>{workerStatus.lastReason ?? '—'}</td></tr>
+                <tr><th>Durable records</th><td>{deliveryStatus.length} for the programs above · {pendingDeliveries} pending</td></tr>
                 <tr><th>Confirmation authority</th><td>{CONFIRMATION_RULE}</td></tr>
               </tbody>
             </table>
             {deliveryStatus.length ? (
               <table style={{marginTop: 12}}>
-                <thead><tr><th>Program</th><th>State</th><th>Attempts</th><th>Updated</th><th>Error</th></tr></thead>
+                <thead><tr><th>Program</th><th>State</th><th>Attempts</th><th>Next retry</th><th>Recipient conversation</th><th>Source message</th><th>WhatsApp message ID</th><th>Updated</th><th>Error</th></tr></thead>
                 <tbody>
                   {deliveryStatus.map((item) => (
                     <tr key={item.id}>
                       <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.program_id.slice(0, 20)}</td>
                       <td><span className={`pill ${item.state === 'SENT' ? 'ok' : item.state === 'DELIVERY_UNKNOWN' || item.state === 'DEAD' ? 'bad' : ''}`}>{item.state}</span></td>
                       <td>{item.attempts}</td>
+                      <td>{item.next_attempt_at ?? '—'}</td>
+                      <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.recipient_jid}</td>
+                      <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.source_message_id ?? '—'}</td>
+                      <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.delivery_ref ?? '—'}</td>
                       <td>{item.updated_at}</td>
                       <td>{item.error ?? '—'}</td>
                     </tr>
@@ -142,9 +161,12 @@ export default async function VesselDraftsPage() {
               </table>
             ) : (
               <p className="muted" style={{marginTop: 10}}>
-                No delivery records exist. Migration 010 is applied, but the outbound gate
-                is disabled, so the platform stays <strong>MANUAL_COPY_ONLY</strong> and
-                sends nothing.
+                No delivery records exist yet.
+                {gate.gate.enabled
+                  ? ' New eligible DRAFT programs will enter the queue; the worker sends only to the original authorised order conversation.'
+                  : ' The outbound gate is disabled, so the platform stays '}
+                {gate.gate.enabled ? null : <strong>{gate.gate.mode}</strong>}
+                {gate.gate.enabled ? null : ' and sends nothing.'}
               </p>
             )}
           </section>

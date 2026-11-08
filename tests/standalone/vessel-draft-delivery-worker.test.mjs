@@ -24,6 +24,7 @@ const PROGRAM = {
   start_date: '2026-11-07',
   start_shift: 'D',
   source_message_id: 'vdd-worker-order-1',
+  source_chat_jid: RECIPIENT,
 };
 
 let owner;
@@ -34,6 +35,7 @@ const config = {
   ownerApprovedSender: 'approved-sender@s.whatsapp.net',
   ownerApprovedRecipient: RECIPIENT,
   transportConfigured: true,
+  authorizedRecipientJids: [RECIPIENT],
 };
 const enabledGate = {config, gate: deliveryGate(config)};
 const disabledGate = {
@@ -44,6 +46,7 @@ const paths = {socketPath: '/tmp/fake-mcp.sock', tokenFile: '/tmp/fake-token'};
 // The worker verifies the bridge identity before every send. Tests never open a
 // socket: they inject the approved identity result.
 const verifiedSender = async () => ({ok: true, observed: config.ownerApprovedSender});
+const validRecipient = async () => ({ok: true});
 
 async function clean() {
   await owner.query('DELETE FROM vessel_draft_deliveries');
@@ -54,25 +57,55 @@ async function clean() {
   );
 }
 
+async function seedSource() {
+  await owner.query(
+    `INSERT INTO app_settings (key, value, updated_at)
+     VALUES ('phase3_business_chats:wa-01', $1::jsonb, now())
+     ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`,
+    [JSON.stringify([RECIPIENT])],
+  );
+  await owner.query(
+    `INSERT INTO whatsapp_chats (account_id, chat_jid, label, purpose, authorized)
+     VALUES ('wa-01',$1,'test','ORDERS',true)
+     ON CONFLICT (account_id, chat_jid) DO UPDATE SET purpose='ORDERS', authorized=true`,
+    [RECIPIENT],
+  );
+  await owner.query(
+    `INSERT INTO whatsapp_messages
+       (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash)
+     VALUES ('wa-01',$1,$2,'INCOMING',$1,now(),'order','hash-worker-order')
+     ON CONFLICT (account_id, chat_jid, message_id) DO UPDATE SET sender_jid=EXCLUDED.sender_jid`,
+    [RECIPIENT, PROGRAM.source_message_id],
+  );
+}
+
 before(async () => {
   owner = createPool({role: 'app', readOnly: false, applicationName: 'vessel-draft-worker-test'});
   await clean();
   await owner.query('DELETE FROM programs WHERE id=$1', [PROGRAM_ID]);
   await owner.query(
     `INSERT INTO programs (id, mother_vessel, lighter_vessel, master_mobile, destination,
-                           start_date, start_shift, state, source_channel, created_by, source_message_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+                           start_date, start_shift, state, source_channel, created_by,
+                           source_message_id, source_chat_jid)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
     [PROGRAM.id, PROGRAM.mother_vessel, PROGRAM.lighter_vessel, PROGRAM.master_mobile,
       PROGRAM.destination, PROGRAM.start_date, PROGRAM.start_shift, 'DRAFT', 'WEB', 'system',
-      PROGRAM.source_message_id],
+      PROGRAM.source_message_id, PROGRAM.source_chat_jid],
   );
+  await seedSource();
 });
 
-beforeEach(clean);
+beforeEach(async () => {
+  await clean();
+  await seedSource();
+});
 
 after(async () => {
   await clean();
   await owner.query('DELETE FROM programs WHERE id=$1', [PROGRAM_ID]);
+  await owner.query("DELETE FROM app_settings WHERE key='phase3_business_chats:wa-01'");
+  await owner.query('DELETE FROM whatsapp_chats WHERE chat_jid=$1', [RECIPIENT]);
+  await owner.query("DELETE FROM whatsapp_messages WHERE account_id='wa-01' AND message_id=$1", [PROGRAM.source_message_id]);
   await owner.end();
 });
 
@@ -85,6 +118,7 @@ test('worker claims a queued draft, sends once, persists SENT and audits', async
     gate: enabledGate,
     paths,
     verifySender: verifiedSender,
+    validateRecipient: validRecipient,
     transport: async (request, receivedPaths) => {
       calls.push({request, receivedPaths});
       return {kind: 'sent', deliveryRef: 'bridge-ref-1'};
@@ -110,7 +144,8 @@ test('worker claims a queued draft, sends once, persists SENT and audits', async
   );
   assert.equal(audit.n, 1);
 
-  const repeat = await runVesselDraftDeliveryTick({gate: enabledGate, paths, verifySender: verifiedSender, transport: async () => {
+  const repeat = await runVesselDraftDeliveryTick({gate: enabledGate, paths, verifySender: verifiedSender,
+    validateRecipient: validRecipient, transport: async () => {
     throw new Error('must not send');
   }});
   assert.equal(repeat.claimed, 0);
@@ -120,6 +155,7 @@ test('failed bridge result is retried only after backoff, then can succeed', asy
   const queued = await enqueueDraftForProgram(PROGRAM, config, T0);
   const failed = await runVesselDraftDeliveryTick({
     gate: enabledGate, paths, verifySender: verifiedSender,
+    validateRecipient: validRecipient,
     transport: async () => ({kind: 'failed', error: 'BRIDGE_REJECTED'}),
   });
   assert.equal(failed.failed, 1);
@@ -128,7 +164,8 @@ test('failed bridge result is retried only after backoff, then can succeed', asy
   assert.equal(saved.attempts, 1);
   assert.ok(saved.next_attempt_at);
 
-  const tooEarly = await runVesselDraftDeliveryTick({gate: enabledGate, paths, verifySender: verifiedSender, transport: async () => {
+  const tooEarly = await runVesselDraftDeliveryTick({gate: enabledGate, paths, verifySender: verifiedSender,
+    validateRecipient: validRecipient, transport: async () => {
     throw new Error('must not send before backoff');
   }});
   assert.equal(tooEarly.claimed, 0);
@@ -136,6 +173,7 @@ test('failed bridge result is retried only after backoff, then can succeed', asy
   await owner.query("UPDATE vessel_draft_deliveries SET next_attempt_at=now()-interval '1 minute' WHERE id=$1", [queued.record.id]);
   const retried = await runVesselDraftDeliveryTick({
     gate: enabledGate, paths, verifySender: verifiedSender,
+    validateRecipient: validRecipient,
     transport: async () => ({kind: 'sent', deliveryRef: 'retry-ref'}),
   });
   assert.equal(retried.claimed, 1);
@@ -149,12 +187,14 @@ test('transport ambiguity becomes terminal DELIVERY_UNKNOWN and is never resent'
   const queued = await enqueueDraftForProgram(PROGRAM, config, T0);
   const unknown = await runVesselDraftDeliveryTick({
     gate: enabledGate, paths, verifySender: verifiedSender,
+    validateRecipient: validRecipient,
     transport: async () => ({kind: 'unknown', error: 'SOCKET_TIMEOUT'}),
   });
   assert.equal(unknown.unknown, 1);
   let saved = await row('SELECT * FROM vessel_draft_deliveries WHERE id=$1', [queued.record.id]);
   assert.equal(saved.state, 'DELIVERY_UNKNOWN');
-  const again = await runVesselDraftDeliveryTick({gate: enabledGate, paths, verifySender: verifiedSender, transport: async () => {
+  const again = await runVesselDraftDeliveryTick({gate: enabledGate, paths, verifySender: verifiedSender,
+    validateRecipient: validRecipient, transport: async () => {
     throw new Error('must never resend ambiguous');
   }});
   assert.equal(again.claimed, 0);
@@ -167,6 +207,7 @@ test('disabled gate claims nothing and leaves the queue intact', async () => {
   const result = await runVesselDraftDeliveryTick({
     gate: disabledGate, paths,
     verifySender: verifiedSender,
+    validateRecipient: validRecipient,
     transport: async () => { throw new Error('must not send'); },
   });
   assert.equal(result.disabled, true);
@@ -176,12 +217,33 @@ test('disabled gate claims nothing and leaves the queue intact', async () => {
   assert.equal(saved.attempts, 0);
 });
 
+test('worker refuses to send when send-time recipient revalidation fails', async () => {
+  const queued = await enqueueDraftForProgram(PROGRAM, config, T0);
+  let transportCalled = false;
+  const result = await runVesselDraftDeliveryTick({
+    gate: enabledGate,
+    paths,
+    validateRecipient: async () => ({ok: false, reason: 'SOURCE_CHAT_MISMATCH'}),
+    verifySender: verifiedSender,
+    transport: async () => {
+      transportCalled = true;
+      return {kind: 'sent', deliveryRef: 'must-not-exist'};
+    },
+  });
+  assert.equal(result.failed, 1);
+  assert.equal(transportCalled, false, 'an invalid recipient may never send');
+  const saved = await row('SELECT * FROM vessel_draft_deliveries WHERE id=$1', [queued.record.id]);
+  assert.equal(saved.state, 'FAILED');
+  assert.match(saved.error, /VESSEL_DRAFT_RECIPIENT_INVALID/);
+});
+
 test('worker refuses to send when the bridge identity is not the approved sender', async () => {
   const queued = await enqueueDraftForProgram(PROGRAM, config, T0);
   let transportCalled = false;
   const result = await runVesselDraftDeliveryTick({
     gate: enabledGate,
     paths,
+    validateRecipient: validRecipient,
     verifySender: async () => ({
       ok: false,
       reason: 'VESSEL_DRAFT_SENDER_MISMATCH',
@@ -205,6 +267,7 @@ test('worker refuses to send when the bridge identity cannot be read', async () 
   const result = await runVesselDraftDeliveryTick({
     gate: enabledGate,
     paths,
+    validateRecipient: validRecipient,
     verifySender: async () => ({
       ok: false,
       reason: 'VESSEL_DRAFT_SENDER_IDENTITY_UNAVAILABLE:SOCKET_TIMEOUT',

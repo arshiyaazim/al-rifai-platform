@@ -132,7 +132,7 @@ async function main() {
       outboundDb: config.dbEnabled,
       sender: mask(config.ownerApprovedSender),
       pinnedRecipient: mask(config.ownerApprovedRecipient),
-      authorizedAdminCount: (config.authorizedAdminJids ?? []).length,
+      authorizedConversationCount: (config.authorizedRecipientJids ?? []).length,
       transportConfigured: config.transportConfigured,
     },
   }, null, 2));

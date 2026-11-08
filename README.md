@@ -6,7 +6,7 @@
 |---|---|
 | **Current Production** | Image `local/al-rifai-platform:phase3-ai-rc-8a6c2c6` (digest `sha256:8b7ab534…e510`), database `alrifai_v2_phase3`, schema **1.6.0**, migrations **002–011** applied, 49 tables. Router `PHASE3_ROUTER_WORKER_ENABLED=1`, Vessel `ALRIFAI_VESSEL_PROCESSING_ENABLED=1`, `ALRIFAI_LIVE_CASH_SYNC=0`; 8 live WA-01 DRAFT programs exist. Draft worker/outbound and `PHASE3_PAID_EVENTS_ENABLED` remain **OFF**; 0 Business Paid Events and 0 posting links. All `AI_*` flags `0`. |
 | **Historical Release** | `v1.4.0-phase3-rc2` / `phase3-rc-final5` / schema 1.4.0 (2026-11-06 cutover); prior image `phase3-ai-rc-7da17f1` / schema 1.5.0 is the immediate rollback. Tags and rollback instructions are retained. |
-| **Built but Not Deployed** | `feature/phase3-010-011-activation` (image `phase3-ai-rc-activation-03b1526`, digest `sha256:d7ae28d2…386f`): recipient resolution from the original authorised order conversation (with explicit Owner pin and group refusal), pre-send WA-01 bridge identity verification, and a read-only preflight / controlled enqueue-tick CLI. Tested; production deployment requires separate Owner approval. See `docs/VESSEL_DRAFT_ACTIVATION_APPROVAL_PACKAGE.md`. |
+| **Built but Not Deployed** | `feature/phase3-010-011-activation` (image `phase3-ai-rc-activation-03b1526`, digest `sha256:d7ae28d2…386f`): recipient resolution to the same original authorised order-giving conversation (direct client chat or approved group; Admin JIDs are never a fallback), pre-send source revalidation and WA-01 bridge identity verification, and a read-only preflight / controlled enqueue-tick CLI. Tested; production deployment requires separate Owner approval. See `docs/VESSEL_DRAFT_ACTIVATION_APPROVAL_PACKAGE.md`. |
 | **Pending Migration / Activation** | No new migration. Outbound draft delivery remains `MANUAL_COPY_ONLY`: WA-01 has **no `messages.send` capability**, the app container has no WA-01 socket/token mount, and no sender/recipient is configured. Business Paid activation (`PHASE3_PAID_EVENTS_ENABLED=1`) is also pending explicit Owner approval. |
 
 **Active goal: Authenticated Production UI Verification.** Login is
@@ -386,7 +386,7 @@ tables). No new migration is required by the activation branch.
 pnpm test:unit        # pure functions (149 assertions)
 pnpm test:standalone  # all DB suites: domain, WhatsApp adapter, router,
                       # cutover, Review Queue, Cash lifecycle, users, AI,
-                      # Vessel Draft recipient/store/worker (180 integration tests)
+                      # Vessel Draft recipient/store/worker (185 integration tests)
 ```
 
 The integration tests are destructive to their schema: run them against a
@@ -466,10 +466,10 @@ never point them at production.
 * Vessel order drafts are **copy-only** (`MANUAL_COPY_ONLY`). The platform
   renders the exact Owner layout on `/vessel/drafts`, program detail and review
   detail. The activation branch adds recipient resolution (explicit pin or the
-  authorised Admin from the original order conversation; groups are refused) and
-  pre-send bridge identity verification, but no message is sent: WA-01 has no
-  `messages.send` capability, the container has no WA-01 socket/token, and the
-  worker/outbound switches remain off. See `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`.
+  original order-giving conversation (direct client chat or approved group;
+  Admin JIDs are never a fallback) and pre-send source/bridge identity
+  verification. At the time of writing the outbound token/mount and switches
+  are being activated; the first live send still requires exact Owner approval. See `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`.
 * Unstructured release/cancel/food-bill/transfer messages **are now parsed**
   (`7da17f1`) into enriched, **pending** review evidence with read-only
   candidate-program matching; no program, release date, payment or Cash posting

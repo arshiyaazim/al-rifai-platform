@@ -48,6 +48,7 @@ const enabledConfig = () => ({
   ownerApprovedSender: '8801880446111@s.whatsapp.net',
   ownerApprovedRecipient: RECIPIENT,
   transportConfigured: true,
+  authorizedRecipientJids: [RECIPIENT],
 });
 
 test('Owner draft keeps the exact shape with blank escort fields', () => {
@@ -136,25 +137,30 @@ test('recipient mismatch is refused even when the gate is enabled', () => {
   assert.ok(result.reasons.includes('VESSEL_DRAFT_RECIPIENT_MISMATCH'));
 });
 
-test('a group recipient is always refused, even with an enabled gate', () => {
-  const config = enabledConfig();
-  const record = {...prepared(), state: 'QUEUED', recipientJid: '120363426895117693@g.us'};
-  const result = buildOutboundRequest(record, deliveryGate(config), config);
-  assert.equal(result.allowed, false);
-  assert.ok(result.reasons.includes('VESSEL_DRAFT_GROUP_RECIPIENT_FORBIDDEN'));
-});
-
-test('without an explicit pin the recipient must be one authorised Admin JID', () => {
-  const admin = '8801555000001@s.whatsapp.net';
+test('an approved group conversation is a valid recipient', () => {
+  const group = '120363426895117693@g.us';
   const config = {
     ...enabledConfig(),
     ownerApprovedRecipient: null,
-    authorizedAdminJids: [admin],
+    authorizedRecipientJids: [group],
+  };
+  const record = {...prepared(), state: 'QUEUED', recipientJid: group};
+  const result = buildOutboundRequest(record, deliveryGate(config), config);
+  assert.equal(result.allowed, true);
+  assert.equal(result.request.recipientJid, group);
+});
+
+test('without a pin the recipient must be one approved business conversation', () => {
+  const client = '8801555000001@s.whatsapp.net';
+  const config = {
+    ...enabledConfig(),
+    ownerApprovedRecipient: null,
+    authorizedRecipientJids: [client],
   };
   const gate = deliveryGate(config);
   assert.equal(gate.enabled, true);
 
-  const approved = {...prepared(), state: 'QUEUED', recipientJid: admin};
+  const approved = {...prepared(), state: 'QUEUED', recipientJid: client};
   assert.equal(buildOutboundRequest(approved, gate, config).allowed, true);
 
   const stranger = {
