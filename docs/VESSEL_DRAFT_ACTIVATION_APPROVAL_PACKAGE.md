@@ -1,9 +1,9 @@
 # Vessel Draft activation — Owner approval package
 
 **Date:** 2026-11-08
-**Branch:** `feature/phase3-010-011-activation` (`44c6c9c`)
-**Deployed image:** `local/al-rifai-platform:phase3-ai-rc-vd-44c6c9c`
-**Image digest:** `sha256:9d21e59dd834e01e5a36d1857a31a607c419e3c60bfc73c02b19f058f4be10e5`
+**Branch:** `feature/phase3-010-011-activation` (`b379dd2`)
+**Deployed image:** `local/al-rifai-platform:phase3-ai-rc-vd-b379dd2`
+**Image digest:** `sha256:aec08d34f7f04b1a49495f74ec33ff29f21c7268e6e58e7948c83459ffa5602a`
 **Production rollback image:** `phase3-ai-rc-8a6c2c6`
 **Production state:** app healthy, schema `1.6.0`, migrations 002–011, 49 tables,
 0 delivery rows, 0 Business Paid Events, 0 posting links. Outbound gate enabled;

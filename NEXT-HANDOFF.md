@@ -20,9 +20,9 @@ BLOCKED, not complete.** A README or source change does not complete it.
 ## 2026-11-08 — Vessel Draft activation deployed; first send awaiting exact approval
 
 **Branch:** `feature/phase3-010-011-activation`
-**Source commit:** `44c6c9c`
-**Image:** `local/al-rifai-platform:phase3-ai-rc-vd-44c6c9c`
-**Image ID / digest:** `sha256:9d21e59dd834e01e5a36d1857a31a607c419e3c60bfc73c02b19f058f4be10e5`
+**Source commit:** `b379dd2`
+**Image:** `local/al-rifai-platform:phase3-ai-rc-vd-b379dd2`
+**Image ID / digest:** `sha256:aec08d34f7f04b1a49495f74ec33ff29f21c7268e6e58e7948c83459ffa5602a`
 **Rollback image:** `local/al-rifai-platform:phase3-ai-rc-8a6c2c6`
 **Backup:** `/var/backups/al-rifai/vessel-activation-20261108T110032Z.dump`
 (SHA-256 `c093ec2d…aaee8`, 8.7 MB, 382 TOC entries)
