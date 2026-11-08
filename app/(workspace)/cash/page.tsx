@@ -1,14 +1,13 @@
 import Link from 'next/link';
 import {cashTransactionView, countCashTransactions, countInstructions, countLedger, listAccounts, listCashTransactions, listInstructions, listLedger, listReconciliations} from '@/lib/standalone/finance';
 import {cashDashboardSummary, currentMonthRange, previousMonthRange, shiftIsoDate, paidEventsReportingEnabled} from '@/lib/standalone/cash-dashboard';
-import {listCashReviewCandidates} from '@/lib/standalone/review';
 import {rows} from '@/lib/standalone/db';
 import {money, pageUser, when} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
 import {CashPaymentForm} from '@/components/standalone/cash-payment-form';
 import {CashTransactionsTable} from '@/components/standalone/cash-transactions-table';
-import {formatReviewAmount, formatReviewTimestamp, reviewCategoryLabel, reviewCategoryTone, reviewStateLabel, reviewStateTone} from '@/lib/review-ui';
+import {formatReviewTimestamp} from '@/lib/review-ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,7 +60,7 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
   const pageSize = 100;
   const ledgerSize = 50;
   const txLimit = 20;
-  const [accounts, instructions, instructionTotal, ledger, ledgerTotal, summary, submissions, cashCandidates, reconciliations, txRows, txTotal] = await Promise.all([
+  const [accounts, instructions, instructionTotal, ledger, ledgerTotal, summary, submissions, reconciliations, txRows, txTotal] = await Promise.all([
     listAccounts(),
     listInstructions({q, state: state || undefined, limit: pageSize, offset: (page - 1) * pageSize}),
     countInstructions({q, state: state || undefined}),
@@ -71,7 +70,6 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
     rows<{id: string; state: string; submitted_by: string; created_at: string; instruction_id: string | null; display_name: string | null}>(
       'SELECT s.id, s.state, s.submitted_by, s.created_at, s.instruction_id, u.display_name FROM cash_submissions s LEFT JOIN cash_portal_users u ON u.id = s.submitted_by ORDER BY s.created_at DESC LIMIT 30',
     ),
-    listCashReviewCandidates({state: 'PENDING_REVIEW', limit: 50}),
     listReconciliations(25),
     listCashTransactions({limit: txLimit, offset: 0}),
     countCashTransactions(),
@@ -161,42 +159,6 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
           </details>
         ) : null}
       </div>
-
-      <section className="card" style={{marginBottom: 18}}>
-        <div className="page-head" style={{marginBottom: 8}}>
-          <div><h3>Cash review candidates ({cashCandidates.length})</h3></div>
-          <span className="muted">Reviewers can inspect source evidence and correct supported fields. Approving a candidate creates a linked REVIEW instruction; it never posts or settles funds.</span>
-        </div>
-        {cashCandidates.length ? (
-          <table>
-            <thead><tr><th>Candidate</th><th>Category</th><th>State</th><th>Submitter</th><th>Created</th><th>Source message</th><th>Parsed</th><th>Review</th></tr></thead>
-            <tbody>
-              {cashCandidates.map((candidate) => {
-                const payload = (candidate.payload ?? {}) as Record<string, unknown>;
-                return (
-                  <tr key={candidate.id}>
-                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{candidate.id}</td>
-                    <td><span className={`pill ${reviewCategoryTone(candidate.category)}`}>{reviewCategoryLabel(candidate.category)}</span></td>
-                    <td><span className={`pill ${reviewStateTone(candidate.state)}`}>{reviewStateLabel(candidate.state)}</span></td>
-                    <td>{candidate.submitter_name ?? candidate.submitted_by.slice(0, 12)}</td>
-                    <td style={{whiteSpace: 'nowrap'}}>{formatReviewTimestamp(candidate.created_at)}</td>
-                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>
-                      {candidate.source_message_id ? (
-                        <Link href={`/messages?q=${encodeURIComponent(candidate.source_message_id)}`}>{candidate.source_message_id}</Link>
-                      ) : <span className="muted">—</span>}
-                    </td>
-                    <td style={{maxWidth: 320}}>
-                      <div>{String(payload.employeeName ?? payload.employee_name ?? '—')}</div>
-                      <div className="muted">{formatReviewAmount(payload.amountMinor as string | number | null)} · {String(payload.method ?? '—')}</div>
-                    </td>
-                    <td><Link href={`/review/${candidate.id}`}>Inspect →</Link></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        ) : <p className="muted">No cash review candidates are pending.</p>}
-      </section>
 
       <form method="get" className="card form compact" style={{marginBottom: 18}}>
         <div className="grid">

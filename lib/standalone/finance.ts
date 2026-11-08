@@ -2,6 +2,7 @@ import type {PoolClient} from 'pg';
 import {rows, row, tx, text, optionalText, optionalMobile, mobile, isoDate, moneyMinor, DomainError, type Actor} from './db.ts';
 import {recordAudit, stableId, newId} from './audit.ts';
 import {assertCapability} from './authz.ts';
+import {cleanEmployeeName} from '../display-name.ts';
 
 type Tx = Pick<PoolClient, 'query'>;
 
@@ -207,11 +208,112 @@ export async function createInstruction(actor: Actor, input: InstructionInput, o
   });
 }
 
+export async function getCashTransaction(id: string): Promise<CashTransactionRow | null> {
+  const items = await rows<CashTransactionRow>(
+    `WITH ordered AS (
+       SELECT i.*,
+              row_number() OVER (
+                PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
+                ORDER BY i.created_at, i.id
+              )::text AS payout_number,
+              sum(i.amount_minor) OVER (
+                PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
+                ORDER BY i.created_at, i.id
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+              )::text AS total_paid_minor
+         FROM cash_instructions i
+     )
+     SELECT i.id, coalesce(i.employee_mobile, e.employee_mobile) AS employee_id,
+            coalesce(e.preferred_name, i.employee_name) AS name_of_employee,
+            e.designation, e.joined_on::text AS date_of_join, i.payout_number,
+            i.amount_minor::text AS amount_minor, i.total_paid_minor, i.method, i.state,
+            i.created_at::text AS created_at, i.source_channel, i.source_message_id, i.purpose AS notes
+       FROM ordered i LEFT JOIN employees e ON e.employee_mobile = i.employee_mobile
+      WHERE i.id = $1`,
+    [id],
+  );
+  const found = items[0];
+  return found ? {...found, name_of_employee: cleanEmployeeName(found.name_of_employee)} : null;
+}
+
+/** One employee's Cash summary for the history page header. */
+export async function getCashEmployeeSummary(employeeId: string) {
+  const mobile = normalizedMobile(employeeId) ?? employeeId;
+  const summary = await row<{
+    employee_mobile: string | null; name_of_employee: string; designation: string | null;
+    date_of_join: string | null; total_payouts: number; total_paid_minor: string;
+  }>(
+    `SELECT coalesce(i.employee_mobile, e.employee_mobile) AS employee_mobile,
+            coalesce(e.preferred_name, max(i.employee_name)) AS name_of_employee,
+            max(e.designation) AS designation,
+            max(e.joined_on)::text AS date_of_join,
+            count(*)::int AS total_payouts,
+            coalesce(sum(i.amount_minor), 0)::text AS total_paid_minor
+       FROM cash_instructions i
+       LEFT JOIN employees e ON e.employee_mobile = i.employee_mobile
+      WHERE i.employee_mobile = $1 AND i.state NOT IN ('VOID','REJECTED')
+      GROUP BY coalesce(i.employee_mobile, e.employee_mobile), e.preferred_name, e.designation`,
+    [mobile],
+  );
+  return summary ? {...summary, name_of_employee: cleanEmployeeName(summary.name_of_employee)} : null;
+}
+
+/**
+ * Editable Cash transaction fields. Financial state and source identity are
+ * immutable here: amount cannot change once POSTED, and designation is stored
+ * in the employee registry (the existing source of truth).
+ */
+export async function updateCashTransaction(
+  actor: Actor,
+  id: string,
+  input: {designation?: string | null; amount?: number | string | null; notes?: string | null},
+) {
+  assertCapability(actor, 'cash.review');
+  await tx(async (client) => {
+    const found = await client.query<{
+      id: string; employee_mobile: string | null; employee_name: string; amount_minor: string;
+      purpose: string | null; state: string;
+    }>('SELECT id, employee_mobile, employee_name, amount_minor, purpose, state FROM cash_instructions WHERE id=$1 FOR UPDATE', [id]);
+    if (!found.rowCount) throw new DomainError('CASH_TRANSACTION_NOT_FOUND', 404);
+    const current = found.rows[0];
+    if (current.state === 'POSTED' && input.amount !== undefined && input.amount !== null) {
+      throw new DomainError('CASH_AMOUNT_LOCKED_AFTER_POSTING', 409);
+    }
+    const before = {designation: null as string | null, amountMinor: current.amount_minor, notes: current.purpose};
+    if (input.designation !== undefined && input.designation !== null) {
+      if (!current.employee_mobile) throw new DomainError('EMPLOYEE_NOT_REGISTERED', 409);
+      const designation = optionalText(input.designation, 'designation', 100);
+      const employee = await client.query('SELECT designation FROM employees WHERE employee_mobile=$1', [current.employee_mobile]);
+      before.designation = employee.rows[0]?.designation ?? null;
+      await client.query('UPDATE employees SET designation=$2, updated_at=now() WHERE employee_mobile=$1', [current.employee_mobile, designation]);
+    }
+    if (input.amount !== undefined && input.amount !== null) {
+      const amount = Number(input.amount);
+      if (!Number.isSafeInteger(amount) || amount <= 0) throw new DomainError('INVALID_AMOUNT', 400);
+      await client.query('UPDATE cash_instructions SET amount_minor=$2 WHERE id=$1', [id, amount]);
+    }
+    if (input.notes !== undefined) {
+      const notes = optionalText(input.notes, 'notes', 500);
+      await client.query('UPDATE cash_instructions SET purpose=$2 WHERE id=$1', [id, notes]);
+    }
+    await recordAudit({
+      actor,
+      action: 'CASH_TRANSACTION_UPDATED',
+      entity: 'cash_instruction',
+      entityId: id,
+      detail: {before, after: {designation: input.designation ?? before.designation, amountMinor: input.amount ?? before.amountMinor, notes: input.notes ?? before.notes}},
+      source: 'WEB',
+      sourceRef: id,
+    }, client);
+  });
+  return getCashTransaction(id);
+}
+
 export async function listInstructions(filters: {state?: string; q?: string; limit?: number; offset?: number} = {}) {
   const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 10000);
   const offset = Math.max(Number(filters.offset) || 0, 0);
   const q = (filters.q ?? '').trim().toLowerCase();
-  return rows(
+  const items = await rows<Record<string, unknown>>(
     `SELECT i.*, a.code AS account_code,
             r.id AS reversal_id, r.reversed_at AS reversal_at, r.reason AS reversal_reason
        FROM cash_instructions i
@@ -222,16 +324,27 @@ export async function listInstructions(filters: {state?: string; q?: string; lim
       ORDER BY i.created_at DESC LIMIT $3 OFFSET $4`,
     [filters.state ?? null, q, limit, offset],
   );
+  return items.map((item): Record<string, unknown> => ({...item, employee_name: cleanEmployeeName(item.employee_name)}));
 }
 
 export type CashTransactionFilters = {
   q?: string;
   state?: string;
+  employeeId?: string;
   from?: string;
   to?: string;
+  amountMin?: number;
+  amountMax?: number;
   limit?: number;
   offset?: number;
 };
+
+function normalizedMobile(value: string | undefined): string | null {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  if (/^01[3-9][0-9]{8}$/.test(digits)) return `+88${digits}`;
+  if (/^8801[3-9][0-9]{8}$/.test(digits)) return `+${digits}`;
+  return null;
+}
 
 export type CashTransactionRow = {
   id: string;
@@ -247,6 +360,7 @@ export type CashTransactionRow = {
   created_at: string;
   source_channel: string | null;
   source_message_id: string | null;
+  notes: string | null;
 };
 
 /**
@@ -277,6 +391,10 @@ export async function listCashTransactions(filters: CashTransactionFilters = {})
          = right(regexp_replace(${bind(filters.q)}, '\\D', '', 'g'), 11))`);
   }
   if (filters.state) where.push(`i.state = ${bind(filters.state)}`);
+  const employeeMobile = normalizedMobile(filters.employeeId);
+  if (employeeMobile) where.push(`i.employee_mobile = ${bind(employeeMobile)}`);
+  if (Number.isFinite(Number(filters.amountMin)) && filters.amountMin !== undefined) where.push(`i.amount_minor >= ${bind(Number(filters.amountMin))}`);
+  if (Number.isFinite(Number(filters.amountMax)) && filters.amountMax !== undefined) where.push(`i.amount_minor <= ${bind(Number(filters.amountMax))}`);
   if (filters.from) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date >= ${bind(filters.from)}::date`);
   if (filters.to) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date <= ${bind(filters.to)}::date`);
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
@@ -308,7 +426,8 @@ export async function listCashTransactions(filters: CashTransactionFilters = {})
             i.state,
             i.created_at::text AS created_at,
             i.source_channel,
-            i.source_message_id
+            i.source_message_id,
+            i.purpose AS notes
        FROM ordered i
        LEFT JOIN employees e ON e.employee_mobile = i.employee_mobile
        ${clause}
@@ -323,7 +442,7 @@ export function cashTransactionView(row: CashTransactionRow) {
   return {
     id: row.id,
     employeeId: row.employee_id,
-    nameOfEmployee: row.name_of_employee,
+    nameOfEmployee: cleanEmployeeName(row.name_of_employee),
     designation: row.designation,
     dateOfJoin: row.date_of_join,
     payoutNumber: Number(row.payout_number),
@@ -335,6 +454,7 @@ export function cashTransactionView(row: CashTransactionRow) {
     state: row.state,
     source: row.source_channel,
     sourceMessageId: row.source_message_id,
+    notes: row.notes,
     createdAt: row.created_at,
   };
 }
@@ -353,6 +473,10 @@ export async function countCashTransactions(filters: Omit<CashTransactionFilters
          = right(regexp_replace(${bind(filters.q)}, '\\D', '', 'g'), 11))`);
   }
   if (filters.state) where.push(`i.state = ${bind(filters.state)}`);
+  const employeeMobile = normalizedMobile(filters.employeeId);
+  if (employeeMobile) where.push(`i.employee_mobile = ${bind(employeeMobile)}`);
+  if (Number.isFinite(Number(filters.amountMin)) && filters.amountMin !== undefined) where.push(`i.amount_minor >= ${bind(Number(filters.amountMin))}`);
+  if (Number.isFinite(Number(filters.amountMax)) && filters.amountMax !== undefined) where.push(`i.amount_minor <= ${bind(Number(filters.amountMax))}`);
   if (filters.from) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date >= ${bind(filters.from)}::date`);
   if (filters.to) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date <= ${bind(filters.to)}::date`);
   const result = await row<{n: number}>(

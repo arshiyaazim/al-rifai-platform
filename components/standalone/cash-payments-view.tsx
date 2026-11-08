@@ -6,6 +6,7 @@ import {
 } from '@/lib/standalone/cash-dashboard';
 import {CashRowActions} from '@/components/standalone/cash-row-actions';
 import {paidEventsReportingEnabled} from '@/lib/standalone/cash-dashboard';
+import {cleanEmployeeName} from '@/lib/display-name';
 
 export type CashPaymentViewParams = {
   q?: string;
@@ -175,7 +176,7 @@ export async function CashPaymentsView({
             <tbody>
               {result.rows.map((item, index) => {
                 const verifiedMobile = item.verified_mobile ?? item.employee_mobile;
-                const name = item.preferred_name ?? item.employee_name;
+                const name = cleanEmployeeName(item.preferred_name ?? item.employee_name);
                 return (
                   <tr key={item.posting_id}>
                     <td>{(currentPage - 1) * PAGE_SIZE + index + 1}</td>

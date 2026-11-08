@@ -2,6 +2,11 @@
 
 import Link from 'next/link';
 import {useEffect, useRef, useState} from 'react';
+import {MoreHorizontal} from 'lucide-react';
+import {AppToaster} from '@/components/standalone/app-toaster';
+import {CashTransactionSidebar} from '@/components/standalone/cash-transaction-sidebar';
+import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
 
 export type CashTransaction = {
   id: string;
@@ -18,6 +23,7 @@ export type CashTransaction = {
   state: string;
   source: string | null;
   sourceMessageId: string | null;
+  notes?: string | null;
   createdAt: string;
 };
 
@@ -33,6 +39,8 @@ const dash = (value: unknown) => value === null || value === undefined || value 
 const amount = (minor: string | number | null | undefined) =>
   minor === null || minor === undefined ? '—'
     : `৳${(Number(minor) / 100).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+const localDate = (value: string | null | undefined) =>
+  value ? new Date(value).toLocaleString('en-GB', {timeZone: 'Asia/Dhaka', dateStyle: 'medium', timeStyle: 'short'}) : '—';
 
 export function CashTransactionsTable({initial}: {initial: CashTransactionPage}) {
   const [data, setData] = useState<CashTransactionPage>(initial);
@@ -43,6 +51,7 @@ export function CashTransactionsTable({initial}: {initial: CashTransactionPage})
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [selected, setSelected] = useState<CashTransaction | null>(null);
   const request = useRef(0);
   const current = useRef({page: initial.page, limit: initial.limit, appliedSearch: ''});
 
@@ -55,10 +64,7 @@ export function CashTransactionsTable({initial}: {initial: CashTransactionPage})
     if (!quiet) setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({
-        page: String(nextPage),
-        limit: String(nextLimit),
-      });
+      const params = new URLSearchParams({page: String(nextPage), limit: String(nextLimit)});
       if (nextSearch) params.set('search', nextSearch);
       const response = await fetch(`/api/cash/transactions?${params.toString()}`, {
         headers: {accept: 'application/json'},
@@ -70,6 +76,9 @@ export function CashTransactionsTable({initial}: {initial: CashTransactionPage})
       setData(payload);
       setPage(payload.page);
       setUpdatedAt(new Date());
+      setSelected((previous) => previous
+        ? payload.transactions.find((item) => item.id === previous.id) ?? previous
+        : null);
     } catch {
       if (id === request.current) setError('Could not refresh cash transactions. The last successful result is shown.');
     } finally {
@@ -78,7 +87,6 @@ export function CashTransactionsTable({initial}: {initial: CashTransactionPage})
   }
 
   useEffect(() => {
-    // One quiet refresh on mount so the indicator reflects a real API read.
     const {page: p, limit: l, appliedSearch: q} = current.current;
     void load(p, l, q, true);
   }, []);
@@ -102,114 +110,147 @@ export function CashTransactionsTable({initial}: {initial: CashTransactionPage})
     void load(1, value, appliedSearch);
   };
 
+  const openSidebar = (item: CashTransaction) => setSelected(item);
   const rows = data.transactions;
   const offset = (data.page - 1) * data.limit;
 
   return (
-    <section className="card" style={{marginBottom: 18}}>
-      <div className="page-head" style={{marginBottom: 8}}>
-        <div>
-          <h3>Cash Transactions ({data.total.toLocaleString()})</h3>
-          <p className="muted" style={{marginTop: 0}}>
-            Parsed from the Accountant ↔ Admin direct WhatsApp conversation. Amounts are instructed payouts;
-            financial posting remains a separate explicit action.
-          </p>
+    <>
+      <AppToaster />
+      <section className="card" style={{marginBottom: 18}}>
+        <div className="page-head" style={{marginBottom: 8}}>
+          <div>
+            <h3>Cash Transactions ({data.total.toLocaleString()})</h3>
+            <p className="muted" style={{marginTop: 0}}>
+              Parsed from the Accountant ↔ Admin direct WhatsApp conversation. Amounts are instructed payouts;
+              financial posting remains a separate explicit action.
+            </p>
+          </div>
+          <span className="muted" aria-live="polite">
+            {loading ? 'Refreshing…' : updatedAt ? 'Updated just now' : 'Live data'}
+          </span>
         </div>
-        <span className="muted" aria-live="polite">
-          {loading ? 'Refreshing…' : updatedAt ? 'Updated just now' : 'Live data'}
-        </span>
-      </div>
 
-      <form method="get" className="form compact" onSubmit={submitSearch} style={{marginBottom: 12}}>
-        <div className="row" style={{gap: 10, flexWrap: 'wrap'}}>
-          <input
-            name="search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search Employee ID or Name"
-            aria-label="Search Employee ID or Name"
-            style={{minWidth: 260}}
-          />
-          <button type="submit">Search</button>
-          {appliedSearch ? (
-            <button
-              type="button"
-              onClick={() => { setSearch(''); setAppliedSearch(''); void load(1, limit, ''); }}
-            >
-              Clear
-            </button>
-          ) : null}
-          <label className="muted" style={{display: 'flex', alignItems: 'center', gap: 6}}>
-            Rows
-            <select value={limit} onChange={(event) => changeLimit(Number(event.target.value))} aria-label="Rows per page">
-              {[10, 20, 50].map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
-        </div>
-      </form>
-
-      {error ? <div className="error" role="alert">{error}</div> : null}
-
-      <div className="cash-table-scroll">
-        <table className="cash-payment-table">
-          <thead>
-            <tr>
-              <th>Sl</th>
-              <th>Employee ID</th>
-              <th>Name of Employee</th>
-              <th>Designation</th>
-              <th>Date of Join</th>
-              <th>Payout Number</th>
-              <th>Amount</th>
-              <th>Total Paid</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? Array.from({length: Math.min(limit, 5)}).map((_, index) => (
-              <tr key={`skeleton-${index}`} className="loading-rows">
-                <td>—</td>
-                <td colSpan={7}><span className="muted">Loading…</span></td>
-              </tr>
-            )) : rows.map((item, index) => (
-              <tr key={item.id}>
-                <td>{offset + index + 1}</td>
-                <td>
-                  {item.employeeId ? (
-                    <Link href={`/employees/${encodeURIComponent(item.employeeId)}`}>{item.employeeId}</Link>
-                  ) : <span className="muted">—</span>}
-                </td>
-                <td>
-                  <Link href={`/cash/${encodeURIComponent(item.id)}`}>{dash(item.nameOfEmployee)}</Link>
-                  <small className="muted">{item.source ?? 'WEB'} · {item.state}</small>
-                </td>
-                <td>{dash(item.designation)}</td>
-                <td>{dash(item.dateOfJoin)}</td>
-                <td>{item.payoutNumber}</td>
-                <td className="cash-amount">{amount(item.amountMinor)}</td>
-                <td className="cash-amount">{amount(item.totalPaidMinor)}</td>
-              </tr>
-            ))}
-            {!loading && !rows.length ? (
-              <tr><td colSpan={8} className="muted">No cash transactions match this search.</td></tr>
+        <form method="get" className="form compact" onSubmit={submitSearch} style={{marginBottom: 12}}>
+          <div className="row" style={{gap: 10, flexWrap: 'wrap'}}>
+            <Input
+              name="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search Employee ID or Name"
+              aria-label="Search Employee ID or Name"
+              style={{minWidth: 260, maxWidth: 380}}
+            />
+            <Button type="submit" size="sm">Search</Button>
+            {appliedSearch ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => { setSearch(''); setAppliedSearch(''); void load(1, limit, ''); }}>
+                Clear
+              </Button>
             ) : null}
-          </tbody>
-        </table>
-      </div>
+            <label className="muted" style={{display: 'flex', alignItems: 'center', gap: 6}}>
+              Rows
+              <select value={limit} onChange={(event) => changeLimit(Number(event.target.value))} aria-label="Rows per page" className="h-8 rounded-md border bg-background px-2 text-sm">
+                {[10, 20, 50].map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>
+          </div>
+        </form>
 
-      <div className="row-actions cash-pagination" style={{marginTop: 12}}>
-        <button type="button" disabled={loading || data.page <= 1} onClick={() => void load(data.page - 1, limit, appliedSearch)}>
-          ← Previous
-        </button>
-        <span className="muted">Page {data.page} / {data.totalPages}</span>
-        <button type="button" disabled={loading || data.page >= data.totalPages} onClick={() => void load(data.page + 1, limit, appliedSearch)}>
-          Next →
-        </button>
-      </div>
+        {error ? <div className="error" role="alert">{error}</div> : null}
 
-      <p className="muted" style={{marginTop: 10, marginBottom: 0}}>
-        Designation and Date of Join show “—” when the employee registry has no value. Employee ID is the parsed
-        mobile; Payout Number is the sequential payout for that employee; Total Paid is cumulative through this row.
-      </p>
-    </section>
+        <div className="cash-table-scroll">
+          <table className="cash-payment-table" style={{tableLayout: 'fixed', minWidth: 1080}}>
+            <colgroup>
+              <col style={{width: 50}} />
+              <col style={{width: 150}} />
+              <col style={{width: 230}} />
+              <col style={{width: 120}} />
+              <col style={{width: 120}} />
+              <col style={{width: 90}} />
+              <col style={{width: 130}} />
+              <col style={{width: 140}} />
+              <col style={{width: 50}} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Sl</th>
+                <th>Employee ID</th>
+                <th>Name of Employee</th>
+                <th>Designation</th>
+                <th>Date of Join</th>
+                <th>Payouts</th>
+                <th style={{textAlign: 'right'}}>Amount</th>
+                <th style={{textAlign: 'right'}}>Total Paid</th>
+                <th><span className="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? Array.from({length: Math.min(limit, 5)}).map((_, index) => (
+                <tr key={`skeleton-${index}`} className="loading-rows">
+                  <td>—</td>
+                  <td colSpan={8}><span className="muted">Loading…</span></td>
+                </tr>
+              )) : rows.map((item, index) => (
+                <tr key={item.id}>
+                  <td>{offset + index + 1}</td>
+                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>
+                    {item.employeeId
+                      ? <Link href={`/employees/${encodeURIComponent(item.employeeId)}`}>{item.employeeId}</Link>
+                      : <span className="muted">—</span>}
+                  </td>
+                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{dash(item.nameOfEmployee)}</td>
+                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{dash(item.designation)}</td>
+                  <td>{dash(item.dateOfJoin)}</td>
+                  <td>{item.payoutNumber}</td>
+                  <td className="cash-amount" style={{textAlign: 'right'}}>{amount(item.amountMinor)}</td>
+                  <td className="cash-amount" style={{textAlign: 'right'}}>{amount(item.totalPaidMinor)}</td>
+                  <td>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={`Actions for ${item.nameOfEmployee}`}
+                      onClick={() => openSidebar(item)}
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && !rows.length ? (
+                <tr><td colSpan={9} className="muted">No cash transactions match this search.</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="row-actions cash-pagination" style={{marginTop: 12}}>
+          <Button type="button" size="sm" variant="outline" disabled={loading || data.page <= 1} onClick={() => void load(data.page - 1, limit, appliedSearch)}>
+            ← Previous
+          </Button>
+          <span className="muted">Page {data.page} / {data.totalPages}</span>
+          <Button type="button" size="sm" variant="outline" disabled={loading || data.page >= data.totalPages} onClick={() => void load(data.page + 1, limit, appliedSearch)}>
+            Next →
+          </Button>
+        </div>
+
+        <p className="muted" style={{marginTop: 10, marginBottom: 0}}>
+          Designation and Date of Join show “—” when the employee registry has no value. Employee ID is the parsed
+          mobile; Payouts is the sequential payout for that employee; Total Paid is cumulative through this row.
+        </p>
+      </section>
+
+      <CashTransactionSidebar
+        transaction={selected}
+        onClose={() => setSelected(null)}
+        onUpdated={(updated) => {
+          setSelected(updated);
+          setData((previous) => ({
+            ...previous,
+            transactions: previous.transactions.map((item) => item.id === updated.id ? updated : item),
+          }));
+        }}
+      />
+    </>
   );
 }

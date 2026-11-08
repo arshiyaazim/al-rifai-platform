@@ -4,6 +4,7 @@ import {getBusinessPaidEventDetail, paidEventsEnabled} from '@/lib/standalone/fi
 import {DomainError} from '@/lib/standalone/db';
 import {pageUser, money} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
+import {cleanEmployeeName} from '@/lib/display-name';
 import {dhakaTimestamp, formatPayoutNumber} from '@/lib/standalone/cash-dashboard';
 import {ActionForm} from '@/components/standalone/action-form';
 
@@ -109,7 +110,7 @@ export default async function BusinessPaidDetailPage({params}: {params: Promise<
             <tbody>
               <tr><th>Event ID</th><td>{event.id}</td></tr>
               <tr><th>Type / status</th><td><span className={`pill ${eventTone(event.event_type)}`}>{event.event_type} · {event.status}</span></td></tr>
-              <tr><th>Employee name</th><td>{event.employee_name}</td></tr>
+              <tr><th>Employee name</th><td>{cleanEmployeeName(event.employee_name)}</td></tr>
               <tr><th>Employee ID / mobile</th><td>{event.employee_mobile}</td></tr>
               <tr><th>Payout number</th><td>{event.payout_mobile}</td></tr>
               <tr><th>Amount</th><td>{money(event.amount_minor)}</td></tr>
@@ -227,7 +228,7 @@ export default async function BusinessPaidDetailPage({params}: {params: Promise<
               hidden={{eventId: event.id}}
               fields={[
                 {name: 'amountMinor', label: 'Corrected amount (paisa)', type: 'number', required: true, defaultValue: String(Number(latestAmount))},
-                {name: 'employeeName', label: 'Employee name (optional)', defaultValue: event.employee_name},
+                {name: 'employeeName', label: 'Employee name (optional)', defaultValue: cleanEmployeeName(event.employee_name)},
                 {name: 'method', label: 'Method', type: 'select', defaultValue: event.method, options: [
                   {value: 'bkash', label: 'bKash'}, {value: 'nagad', label: 'Nagad'}, {value: 'rocket', label: 'Rocket'},
                   {value: 'bank', label: 'Bank'}, {value: 'cash', label: 'Cash'}]},

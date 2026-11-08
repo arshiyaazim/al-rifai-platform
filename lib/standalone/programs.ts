@@ -8,6 +8,7 @@ export type ProgramInput = {
   motherVessel: string;
   lighterVessel: string;
   masterMobile?: string | null;
+  masterName?: string | null;
   destination?: string | null;
   escortName?: string | null;
   escortMobile?: string | null;
@@ -24,6 +25,8 @@ export type ProgramRow = {
   mother_vessel: string;
   lighter_vessel: string;
   master_mobile: string | null;
+  master_name?: string | null;
+  source_type?: string;
   destination: string | null;
   escort_name: string | null;
   escort_mobile: string | null;
@@ -86,6 +89,7 @@ export async function potentialDuplicates(input: {motherVessel: string; lighterV
 
 export type ProgramSource = {
   channel?: 'WEB' | 'WHATSAPP' | 'IMPORT';
+  sourceType?: 'MANUAL' | 'WHATSAPP_ORDER';
   messageId?: string | null;
   chatJid?: string | null;
   commandKey?: string | null;
@@ -94,6 +98,7 @@ export type ProgramSource = {
 async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, input: ProgramInput, source: ProgramSource) {
   const commandKey = source.commandKey ?? null;
   const channel = source.channel ?? 'WEB';
+  const sourceType = source.sourceType ?? (channel === 'WHATSAPP' ? 'WHATSAPP_ORDER' : 'MANUAL');
   const motherVessel = text(input.motherVessel, 'motherVessel', {max: 120});
   const lighterVessel = text(input.lighterVessel, 'lighterVessel', {max: 120});
   const startDate = isoDate(input.startDate, 'startDate');
@@ -107,6 +112,7 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
   if (masterMobile !== null && !/^01[3-9][0-9]{8}$/.test(masterMobile)) {
     throw new DomainError('INVALID_MASTERMOBILE');
   }
+  const masterName = optionalText(input.masterName, 'masterName', 150);
   const destination = optionalText(input.destination, 'destination', 160);
   const notes = optionalText(input.notes, 'notes', 2000);
   const escortMobile = optionalMobile(input.escortMobile, 'escortMobile');
@@ -128,14 +134,14 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
   }
   const inserted = await client.query<ProgramRow>(
       `INSERT INTO programs
-         (id, mother_vessel, lighter_vessel, master_mobile, destination, escort_name, escort_mobile,
-          start_date, start_shift, end_date, end_shift, state, source_channel, source_message_id,
+         (id, mother_vessel, lighter_vessel, master_mobile, master_name, destination, escort_name, escort_mobile,
+          start_date, start_shift, end_date, end_shift, state, source_channel, source_type, source_message_id,
           source_chat_jid, created_by, notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
      RETURNING *`,
-    [id, motherVessel, lighterVessel, masterMobile, destination,
+    [id, motherVessel, lighterVessel, masterMobile, masterName, destination,
       optionalText(input.escortName, 'escortName', 150), escortMobile,
-      startDate, startShift, endDate, endShift, state, channel,
+      startDate, startShift, endDate, endShift, state, channel, sourceType,
       source.messageId ?? null, source.chatJid ?? null, actor.id, notes],
   );
   if (escortMobile) {
@@ -399,6 +405,7 @@ export type ProgramUpdateInput = {
   motherVessel?: string;
   lighterVessel?: string;
   masterMobile?: string | null;
+  masterName?: string | null;
   destination?: string | null;
   startDate?: string;
   startShift?: string;
@@ -419,6 +426,7 @@ export async function updateProgram(actor: Actor, programIdValue: string, input:
     const lighterVessel = input.lighterVessel === undefined ? current.lighter_vessel : text(input.lighterVessel, 'lighterVessel', {max: 120});
     const startDate = input.startDate === undefined ? current.start_date : isoDate(input.startDate, 'startDate');
     const startShift = input.startShift === undefined ? current.start_shift : shift(input.startShift, 'startShift');
+    const masterName = input.masterName === undefined ? (current.master_name ?? null) : optionalText(input.masterName, 'masterName', 150);
     const destination = input.destination === undefined ? current.destination : optionalText(input.destination, 'destination', 160);
     const notes = input.notes === undefined ? current.notes : optionalText(input.notes, 'notes', 2000);
     const masterMobileRaw = input.masterMobile === undefined ? current.master_mobile : optionalText(input.masterMobile, 'masterMobile', 40);
@@ -438,11 +446,11 @@ export async function updateProgram(actor: Actor, programIdValue: string, input:
 
     const updated = await client.query<ProgramRow>(
       `UPDATE programs
-          SET mother_vessel=$2, lighter_vessel=$3, master_mobile=$4, destination=$5,
-              start_date=$6, start_shift=$7, notes=$8, revision=revision+1
+          SET mother_vessel=$2, lighter_vessel=$3, master_mobile=$4, master_name=$5, destination=$6,
+              start_date=$7, start_shift=$8, notes=$9, revision=revision+1
         WHERE id=$1
         RETURNING *, start_date::text AS start_date, end_date::text AS end_date`,
-      [current.id, motherVessel, lighterVessel, masterMobile, destination, startDate, startShift, notes],
+      [current.id, motherVessel, lighterVessel, masterMobile, masterName, destination, startDate, startShift, notes],
     );
     await client.query(
       `INSERT INTO program_events (program_id, action, actor, payload)
@@ -451,7 +459,7 @@ export async function updateProgram(actor: Actor, programIdValue: string, input:
         motherVessel: current.mother_vessel, lighterVessel: current.lighter_vessel,
         masterMobile: current.master_mobile, destination: current.destination,
         startDate: current.start_date, startShift: current.start_shift,
-      }, after: {motherVessel, lighterVessel, masterMobile, destination, startDate, startShift}})],
+      }, after: {motherVessel, lighterVessel, masterMobile, masterName, destination, startDate, startShift}})],
     );
     await recordAudit({actor, action: 'PROGRAM_UPDATED', entity: 'program', entityId: current.id,
       detail: {startDate, startShift, destination}}, client);
@@ -507,6 +515,7 @@ export type ProgramListFilters = {
   q?: string;
   state?: string;
   escort?: string;
+  mother?: string;
   from?: string;
   to?: string;
   limit?: number;
@@ -523,8 +532,9 @@ function programFilterSql(filters: ProgramListFilters): {clause: string; values:
         AND ($2::text IS NULL OR p.state = $2)
         AND ($3::text IS NULL OR p.escort_mobile = $3)
         AND ($4::date IS NULL OR p.start_date >= $4)
-        AND ($5::date IS NULL OR p.start_date <= $5)`,
-    values: [q, filters.state ?? null, filters.escort ?? null, filters.from ?? null, filters.to ?? null],
+        AND ($5::date IS NULL OR p.start_date <= $5)
+        AND ($6::text IS NULL OR lower(btrim(p.mother_vessel)) = lower(btrim($6)))`,
+    values: [q, filters.state ?? null, filters.escort ?? null, filters.from ?? null, filters.to ?? null, filters.mother ?? null],
   };
 }
 
@@ -538,7 +548,7 @@ export async function listPrograms(filters: ProgramListFilters = {}) {
        FROM programs p LEFT JOIN program_pay pp ON pp.program_id = p.id
        ${clause}
       ORDER BY p.start_date DESC, p.created_at DESC
-      LIMIT $6 OFFSET $7`,
+      LIMIT $7 OFFSET $8`,
     [...values, limit, offset],
   );
 }
@@ -554,7 +564,7 @@ export async function countPrograms(filters: ProgramListFilters = {}) {
 
 export async function getProgram(programIdValue: string) {
   const program = await row<ProgramRow>(
-    `SELECT id, revision, mother_vessel, lighter_vessel, master_mobile, destination,
+    `SELECT id, revision, mother_vessel, lighter_vessel, master_mobile, master_name, source_type, destination,
             escort_name, escort_mobile, start_date::text AS start_date, start_shift,
             end_date::text AS end_date, end_shift, state, source_channel,
             source_message_id, source_chat_jid, confirmation_message_id,

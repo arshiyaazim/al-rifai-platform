@@ -1,9 +1,12 @@
 import Link from 'next/link';
 import {countPrograms, listPrograms} from '@/lib/standalone/programs';
+import {listEmployees} from '@/lib/standalone/employees';
+import {rows} from '@/lib/standalone/db';
 import {listProgramSourcesForPrograms, listReviewQueue} from '@/lib/standalone/review';
 import {money, pageUser, when} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
+import {VesselRegisterClient} from '@/components/standalone/vessel-register-client';
 import {
   formatReviewTimestamp,
   reviewCategoryLabel,
@@ -25,10 +28,14 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
   const state = filters.state ?? '';
   const page = Math.max(Number(filters.page ?? 1), 1);
   const pageSize = 25;
-  const [programs, totalPrograms, vesselReviews] = await Promise.all([
-    listPrograms({q, state: state || undefined, limit: pageSize, offset: (page - 1) * pageSize}),
+  const [initialPrograms, tableTotal, programs, totalPrograms, vesselReviews, escorts, motherRows] = await Promise.all([
+    listPrograms({limit: 20, offset: 0}),
+    countPrograms(),
+    listPrograms({q, state: state || undefined, limit: 200, offset: 0}),
     countPrograms({q, state: state || undefined}),
     listReviewQueue({domain: 'PROGRAM', state: 'PENDING', limit: 100}),
+    listEmployees({state: 'ACTIVE', limit: 500}),
+    rows<{mother_vessel: string}>('SELECT DISTINCT mother_vessel FROM programs WHERE state <> \'VOIDED\' ORDER BY mother_vessel'),
   ]);
   const pages = Math.max(Math.ceil(totalPrograms / pageSize), 1);
   const pageHref = (next: number) => {
@@ -80,61 +87,19 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
         <button type="submit">Filter programs</button>
       </form>
 
-      <ActionForm
-        title="New program (one row per lighter)"
-        endpoint="/api/programs"
-        action="create"
-        submitLabel="Create program"
-        fields={[
-          {name: 'motherVessel', label: 'Mother vessel', required: true},
-          {name: 'lighterVessel', label: 'Lighter vessel', required: true},
-          {name: 'masterMobile', label: 'Master mobile', placeholder: '01712345678'},
-          {name: 'destination', label: 'Destination'},
-          {name: 'escortName', label: 'Escort name'},
-          {name: 'escortMobile', label: 'Escort mobile', placeholder: '01812345678'},
-          {name: 'startDate', label: 'Start date', type: 'date', required: true},
-          {name: 'startShift', label: 'Shift', type: 'select', options: [
-            {value: 'D', label: 'Day (D)'}, {value: 'N', label: 'Night (N)'},
-          ]},
-          {name: 'endDate', label: 'End date (release)', type: 'date'},
-          {name: 'endShift', label: 'End shift', type: 'select', options: [
-            {value: '', label: '—'}, {value: 'D', label: 'Day (D)'}, {value: 'N', label: 'Night (N)'},
-          ]},
-          {name: 'notes', label: 'Notes', type: 'textarea'},
-        ]}
+      <VesselRegisterClient
+        initial={{
+          rows: initialPrograms,
+          total: tableTotal,
+          page: 1,
+          limit: 20,
+          totalPages: Math.max(1, Math.ceil(tableTotal / 20)),
+        }}
+        escorts={escorts.map((employee) => ({mobile: employee.employee_mobile, name: employee.preferred_name}))}
+        mothers={motherRows.map((row) => row.mother_vessel)}
+        canCommand={canCommand}
+        canRelease={canRelease}
       />
-
-      <section className="card">
-        <h3>Programs ({totalPrograms} · {active.length} active on this page)</h3>
-        <div style={{overflowX: 'auto'}}>
-        <table>
-          <thead><tr><th>Mother Vessel</th><th>Lighter Name</th><th>Master Mobile</th><th>Escort</th><th>Start Date / Shift</th><th>End Date / Shift</th><th>State</th><th>Updated</th><th>Pay</th></tr></thead>
-          <tbody>
-            {programs.map((program) => (
-              <tr key={program.id}>
-                <td><Link href={`/vessel/${encodeURIComponent(program.id)}`}>{program.mother_vessel}</Link><div className="muted" style={{fontFamily: 'ui-monospace, monospace'}}>{program.id}</div></td>
-                <td><Link href={`/vessel/${encodeURIComponent(program.id)}`}>{program.lighter_vessel}</Link></td>
-                <td style={{whiteSpace: 'nowrap'}}>{program.master_mobile ?? '—'}</td>
-                <td>{program.escort_name ?? '—'}<div className="muted">{program.escort_mobile ?? ''}</div></td>
-                <td style={{whiteSpace: 'nowrap'}}>{program.start_date} · {program.start_shift}</td>
-                <td style={{whiteSpace: 'nowrap'}}>{program.end_date ? `${program.end_date} · ${program.end_shift}` : '—'}</td>
-                <td><span className={`pill ${stateTone(program.state)}`}>{program.state}</span></td>
-                <td style={{whiteSpace: 'nowrap'}}>{program.updated_at ? when(program.updated_at) : '—'}</td>
-                <td>{money(program.total_minor)}{program.pay_state === 'UNRESOLVED' ? <div className="muted">unresolved</div> : null}</td>
-              </tr>
-            ))}
-            {!programs.length ? <tr><td colSpan={9} className="muted">No programs yet.</td></tr> : null}
-          </tbody>
-        </table>
-        </div>
-        <div className="table-footer">
-          <span>{totalPrograms.toLocaleString()} program(s) · page {page} of {pages}</span>
-          <span className="paging">
-            {page > 1 ? <Link href={pageHref(page - 1)}>← Previous</Link> : null}
-            {page < pages ? <Link href={pageHref(page + 1)}>Next →</Link> : null}
-          </span>
-        </div>
-      </section>
 
       <section className="card" style={{marginBottom: 18}}>
         <div className="page-head" style={{marginBottom: 8}}>

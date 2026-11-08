@@ -8,7 +8,7 @@ import test, {beforeEach} from 'node:test';
 import {createPool} from '../../db/postgres.mjs';
 import {row, rows} from '../../lib/standalone/db.ts';
 import {routePendingMessages} from '../../lib/message-router.ts';
-import {countPrograms, createProgram, getProgram, listPrograms} from '../../lib/standalone/programs.ts';
+import {countPrograms, createProgram, getProgram, listPrograms, updateProgram} from '../../lib/standalone/programs.ts';
 import {getMessageEvidence} from '../../lib/standalone/messages.ts';
 
 process.env.ALRIFAI_VESSEL_PROCESSING_ENABLED = '1';
@@ -454,6 +454,19 @@ test('register: name formatting variation does not duplicate the row', async () 
   assert.equal((await row("SELECT count(*)::int AS n FROM programs WHERE start_date='2026-11-17'")).n, 1);
 });
 
+
+
+test('manual vessel program stores Master Name and MANUAL source type', async () => {
+  const created = await createProgram(admin, {
+    motherVessel: 'MV Manual', lighterVessel: 'L-MANUAL', masterName: 'Master A',
+    masterMobile: '01911111111', startDate: '2026-12-01', startShift: 'D',
+  }, {channel: 'WEB', sourceType: 'MANUAL'});
+  assert.equal(created.program.master_name, 'Master A');
+  assert.equal(created.program.source_type, 'MANUAL');
+  assert.equal(created.program.state, 'DRAFT');
+  const updated = await updateProgram(admin, created.program.id, {masterName: 'Master B'});
+  assert.equal(updated.program.master_name, 'Master B');
+});
 
 test('register list paginates and exposes the updated timestamp', async () => {
   for (const [index, lighter] of ['P-1', 'P-2', 'P-3'].entries()) {

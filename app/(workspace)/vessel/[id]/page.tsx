@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import {notFound} from 'next/navigation';
-import {getProgram, potentialDuplicates} from '@/lib/standalone/programs';
+import {countPrograms, getProgram, listPrograms, potentialDuplicates} from '@/lib/standalone/programs';
+import {listEmployees} from '@/lib/standalone/employees';
+import {VesselRegisterClient} from '@/components/standalone/vessel-register-client';
 import {listProgramSourcesForPrograms} from '@/lib/standalone/review';
 import {DomainError} from '@/lib/standalone/db';
 import {can} from '@/lib/standalone/authz';
@@ -35,6 +37,11 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
   const releaseEvidence = program.release_message_id && program.release_chat_jid
     ? await getMessageEvidence(accountId, program.release_chat_jid, program.release_message_id)
     : null;
+  const [historyPrograms, historyTotal, escorts] = await Promise.all([
+    listPrograms({mother: program.mother_vessel, limit: 20, offset: 0}),
+    countPrograms({mother: program.mother_vessel}),
+    listEmployees({state: 'ACTIVE', limit: 500}),
+  ]);
   const duplicates = await potentialDuplicates({
     motherVessel: program.mother_vessel,
     lighterVessel: program.lighter_vessel,
@@ -65,6 +72,22 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
         </div>
         <div className="row-actions"><Link href="/vessel">← Vessel Register</Link><Link href="/vessel/drafts">Order drafts →</Link></div>
       </div>
+
+      <VesselRegisterClient
+        initial={{
+          rows: historyPrograms,
+          total: historyTotal,
+          page: 1,
+          limit: 20,
+          totalPages: Math.max(1, Math.ceil(historyTotal / 20)),
+        }}
+        escorts={escorts.map((employee) => ({mobile: employee.employee_mobile, name: employee.preferred_name}))}
+        mothers={[program.mother_vessel]}
+        fixedMother={program.mother_vessel}
+        canCommand={canCommand}
+        canRelease={canRelease}
+        showNew={false}
+      />
 
       {['DRAFT', 'CONFIRMED'].includes(program.state) ? (
         <OwnerDraftPanel

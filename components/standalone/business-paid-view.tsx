@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import {pageUser, money} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
+import {cleanEmployeeName} from '@/lib/display-name';
 import {
   CASH_PAYMENT_TIME_ZONE, dhakaTimestamp, formatPayoutNumber, listBusinessPaidEvents,
   paidEventsReportingEnabled,
@@ -160,7 +161,7 @@ export async function BusinessPaidView({
             <tbody>
               {result.rows.map((item, index) => {
                 const registered = item.employee_link_status === 'REGISTERED';
-                const name = item.registered_name ?? item.employee_name;
+                const name = cleanEmployeeName(item.registered_name ?? item.employee_name);
                 return (
                   <tr key={item.event_id ?? item.posting_id ?? `${index}`}>
                     <td>{(currentPage - 1) * PAGE_SIZE + index + 1}</td>

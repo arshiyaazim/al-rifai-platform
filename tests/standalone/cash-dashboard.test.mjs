@@ -12,7 +12,7 @@ import {
 import {createEmployee, searchEmployees} from '../../lib/standalone/employees.ts';
 import {
   approveInstruction, cashTransactionView, countCashTransactions, createAccount, createInstruction,
-  listAccounts, listCashTransactions, postInstruction, reversePosting,
+  getCashEmployeeSummary, listAccounts, listCashTransactions, postInstruction, reversePosting, updateCashTransaction,
 } from '../../lib/standalone/finance.ts';
 import {resetBusinessState} from './reset.mjs';
 
@@ -273,4 +273,26 @@ test('cash transactions: 8-column read model, cumulative total, search and pagin
   assert.equal(view.payoutNumber, 2);
   assert.equal(view.amountMinor, '2000');
   assert.equal(view.totalPaidMinor, '3000');
+});
+
+test('cash transaction edit and employee history summary are audited', async () => {
+  const mobile = '01755550999';
+  const updated = await updateCashTransaction(adminA, 'tx-b', {
+    designation: 'Senior Loader',
+    amount: 2500,
+    notes: 'corrected by admin',
+  });
+  assert.equal(updated?.designation, 'Senior Loader');
+  assert.equal(updated?.amount_minor, '2500');
+  assert.equal(updated?.notes, 'corrected by admin');
+
+  const summary = await getCashEmployeeSummary(mobile);
+  assert.equal(summary?.total_payouts, 2);
+  assert.equal(summary?.total_paid_minor, '3500');
+  assert.equal(summary?.name_of_employee, 'Tx Target');
+
+  const audit = await row(
+    "SELECT action FROM audit_events WHERE entity='cash_instruction' AND entity_id='tx-b' AND action='CASH_TRANSACTION_UPDATED'",
+  );
+  assert.ok(audit, 'the edit is recorded in audit_events');
 });
