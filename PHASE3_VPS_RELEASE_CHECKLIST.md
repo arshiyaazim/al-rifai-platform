@@ -2,7 +2,7 @@
 
 > **Superseded status (2026-11-08):** this file records the executed 2026-11-06
 > release (`1.4.0`). The current release candidate is
-> `feature/phase3-integration` @ `0b691a223949e9a413589db9e5f3dcd3366448e3`,
+> `feature/phase3-010-011-release` @ `8a6c2c6ae8d082fc15235bd37e126117ad06f8c7`,
 > target schema **`1.6.0`** (migrations **010 + 011**). Use
 > `docs/PHASE3_PRODUCTION_RELEASE_AUDIT_20261108.md` as the current runbook.
 > Production migrations 010 and 011 were applied in stages on 2026-11-08 and

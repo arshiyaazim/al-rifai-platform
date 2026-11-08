@@ -379,3 +379,5 @@ Technical references:
 - Fresh backup SHA-256 `d88b0f0f...22ae77`; critical row counts preserved.
 - `PHASE3_PAID_EVENTS_ENABLED` remains OFF; `cash_payment_events` and posting
   links are empty. No financial posting or historical backfill occurred.
+- Release image `phase3-ai-rc-8a6c2c6`
+  (`sha256:8b7ab534…c3e510`) deployed; app/sync healthy; schema `1.6.0`.

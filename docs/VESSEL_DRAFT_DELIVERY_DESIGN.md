@@ -5,7 +5,8 @@
 > rehearsal target is schema **`1.6.0`, 49 tables, 10 migration rows**. The
 > 010-only statements in this historical document (schema stays `1.5.0`, CI
 > 46→47) describe the earlier router-branch rehearsal, not the combined branch.
-> 010 is now applied in production. A default-disabled worker
+> 010 is now applied in production and the integrated image
+> `phase3-ai-rc-8a6c2c6` is deployed. A default-disabled worker
 > (`lib/vessel-draft-delivery-worker.ts`) and a narrow WA-01
 > `send_message` adapter (`lib/vessel-draft-transport.ts`) now exist. Because no
 > approved sender/recipient or send permission is configured, delivery is still

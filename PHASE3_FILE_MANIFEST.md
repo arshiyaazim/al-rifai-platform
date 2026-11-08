@@ -1,15 +1,15 @@
 # Phase 3 File Manifest
 
-**Branch:** `feature/phase3-integration` (isolated router + cash integration)
+**Branch:** `feature/phase3-010-011-release` (release commit `8a6c2c6`)
 **Baseline:** `a4aabb6` (cash) with merged router tip `4e2e3f4`; `main` `13d660c`
-**Schema:** `1.6.0` target (production still `1.5.0`; migrations are explicit CLI only).
+**Schema:** `1.6.0` deployed (49 tables, migrations 002–011).
 **Migrations:** additive `010_vessel_draft_delivery.sql` and
-`011_cash_payment_events.sql`; neither is applied to production.
-**`.env` ALRIFAI_TAG:** aligned to deployed `7da17f1` with Owner approval.
-**Production image (DEPLOYED 2026-11-07):** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
+`011_cash_payment_events.sql`; both applied in staged production work and verified.
+**`.env` ALRIFAI_TAG:** aligned to deployed `phase3-ai-rc-8a6c2c6`; previous tag backup preserved.
+**Production image (DEPLOYED 2026-11-08):** `local/al-rifai-platform:phase3-ai-rc-8a6c2c6`
+(digest `sha256:8b7ab534838f670c9b6486015650711e266dea4d3f8b2ac4df287d5be1c3e510`)
+**Previous/rollback image:** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
 (digest `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`)
-**Rollback image:** `phase3-ai-rc-86d659a` (`sha256:932ef856…`)
-**Verification image (built, NOT deployed):** `local/al-rifai-platform:phase3-ai-rc-675a3ef` — post-deployment workflow fixes
 
 ## New files
 

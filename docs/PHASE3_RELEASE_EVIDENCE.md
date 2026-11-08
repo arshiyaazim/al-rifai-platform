@@ -217,3 +217,21 @@ Technical references:
 | Data counts | unchanged (employees 218, programs 102, attendance 439, instructions 3,840, postings 1,586, ledger 1,586, submissions 117, review 20, messages 34,743) |
 | Paid Events | 0 events, 0 posting links, flag OFF |
 | Outbound | gate/worker OFF; no message sent; delivery mode MANUAL_COPY_ONLY |
+
+---
+
+## 2026-11-08 production deployment and final verification
+
+| Field | Value |
+|---|---|
+| Release source commit | `8a6c2c6ae8d082fc15235bd37e126117ad06f8c7` |
+| Image tag | `local/al-rifai-platform:phase3-ai-rc-8a6c2c6` |
+| Image ID / digest | `sha256:8b7ab534838f670c9b6486015650711e266dea4d3f8b2ac4df287d5be1c3e510` |
+| Containers | `al-rifai-phase3-app-1`, `al-rifai-phase3-sync-1` recreated |
+| Health | `/api/health` 200, DB ok, schema `1.6.0`; app healthy |
+| Flags after deploy | Router worker `1`; Vessel processing `1`; Paid absent/OFF; Vessel draft worker/outbound absent/OFF |
+| Migrations | 010 + 011 applied and verified; 49 tables |
+| Data | 1,586 postings/ledger entries unchanged; 0 Paid Events; 0 posting links; delivery queue 0 |
+| Router | worker started; 147 messages processed, 41 Cash REVIEW, 4 Vessel DRAFT, 0 postings/events/sends |
+| Outbound | no sender JID/recipient/socket/token; no `messages.send`; no message sent |
+| Authenticated production UI | **BLOCKED / NOT VERIFIED** — no authorized plaintext test credential or session was available; isolated HTTP/RBAC evidence remains the verification source |

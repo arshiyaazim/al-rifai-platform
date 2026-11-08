@@ -7,8 +7,8 @@
 **Production status:** **APPLIED 2026-11-08** (010-only gate: 47 tables,
 schema `1.5.0`; after 011: 49 tables, schema `1.6.0`).
 **Runtime delivery status:** **MANUAL_COPY_ONLY**. Worker and transport code
-exist, but all outbound flags/gates remain OFF and no sender permission or
-recipient is approved.
+are deployed in image `phase3-ai-rc-8a6c2c6`, but all outbound flags/gates remain
+OFF and no sender permission or recipient is approved. No message was sent.
 
 ---
 

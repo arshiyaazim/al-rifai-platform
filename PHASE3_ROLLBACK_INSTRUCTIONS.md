@@ -1,5 +1,11 @@
 # Phase 3 Rollback Instructions
 
+> **2026-11-08 deployed state:** image `phase3-ai-rc-8a6c2c6`
+> (`sha256:8b7ab534…c3e510`); database schema `1.6.0` (migrations 010+011
+> applied); Paid Events and Vessel draft worker/outbound OFF. Application rollback
+> image is `phase3-ai-rc-7da17f1`. Do not restore the pre-migration dump unless
+> corruption is proven and the Owner approves losing post-migration rows.
+>
 > **2026-11-08 integration note — migrations 010/011 and Business Paid:**
 > - Disable `PHASE3_PAID_EVENTS_ENABLED` first. Existing `cash_payment_events`
 >   rows are append-only audit records; never delete them.

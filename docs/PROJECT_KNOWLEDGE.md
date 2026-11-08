@@ -9,6 +9,8 @@
 > - Production migrations 010 and 011 were applied in stages on 2026-11-08 and
 >   verified: **schema `1.6.0`, 49 tables, migrations 002–011**. Paid Events
 >   remains OFF with 0 events.
+> - Production image deployed: `phase3-ai-rc-8a6c2c6`
+>   (`sha256:8b7ab534…c3e510`); app/sync healthy.
 > - Business Paid API/UI exists in source: `/cash/paid`, `/cash/paid/[id]`,
 >   `business-paid` list/detail resources and correction/reversal actions.
 > - 010 queue + producer + default-disabled worker + narrow transport adapter

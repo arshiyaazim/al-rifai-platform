@@ -7,9 +7,9 @@
 `0b309b2`)
 **Production status:** **APPLIED 2026-11-08** (schema `1.6.0`, 49 tables,
 migrations 002–011; 0 Business Paid Events).
-**Feature status:** implemented, isolated-tested and schema-deployed; **NOT
-production-active**. `PHASE3_PAID_EVENTS_ENABLED` remains OFF and the integrated
-application image was not yet deployed at the migration gate.
+**Feature status:** implemented, isolated-tested, schema-deployed and application
+image deployed; **NOT production-active**. `PHASE3_PAID_EVENTS_ENABLED` remains
+OFF; 0 Business Paid Events; no ledger writes.
 
 ---
 
@@ -270,20 +270,20 @@ Important distinctions:
 
 | Feature | Implemented | Tested in isolation | Deployed | Activated | Missing / blocked |
 |---|---|---|---|---|---|
-| WhatsApp parser single-mobile | Yes | Yes | Yes (schema; image pending) | No | — |
-| Multi-block processing | Yes | Yes | Yes (schema; image pending) | No | historical gap remains |
-| WhatsApp automatic PAYMENT | Yes | Yes | Yes (schema; image pending) | No | image + flag |
-| Office PAYMENT | Yes | Yes | Yes (schema; image pending) | No | image + flag |
-| PAYMENT append-only | Yes | Yes | Yes | No | image |
-| CORRECTION append-only | Yes | Yes | Yes | No | image + flag |
-| REVERSAL append-only | Yes | Yes | Yes | No | image + flag |
-| Posting link | Yes | Yes | Yes | No | image + flag |
+| WhatsApp parser single-mobile | Yes | Yes | Yes (schema + image) | No | — |
+| Multi-block processing | Yes | Yes | Yes (schema + image) | No | historical gap remains |
+| WhatsApp automatic PAYMENT | Yes | Yes | Yes (schema + image) | No | activation flag |
+| Office PAYMENT | Yes | Yes | Yes (schema + image) | No | activation flag |
+| PAYMENT append-only | Yes | Yes | Yes | No | — |
+| CORRECTION append-only | Yes | Yes | Yes | No | activation flag |
+| REVERSAL append-only | Yes | Yes | Yes | No | activation flag |
+| Posting link | Yes | Yes | Yes | No | activation flag |
 | No automatic postInstruction | Yes | Yes | Yes | No | — |
-| Admin list API | Yes | Yes | Yes (schema; image pending) | No | deploy image |
-| Admin detail API | Yes | Yes | Yes (schema; image pending) | No | deploy image |
-| Admin list/detail UI | Yes | Build/HTTP | Yes (schema; image pending) | No | deploy image |
-| Correction/reversal UI/API | Yes | Yes | Yes (schema; image pending) | No | image + flag |
-| Business Paid summary | Yes | Yes | Yes (schema; image pending) | No | image + flag |
+| Admin list API | Yes | Yes | Yes (schema + image) | No | authenticated verification |
+| Admin detail API | Yes | Yes | Yes (schema + image) | No | authenticated verification |
+| Admin list/detail UI | Yes | Build/HTTP | Yes (schema + image) | No | authenticated verification |
+| Correction/reversal UI/API | Yes | Yes | Yes (schema + image) | No | activation flag |
+| Business Paid summary | Yes | Yes | Yes (schema + image) | No | activation flag |
 | Legacy POSTED parity | Yes | Yes | Production currently POSTED-only | No event flag | — |
 | Historical backfill | **No** | No | No | No | not authorized |
 | Existing pending candidate correction | **No** | No | No | No | reviewer action |

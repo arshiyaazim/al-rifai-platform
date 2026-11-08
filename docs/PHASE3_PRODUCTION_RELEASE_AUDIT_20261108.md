@@ -409,3 +409,16 @@ The Owner authorized staged production work after this audit.
 
 The application image and final feature verification are recorded separately in
 the handoff/release evidence after deployment.
+
+### Deployment addendum
+
+- Release image `local/al-rifai-platform:phase3-ai-rc-8a6c2c6`
+  (`sha256:8b7ab534…c3e510`) built from `8a6c2c6`.
+- App/sync recreated; app healthy; `/api/health` 200/schema `1.6.0`.
+- Router worker restored to ON after the deploy gate; Vessel processing ON;
+  Paid Events OFF; Vessel draft worker/outbound OFF.
+- Post-deploy router evidence: 147 messages processed, 41 Cash REVIEW,
+  4 Vessel DRAFT, zero postings/events/outbound sends.
+- Authenticated production UI remains **BLOCKED/NOT VERIFIED** because no
+  authorized plaintext credential/session was available; isolated auth/UI
+  evidence is recorded above.
