@@ -60,11 +60,18 @@ export const verifyVesselDraftSender: VesselDraftVerifySender = async (
 ) => {
   try {
     const result = await callTool(paths.socketPath, paths.tokenFile, 'get_native_account_identity', {});
+    const scope = result.nativeScope && typeof result.nativeScope === 'object'
+      ? result.nativeScope as Record<string, unknown>
+      : null;
     const observed = typeof result.jid === 'string'
       ? result.jid
       : typeof result.accountJid === 'string'
         ? result.accountJid
-        : null;
+        : typeof scope?.pairedJid === 'string'
+          ? scope.pairedJid
+          : typeof scope?.pairedLid === 'string'
+            ? scope.pairedLid
+            : null;
     if (!observed) {
       return {ok: false, reason: 'VESSEL_DRAFT_SENDER_IDENTITY_MISSING', observed: null};
     }

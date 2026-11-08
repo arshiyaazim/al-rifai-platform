@@ -288,6 +288,13 @@ test('sender adapter verifies the exact WA-01 identity and rejects a mismatch', 
     async () => ({jid: '8801880446111:27@s.whatsapp.net'}),
   );
   assert.equal(matching.ok, true);
+  const nativeShape = await verifyVesselDraftSender(
+    senderJid,
+    paths,
+    async () => ({nativeScope: {pairedJid: '8801880446111:27@s.whatsapp.net'}}),
+  );
+  assert.equal(nativeShape.ok, true);
+  assert.equal(nativeShape.observed, '8801880446111:27@s.whatsapp.net');
   const mismatch = await verifyVesselDraftSender(
     senderJid,
     paths,
