@@ -142,9 +142,9 @@ export default async function VesselDraftsPage() {
               </table>
             ) : (
               <p className="muted" style={{marginTop: 10}}>
-                No delivery records exist. Migration 010 is pending Owner approval and the
-                outbound gate is disabled, so the platform stays <strong>MANUAL_COPY_ONLY</strong>
-                and sends nothing.
+                No delivery records exist. Migration 010 is applied, but the outbound gate
+                is disabled, so the platform stays <strong>MANUAL_COPY_ONLY</strong> and
+                sends nothing.
               </p>
             )}
           </section>
