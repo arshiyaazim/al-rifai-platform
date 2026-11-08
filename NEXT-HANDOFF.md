@@ -61,6 +61,13 @@ Verification (disposable `alrifai_v2_test`, schema 1.6.0):
 | `pnpm test:paid-events` | 23/23 |
 | `pnpm build` | pass |
 
+Image built locally (not deployed):
+`local/al-rifai-platform:phase3-ai-rc-activation-03b1526`, digest
+`sha256:d7ae28d210f97edda9d8f05e0ea79e0f2dce82b64f1377d12ef97e222342386f`.
+Rollback/production image remains `phase3-ai-rc-8a6c2c6`
+(`sha256:8b7ab534…e510`). The exact approval package is
+`docs/VESSEL_DRAFT_ACTIVATION_APPROVAL_PACKAGE.md`.
+
 Cash: no code change. Flag OFF keeps POSTED-only totals; flag ON uses verified
 Paid Events plus legacy POSTED with no double count. All eight card values come
 from the same summary and their links route to `/cash/paid` with server-side
