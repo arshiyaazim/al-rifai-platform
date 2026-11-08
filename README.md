@@ -386,13 +386,39 @@ tables). No new migration is required by the activation branch.
 pnpm test:unit        # pure functions (149 assertions)
 pnpm test:standalone  # all DB suites: domain, WhatsApp adapter, router,
                       # cutover, Review Queue, Cash lifecycle, users, AI,
-                      # Vessel Draft recipient/store/worker (185 integration tests)
+                      # Vessel Draft recipient/store/worker and message mirror (186 integration tests)
 ```
 
 The integration tests are destructive to their schema: run them against a
 disposable database (or a dedicated schema) prepared with `pnpm db:install`, and
 always with `--test-concurrency=1`. They reset business tables between files;
 never point them at production.
+
+---
+
+## 7.1 WhatsApp message mirror
+
+Both bridge SQLite stores are synchronized into the Main Database by
+`scripts/sync-worker.mjs` (the only process that reads the bridge stores). The
+parser and router read `whatsapp_messages`, never the bridge files.
+
+- Stable identity: `(account_id, chat_jid, message_id)`.
+- `--mode=tail` continuously imports new messages; `--mode=import` is the
+  historical catch-up; `--mode=reconcile` applies late edits/revocations and
+  inserts missing rows; `--mode=media-status` records explicit
+  `STORED`/`FAILED`/`SKIPPED` media rows.
+- Read-only verification: `node scripts/verify-message-mirror.mjs` (add
+  `--strict --strict-media` for non-zero on a message or media-status gap).
+- Current audit: both bridges are **message-complete** (0 missing, 0 extra,
+  0 duplicate; WA-01 has three late-edit timestamp mismatches pending the new
+  reconcile). Historical media files are **partial**: 5,405 source media
+  messages have metadata but no `whatsapp_media` row; most retain a source
+  URL/key. Production reconcile/media backfill/redeploy require Owner approval.
+- Mirrored messages from both bridges are retained. Vessel/Cash business
+  processing is currently WA-01-only; enabling WA-02 is the separate Bridge 2 →
+  Bridge 1 workflow.
+
+See `docs/WHATSAPP_MESSAGE_MIRROR.md`.
 
 ---
 

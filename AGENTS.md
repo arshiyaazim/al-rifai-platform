@@ -104,6 +104,28 @@ in `docs/` and the Phase 3 reports.
 - `cash_payment_events` and `cash_payment_event_postings` are append-only.
   Corrections/reversals are new rows; never UPDATE/DELETE financial history.
 
+## WhatsApp message mirror
+
+- The bridge SQLite stores are the source of truth. `scripts/sync-worker.mjs` is
+  the **only** process that reads them; the parser/router must read
+  `whatsapp_messages`, never a bridge file directly.
+- Stable identity is `(account_id, chat_jid, message_id)`. A mirror row is not
+  committed until the Main Database transaction commits; the checkpoint advances
+  only after that.
+- Preserve source values. `raw_payload` keeps the original fields; when
+  PostgreSQL cannot carry NUL/lone surrogates, `raw_payload.content_base64`
+  preserves the exact bytes and marks `content_sanitized:true`.
+- `--mode=reconcile` performs the full source↔main comparison and applies late
+  edits/revocations; it runs on startup and periodically. `--mode=media-status`
+  records an explicit `STORED`/`FAILED`/`SKIPPED` row for every capturable source
+  media message and never reports an uncopied file as `STORED`.
+- Verify with `node scripts/verify-message-mirror.mjs` (read-only). Production
+  `--mode=reconcile`, `--mode=media-status`, image rebuild/recreate and any
+  production repair require explicit Owner approval.
+- Mirrored messages from both bridges are authoritative for the application.
+  Business processing scope is separate: Vessel/Cash currently processes WA-01
+  only; enabling WA-02 is a separate approved workflow.
+
 ## Verification commands (isolated test DB only)
 
 ```bash

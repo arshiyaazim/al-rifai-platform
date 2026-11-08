@@ -1,6 +1,6 @@
 # NEXT-HANDOFF
 
-**Session ended:** 2026-11-07
+**Session ended:** 2026-11-08
 **ACTIVE GOAL (unchanged): Authenticated Production UI Verification — status
 BLOCKED, not complete.** A README or source change does not complete it.
 **Read first:** `AGENTS.md`, `docs/PROJECT_KNOWLEDGE.md`,
@@ -9,11 +9,81 @@ BLOCKED, not complete.** A README or source change does not complete it.
 `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`, `docs/MAIN_RECONCILIATION_PLAN.md`,
 `docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`,
 `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`, `docs/BUSINESS_WORKFLOW_BACKLOG.md`,
-`docs/PHASE3_GO_NO_GO_7da17f1.md`.
+`docs/PHASE3_GO_NO_GO_7da17f1.md`, `docs/WHATSAPP_MESSAGE_MIRROR.md`.
 
 **Report language:** English only. Always state whether a finding is
 **implemented**, **clone-tested**, **production-deployed**, **live-verified**,
 **OWNER-CONFIRMED** or **BLOCKED**.
+
+---
+
+## 2026-11-08 — WhatsApp MCP → Main Database mirror audit and fix
+
+**Read-only audit + code fix; production repair/redeploy pending approval.**
+Bridge stores: `/var/lib/vps/whatsapp/wa-01/store/messages.db`,
+`/var/lib/vps/whatsapp/wa-02/store/messages.db`.
+Main DB: `alrifai_v2_phase3`, `whatsapp_messages` / `whatsapp_media`.
+
+### Current production evidence (17:01Z)
+
+| Metric | WA-01 | WA-02 |
+|---|---:|---:|
+| Source messages | 19,490 | 15,333 |
+| Main messages | 19,490 | 15,333 |
+| Missing / extra / duplicate | 0 / 0 / 0 | 0 / 0 / 0 |
+| Field mismatches | 3 timestamps (late edits) | 0 |
+| Checkpoint lag | 0 | 0 |
+| Source media messages | 3,414 | 2,351 |
+| `whatsapp_media` rows | 133 (STORED 133) | 227 (STORED 121, FAILED 106) |
+| Missing media rows | 3,281 | 2,124 |
+| Source media with URL/key | 3,256 / 3,256 | 2,016 / 1,893 |
+
+- The **message mirror is complete at record level** for both bridges; continuous
+  tail sync is working (checkpoint caught up; new rows written).
+- The three WA-01 timestamp mismatches are **late source edits** (content and all
+  other fields match); the old worker never re-read old rows. New
+  `--mode=reconcile` fixes this.
+- The **media mirror is partial**: the main DB has metadata (type/filename/SHA/
+  length) for every source media message, but 5,405 source media messages have no
+  `whatsapp_media` row and only 254 files are stored. Historical import skipped
+  media by design. Most missing rows still have a source URL/key; a controlled
+  media backfill can copy many, subject to CDN expiry.
+
+### Code changes (branch `feature/phase3-010-011-activation`)
+
+- `scripts/sync-worker.mjs`
+  - full `--mode=reconcile` (startup + every `SYNC_RECONCILE_EVERY` rounds; default 60);
+  - update predicate now compares all mirrored fields, so late edits/revocations
+    are applied;
+  - `raw_payload.content_base64` preserves exact bytes when PostgreSQL cannot
+    store NUL/lone surrogates;
+  - `--mode=media-status --confirm` creates explicit `STORED`/`FAILED`/`SKIPPED`
+    rows for every capturable source media message, with
+    `SYNC_MEDIA_BACKFILL_LIMIT` (default 200) and permanent-skip handling;
+  - checkpoint still advances only after the committed insert/update; failed
+    batches do not advance and retry.
+- `scripts/verify-message-mirror.mjs` — read-only source↔main field comparison,
+  media coverage and checkpoint report; `--strict` / `--strict-media`.
+- `tests/standalone/message-mirror.test.mjs` — disposable SQLite + test DB:
+  historical import, late-edit reconcile, idempotency, media `SKIPPED`, verifier.
+
+Tested in the disposable DB: import 3/3 per bridge; late edit updated; second
+reconcile `written=0`; media status `SKIPPED MEDIA_SOURCE_METADATA_ABSENT`;
+verifier `COMPLETE`; failed 70k-text batch did not advance checkpoint and
+recovered after correction.
+
+### Remaining approvals / work
+
+1. Rebuild/recreate the **sync** service with the updated worker (production
+   image/container change; requires approval).
+2. Run `--mode=reconcile` once on production (3 late-edit updates; requires
+   approval).
+3. Run `--mode=media-status --confirm` in bounded batches (creates 5,405 status
+   rows; attempts up to 5,272 files with URL/key; requires approval and storage/
+   expiry monitoring).
+4. Bridge 2 → Bridge 1 Escort Draft delivery remains a separate blocked
+   business/authorization change (WA-02 `admin_jids=[]`, identity-only policy;
+   WA-01 draft worker disabled).
 
 ---
 

@@ -52,6 +52,7 @@ const INTERVAL_MS = Number(setting('SYNC_INTERVAL_MS') || 5000);
 const RECENT_WINDOW = Number(setting('SYNC_RECENT_WINDOW') || 300);
 const RECENT_EVERY = Number(setting('SYNC_RECENT_EVERY') || 12);
 const IDENTITY_EVERY = Number(setting('SYNC_IDENTITY_EVERY') || RECENT_EVERY);
+const RECONCILE_EVERY = Math.max(1, Number(setting('SYNC_RECONCILE_EVERY') || 60));
 
 // Media capture. Disabled with ALRIFAI_MEDIA_ENABLED=0; the storage directory
 // is a persistent host volume, never the Git checkout or the image.
@@ -60,6 +61,7 @@ const MEDIA_DIR = setting('ALRIFAI_MEDIA_DIR') || '/media';
 const MEDIA_MAX_BYTES = Number(setting('ALRIFAI_MEDIA_MAX_BYTES') || 25 * 1024 * 1024);
 const MEDIA_TIMEOUT_MS = Number(setting('ALRIFAI_MEDIA_TIMEOUT_MS') || 20_000);
 const MEDIA_RETRY_LIMIT = Number(setting('ALRIFAI_MEDIA_RETRY_LIMIT') || 20);
+const MEDIA_BACKFILL_LIMIT = Math.max(1, Number(setting('SYNC_MEDIA_BACKFILL_LIMIT') || 200));
 const MEDIA_UID = Number(setting('ALRIFAI_MEDIA_UID') || 10001);
 const MEDIA_GID = Number(setting('ALRIFAI_MEDIA_GID') || 10001);
 
@@ -224,6 +226,7 @@ const UPDATE_SET = INSERT_COLUMNS
 function toRow(account, runId, chatLabels, row) {
   const timestamp = parseTimestamp(row.timestamp);
   if (!timestamp) throw new Error(`BAD_TIMESTAMP:${row.id}`);
+  const rawText = String(row.content ?? '');
   const text = clean(row.content ?? null);
   const payload = {
     id: row.id, chat_jid: row.chat_jid, sender: row.sender,
@@ -235,6 +238,12 @@ function toRow(account, runId, chatLabels, row) {
     group_participant_jid: row.group_participant_jid,
     resolved_sender_jid: row.resolved_sender_jid, resolved_chat_jid: row.resolved_chat_jid,
     identity_state: row.identity_state, chat_identity_state: row.chat_identity_state,
+    // PostgreSQL text/JSONB cannot carry NUL or lone surrogates. When the
+    // source content had to be sanitised, preserve the exact bytes in base64
+    // so the mirror remains traceable and field-by-field verifiable.
+    ...(text !== rawText
+      ? {content_base64: Buffer.from(rawText, 'utf8').toString('base64'), content_sanitized: true}
+      : {}),
   };
   return [
     account.id, clean(row.chat_jid), clean(row.id), row.is_from_me ? 'OUTGOING' : 'INCOMING',
@@ -262,9 +271,26 @@ async function insertMessages(client, rows) {
     `INSERT INTO whatsapp_messages (${INSERT_COLUMNS.join(',')})
      VALUES ${values.join(',')}
      ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO UPDATE SET ${UPDATE_SET}
-     WHERE whatsapp_messages.content_hash IS DISTINCT FROM EXCLUDED.content_hash
-        OR whatsapp_messages.deleted_at   IS DISTINCT FROM EXCLUDED.deleted_at
-        OR whatsapp_messages.media_type   IS DISTINCT FROM EXCLUDED.media_type`,
+     WHERE whatsapp_messages.content_hash       IS DISTINCT FROM EXCLUDED.content_hash
+        OR whatsapp_messages.source_timestamp   IS DISTINCT FROM EXCLUDED.source_timestamp
+        OR whatsapp_messages.direction          IS DISTINCT FROM EXCLUDED.direction
+        OR whatsapp_messages.sender_jid         IS DISTINCT FROM EXCLUDED.sender_jid
+        OR whatsapp_messages.text_content       IS DISTINCT FROM EXCLUDED.text_content
+        OR whatsapp_messages.source_rowid       IS DISTINCT FROM EXCLUDED.source_rowid
+        OR whatsapp_messages.source_sha256      IS DISTINCT FROM EXCLUDED.source_sha256
+        OR whatsapp_messages.chat_label         IS DISTINCT FROM EXCLUDED.chat_label
+        OR whatsapp_messages.chat_kind          IS DISTINCT FROM EXCLUDED.chat_kind
+        OR whatsapp_messages.sender_resolved_jid IS DISTINCT FROM EXCLUDED.sender_resolved_jid
+        OR whatsapp_messages.chat_resolved_jid  IS DISTINCT FROM EXCLUDED.chat_resolved_jid
+        OR whatsapp_messages.identity_state     IS DISTINCT FROM EXCLUDED.identity_state
+        OR whatsapp_messages.group_participant_jid IS DISTINCT FROM EXCLUDED.group_participant_jid
+        OR whatsapp_messages.quoted_message_id  IS DISTINCT FROM EXCLUDED.quoted_message_id
+        OR whatsapp_messages.media_type         IS DISTINCT FROM EXCLUDED.media_type
+        OR whatsapp_messages.media_filename     IS DISTINCT FROM EXCLUDED.media_filename
+        OR whatsapp_messages.media_sha256       IS DISTINCT FROM EXCLUDED.media_sha256
+        OR whatsapp_messages.media_length       IS DISTINCT FROM EXCLUDED.media_length
+        OR whatsapp_messages.deleted_at         IS DISTINCT FROM EXCLUDED.deleted_at
+        OR whatsapp_messages.raw_payload        IS DISTINCT FROM EXCLUDED.raw_payload`,
     params,
   );
   return result.rowCount ?? 0;
@@ -361,11 +387,18 @@ async function recordMedia(client, account, row, {status, error = null, storageP
   );
 }
 
-async function captureMedia(client, account, row) {
+async function captureMedia(client, account, row, options = {}) {
   const type = String(row.media_type ?? '').toLowerCase();
   if (!isCapturableMedia(type)) return 'SKIPPED';
   const digest = hexOf(row.file_sha256);
-  if (!digest || !/^[a-f0-9]{64}$/.test(digest)) return 'SKIPPED';
+  if (!digest || !/^[a-f0-9]{64}$/.test(digest)) {
+    if (options.sourceBackfill) {
+      await recordMedia(client, account, row, {
+        status: 'SKIPPED', error: 'MEDIA_SOURCE_SHA_ABSENT', digest: sha256Hex(''), bytes: Number(row.file_length || 0),
+      });
+    }
+    return 'SKIPPED';
+  }
 
   const existing = (
     await client.query(
@@ -383,8 +416,10 @@ async function captureMedia(client, account, row) {
   const url = typeof row.url === 'string' ? row.url.trim() : '';
   const mediaKey = row.media_key;
   if (!url || !mediaKey || !row.file_length) {
-    await recordMedia(client, account, row, {status: 'FAILED', error: 'MEDIA_METADATA_INCOMPLETE', digest, bytes: Number(row.file_length || 0)});
-    return 'FAILED';
+    await recordMedia(client, account, row, options.sourceBackfill
+      ? {status: 'SKIPPED', error: 'MEDIA_SOURCE_METADATA_ABSENT', digest, bytes: Number(row.file_length || 0)}
+      : {status: 'FAILED', error: 'MEDIA_METADATA_INCOMPLETE', digest, bytes: Number(row.file_length || 0)});
+    return options.sourceBackfill ? 'SKIPPED' : 'FAILED';
   }
 
   try {
@@ -421,6 +456,64 @@ async function captureChunkMedia(client, account, chunk) {
     }
   }
   return {stored, failed};
+}
+
+/**
+ * One-shot media-status repair. Every capturable source media message gets a
+ * `whatsapp_media` row:
+ *   - STORED when the source URL/key is available and the file verifies;
+ *   - FAILED for a transient download/decrypt failure (retryable);
+ *   - SKIPPED when the bridge no longer has URL/key or a plaintext hash.
+ * This makes the mirror's media completeness explicit instead of silently
+ * missing rows. It never writes to the bridge store.
+ */
+async function backfillMediaStatus(client, account, db, columns) {
+  const existing = new Map(
+    (await client.query(
+      'SELECT chat_jid, message_id, status, error FROM whatsapp_media WHERE account_id=$1',
+      [account.id],
+    )).rows.map((row) => [`${row.chat_jid}\u0000${row.message_id}`, {status: row.status, error: row.error}]),
+  );
+  const permanentSkip = new Set([
+    'MEDIA_SOURCE_METADATA_ABSENT',
+    'MEDIA_SOURCE_SHA_ABSENT',
+    'MEDIA_DISABLED',
+  ]);
+  const source = db.prepare(
+    `SELECT ${selectColumns(columns)} FROM messages
+      WHERE media_type IS NOT NULL AND media_type<>'' ORDER BY rowid`,
+  ).all();
+  const tally = {source: 0, capturable: 0, attempted: 0, stored: 0, failed: 0, skipped: 0, missingMessage: 0, deferred: 0};
+  for (const row of source) {
+    tally.source += 1;
+    const type = String(row.media_type ?? '').toLowerCase();
+    if (!isCapturableMedia(type)) continue;
+    tally.capturable += 1;
+    const key = `${clean(row.chat_jid)}\u0000${clean(row.id)}`;
+    const current = existing.get(key);
+    if (current?.status === 'STORED') continue;
+    const hasSourcePayload = Boolean(row.url && row.media_key);
+    if (current?.status === 'SKIPPED' && permanentSkip.has(current.error) && !hasSourcePayload) continue;
+    if (tally.attempted >= MEDIA_BACKFILL_LIMIT) {
+      tally.deferred += 1;
+      continue;
+    }
+    const message = await client.query(
+      `SELECT 1 FROM whatsapp_messages
+        WHERE account_id=$1 AND chat_jid=$2 AND message_id=$3`,
+      [account.id, clean(row.chat_jid), clean(row.id)],
+    );
+    if (!message.rowCount) {
+      tally.missingMessage += 1;
+      continue;
+    }
+    tally.attempted += 1;
+    const result = await captureMedia(client, account, row, {sourceBackfill: true});
+    if (result === 'STORED') tally.stored += 1;
+    else if (result === 'FAILED') tally.failed += 1;
+    else tally.skipped += 1;
+  }
+  return tally;
 }
 
 async function retryFailedMedia(client, account, db, columns) {
@@ -622,13 +715,14 @@ async function deriveIdentity(client, account, db, columns) {
 async function syncAccount(client, account, options = {}) {
   const {db, columns, path} = openStore(account, {snapshot: Boolean(options.snapshot)});
   try {
+    const reconcile = options.reconcile === true;
     const chatLabels = new Map(db.prepare('SELECT jid, name FROM chats').all().map((c) => [c.jid, c.name]));
     const state = (
       await client.query('SELECT last_rowid FROM whatsapp_sync_state WHERE account_id = $1', [account.id])
     ).rows[0] ?? {last_rowid: 0};
     const checkpoint = Number(state.last_rowid ?? 0);
     const maxRow = Number(db.prepare('SELECT coalesce(max(rowid),0) AS m FROM messages').get().m);
-    const pending = maxRow > checkpoint;
+    const pending = reconcile || maxRow > checkpoint;
 
     // New bridge chats must exist before their messages are shown in the Inbox.
     // The original worker imported chats only during the historical bootstrap,
@@ -644,7 +738,11 @@ async function syncAccount(client, account, options = {}) {
       return {account: account.id, pending: false, written: 0, identity};
     }
 
-    const since = options.recent && !pending ? Math.max(0, checkpoint - RECENT_WINDOW) : checkpoint;
+    const since = reconcile
+      ? 0
+      : options.recent && !pending
+        ? Math.max(0, checkpoint - RECENT_WINDOW)
+        : checkpoint;
     const select = db.prepare(
       `SELECT ${selectColumns(columns)} FROM messages WHERE rowid > ? AND rowid <= ? ORDER BY rowid LIMIT ?`,
     );
@@ -662,7 +760,7 @@ async function syncAccount(client, account, options = {}) {
       if (!chunk.length) break;
       const rows = chunk.map((row) => toRow(account, runId, chatLabels, row));
       if (!runId) {
-        runId = `${options.snapshot ? 'import' : 'sync'}-${account.id}-${randomUUID()}`;
+        runId = `${options.snapshot ? 'import' : reconcile ? 'reconcile' : 'sync'}-${account.id}-${randomUUID()}`;
         await client.query(
           `INSERT INTO whatsapp_import_runs (id, account_id, source_path, source_sha256, snapshot_at)
            VALUES ($1,$2,$3,$4,now())`,
@@ -671,8 +769,9 @@ async function syncAccount(client, account, options = {}) {
       }
       written += await insertMessages(client, rows);
       // Media is captured only in continuous mode: --mode=import must not
-      // recover historical attachments.
-      if (MODE === 'tail') {
+      // recover historical attachments, and a full reconciliation only
+      // repairs message rows (media status has its own explicit mode).
+      if (MODE === 'tail' && !reconcile) {
         const captured = await captureChunkMedia(client, account, chunk);
         media = {stored: media.stored + captured.stored, failed: media.failed + captured.failed};
       }
@@ -697,9 +796,9 @@ async function syncAccount(client, account, options = {}) {
         [runId, seen, written],
       );
     }
-    if (MODE === 'tail' && options.recent) await retryFailedMedia(client, account, db, columns);
+    if (MODE === 'tail' && options.recent && !reconcile) await retryFailedMedia(client, account, db, columns);
     if (options.identity) identity = await deriveIdentity(client, account, db, columns);
-    return {account: account.id, from: checkpoint, to: latest, seen, written, pending, media, identity};
+    return {account: account.id, from: checkpoint, to: latest, seen, written, pending, reconcile, media, identity};
   } finally {
     db.close();
   }
@@ -764,6 +863,31 @@ async function status() {
 
 async function main() {
   if (MODE === 'status') return status();
+
+  if (MODE === 'media-status') {
+    if (!process.argv.includes('--confirm')) {
+      throw new Error('MEDIA_STATUS_CONFIRM_REQUIRED');
+    }
+    const p = pool();
+    const client = await p.connect();
+    try {
+      await ensureAccounts(client, ACCOUNTS);
+      for (const account of ACCOUNTS) {
+        const {db, columns} = openStore(account);
+        try {
+          const tally = await backfillMediaStatus(client, account, db, columns);
+          log('MEDIA_STATUS', account.id, JSON.stringify(tally));
+        } finally {
+          db.close();
+        }
+      }
+    } finally {
+      client.release();
+      await p.end();
+    }
+    return;
+  }
+
   const p = pool();
   const client = await p.connect();
   try {
@@ -771,7 +895,9 @@ async function main() {
     let round = 0;
     for (;;) {
       round += 1;
-      const recent = round % RECENT_EVERY === 0;
+      const reconcile = MODE === 'reconcile'
+        || (MODE === 'tail' && (round === 1 || round % RECONCILE_EVERY === 0));
+      const recent = MODE === 'tail' && !reconcile && round % RECENT_EVERY === 0;
       const identity = round === 1 || round % IDENTITY_EVERY === 0;
       for (const account of ACCOUNTS) {
         try {
@@ -779,9 +905,11 @@ async function main() {
             snapshot: MODE === 'import' && Boolean(SNAPSHOT_DIR),
             recent,
             identity,
+            reconcile,
           });
           if (result.written || result.media?.stored || result.media?.failed || result.identity) {
-            log(MODE === 'import' ? 'IMPORT' : 'TAIL', JSON.stringify(result));
+            const tag = MODE === 'import' ? 'IMPORT' : reconcile ? 'RECONCILE' : 'TAIL';
+            log(tag, JSON.stringify(result));
           }
         } catch (error) {
           const message = String(error?.message ?? error).slice(0, 400);
@@ -794,8 +922,8 @@ async function main() {
             .catch(() => undefined);
         }
       }
-      if (MODE === 'import') {
-        log('IMPORT_COMPLETE');
+      if (MODE === 'import' || MODE === 'reconcile') {
+        log(MODE === 'import' ? 'IMPORT_COMPLETE' : 'RECONCILE_COMPLETE');
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, INTERVAL_MS));
