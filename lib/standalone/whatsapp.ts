@@ -27,6 +27,7 @@ class McpClient {
   private nextId = 1;
   private pending = new Map<number, {resolve: (v: JsonObject) => void; reject: (e: Error) => void; timer: NodeJS.Timeout}>();
   private ready: Promise<void>;
+  private initialized: Promise<void> | null = null;
 
   constructor(socketPath: string, tokenFile: string) {
     const token = readFileSync(tokenFile, 'utf8').trim();
@@ -100,7 +101,26 @@ class McpClient {
     }));
   }
 
+  /**
+   * The secured bridge broker speaks the MCP lifecycle: authenticate, then
+   * `initialize`, then `notifications/initialized`, then tool calls. Sending a
+   * tool call before initialization is rejected with -32602.
+   */
+  private ensureInitialized(): Promise<void> {
+    if (!this.initialized) {
+      this.initialized = this.request('initialize', {
+        protocolVersion: '2025-11-25',
+        capabilities: {},
+        clientInfo: {name: 'al-rifai', version: '1'},
+      }).then(() => {
+        this.socket.write(`${JSON.stringify({jsonrpc: '2.0', method: 'notifications/initialized'})}\n`);
+      });
+    }
+    return this.initialized;
+  }
+
   async callTool(name: string, args: JsonObject): Promise<JsonObject> {
+    await this.ensureInitialized();
     const result = await this.request('tools/call', {name, arguments: args});
     const structured = result.structuredContent;
     if (structured && typeof structured === 'object') return structured as JsonObject;
