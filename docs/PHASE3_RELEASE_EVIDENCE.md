@@ -196,3 +196,8 @@ Candidate: `feature/phase3-integration` @ `0b691a223949e9a413589db9e5f3dcd336644
 Critical release dependency: apply 010/011 before starting the new image because
 `/cash/paid` queries the 011 table even when `PHASE3_PAID_EVENTS_ENABLED=0`.
 A fresh backup and Owner approval are still required.
+
+Technical references:
+`docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md`,
+`docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md`,
+`docs/PHASE3_GIT_COMPLETENESS_AUDIT.md`.

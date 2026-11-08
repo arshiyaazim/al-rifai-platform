@@ -32,8 +32,12 @@ The existing authorization pipeline is unchanged:
    registry.
 6. Only OUTGOING messages reach `handleCash()`.
 
-WA-02 remains identity-only. No new account, chat or sender is authorized by
-this change.
+WA-02 remains identity-only in the **current deployed/runtime scope**. No new
+account, chat or sender is authorized by this change. This is not a finding that
+WA-02 must remain identity-only permanently: the Owner-intended Bridge-2 →
+Bridge-1 Escort Order Draft workflow is **not implemented/verified** in this
+repository and requires separate scope, permission and field evidence before any
+WA-02 business expansion.
 
 ## 3. Single-mobile identity
 
