@@ -1,5 +1,15 @@
 # Vessel Draft delivery — architecture, internal work and activation gate
 
+> **2026-11-08 integration note (supersedes 010-only status below):** in
+> `feature/phase3-integration`, 010 is followed by 011 and the combined fresh
+> rehearsal target is schema **`1.6.0`, 49 tables, 10 migration rows**. The
+> 010-only statements in this historical document (schema stays `1.5.0`, CI
+> 46→47) describe the earlier router-branch rehearsal, not the combined branch.
+> 010 remains a durable queue only: no worker caller and no `send_message` path
+> exists, so delivery is still **`MANUAL_COPY_ONLY`**. Current WA-02 scope is
+> identity-only; an Owner-intended Bridge-2 → Bridge-1 order workflow is
+> unverified and not implemented.
+
 **Date:** 2026-11-07 (updated after durable-infrastructure completion)
 **Status:** Safe internal work **implemented and clone/unit/integration-tested**.
 **No outbound transport is enabled and no WhatsApp message is sent.**

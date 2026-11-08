@@ -127,6 +127,9 @@
 | `components/standalone/business-paid-view.tsx` | Server-rendered Paid list with filters, totals, source/evidence/detail links |
 | `tests/standalone/business-paid-api.test.mjs` | List/detail filters, event_id, totals, posting link, RBAC/flag gate |
 | `docs/PHASE3_PRODUCTION_RELEASE_AUDIT_20261108.md` | Read-only production baseline, verified backup, production-copy rehearsal, auth/UI evidence, historical impact, cutover and rollback runbook |
+| `docs/PHASE3_GIT_COMPLETENESS_AUDIT.md` | Branch/worktree/commit completeness audit, canonical dirty-file assessment, file-level matrix |
+| `docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md` | Migration 010 SQL, draft workflow, exact template, delivery status and completion matrix |
+| `docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md` | Migration 011 SQL, Business Paid pipeline, API/UI, historical coverage and activation readiness |
 | `phase3-implementation-plan.md` | Corrected implementation record (was a proposal) |
 | `phase3-technical-decision-report.md` | Corrected final design and evidence |
 | `app/api/assistant/route.ts` | Admin assistant/draft/applicant/order API |

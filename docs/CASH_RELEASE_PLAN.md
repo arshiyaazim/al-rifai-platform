@@ -366,3 +366,8 @@ deployed and not applied to production.
 - Fresh install and incremental migration: schema `1.6.0`, 49 tables.
 - Runtime grants: vessel READ_WRITE; Paid tables append-only.
 - Production unchanged.
+
+Technical references:
+`docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md`,
+`docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md`,
+`docs/PHASE3_GIT_COMPLETENESS_AUDIT.md`.

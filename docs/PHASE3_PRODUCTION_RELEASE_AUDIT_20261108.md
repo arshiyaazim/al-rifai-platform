@@ -4,6 +4,10 @@
 **Mode:** READ-ONLY production audit + isolated rehearsal. No production write,
 migration, deployment, restart or feature-flag change was performed.
 
+> **Snapshot note:** row/message counts below are the audit snapshot. The live
+> router advances them; see `docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md` for the
+> latest aggregate snapshot. Counts are not a frozen production state.
+
 ---
 
 ## 1. Verified candidate

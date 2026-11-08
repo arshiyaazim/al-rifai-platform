@@ -1,5 +1,13 @@
 # Business workflow backlog — 2026-11-07
 
+> **2026-11-08 integration update:** the combined candidate applies 010 **and**
+> 011 in isolated rehearsal (schema `1.6.0`, 49 tables). Production remains
+> `1.5.0`/46 tables and no migration has been applied. 010 is still a durable
+> queue only; automatic WhatsApp draft delivery and Bridge-2 order intake remain
+> unimplemented/unverified. See
+> `docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md` and
+> `docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md`.
+
 **Priority rule:** make existing business features work reliably before adding
 new features. This file records what was verified/fixed this session and what
 remains. It does not authorise production data changes.

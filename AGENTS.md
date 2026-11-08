@@ -16,8 +16,14 @@ in `docs/` and the Phase 3 reports.
 
 ## Cash / WhatsApp rules
 
-- WA-01 is the only Cash/Vessel source account. WA-02 is identity-only and must
-  never create a Cash or Vessel business record.
+- **Current deployed scope:** WA-01 / Bridge-1 is the only Cash/Vessel source
+  account. WA-02 / Bridge-2 is identity-only in the current runtime and must not
+  create Cash or Vessel records with the current configuration.
+- The Owner-intended **Bridge-2 / WA-02 Escort Order intake and Bridge-2 →
+  Bridge-1 draft handoff** workflow is **not implemented and not verified** in
+  this repository. Do not infer permission or field rules from the identity-only
+  current state; any expansion requires an explicit Owner-approved scope,
+  participant list, bridge policy and separate implementation.
 - A Cash payment is eligible only when it is an OUTGOING message from the
   verified Admin to the single authorized Accountant direct conversation,
   with valid provenance (message ID + block key). Do not broaden access.
@@ -70,6 +76,10 @@ in `docs/` and the Phase 3 reports.
 
 ## Database
 
+- Technical references:
+  `docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md`,
+  `docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md`,
+  `docs/PHASE3_GIT_COMPLETENESS_AUDIT.md`.
 - Migrations run in numeric order. 010 (`vessel_draft_deliveries`) must precede
   011 (`cash_payment_events`). Do not renumber them after they are deployed.
 - Applied migration files are checksum-locked by `schema_migrations`. Changing

@@ -17,6 +17,36 @@ BLOCKED, not complete.** A README or source change does not complete it.
 
 ---
 
+## 2026-11-08 — Git completeness audit and migration technical documentation
+
+**Branch:** `feature/phase3-docs-audit` (from integration `0b309b2`).
+**Mode:** documentation-only; no source/SQL/runtime change.
+
+Verified:
+
+- Integration contains every router and cash feature commit; no commits are
+  missing. All feature tips and integration are pushed and clean.
+- Canonical `main` dirty files are preserved but superseded/duplicate/obsolete:
+  the old `finance.ts` insert, old invalid 011, duplicate 010, earlier reports
+  and a pre-sidebar layout backup contain no unique required work.
+- New migration references:
+  `docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md`,
+  `docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md`.
+- New Git audit: `docs/PHASE3_GIT_COMPLETENESS_AUDIT.md`.
+- Current WA-02 scope (identity-only) is documented separately from the
+  unverified Owner-intended Bridge-2 → Bridge-1 order-draft workflow. No
+  permission or field rule was invented.
+- 010 is a durable queue only; automatic WhatsApp delivery is **NOT IMPLEMENTED**
+  (no worker caller, no `send_message` path). Current delivery is
+  `MANUAL_COPY_ONLY`.
+- 011 adds Business Paid storage; production remains schema `1.5.0`, with no
+  Business Paid Events and no activation.
+
+No production migration/deployment/restart/flag change or historical backfill
+was performed.
+
+---
+
 ## 2026-11-08 — Production release preparation audit (read-only)
 
 **Candidate:** `feature/phase3-integration` @

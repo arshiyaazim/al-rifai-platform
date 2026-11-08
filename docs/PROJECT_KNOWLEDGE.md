@@ -1,6 +1,24 @@
 # AL-RIFA'I Phase 3 — Project Knowledge Base
 
-**Last verified:** 2026-11-07 (post-deployment)
+> **2026-11-08 integration update (supersedes current-state lines below):**
+> - Source candidate: `feature/phase3-integration` @
+>   `0b309b29c02202d0d1312e2b3bc577f9bd6036f5` (docs audit branch adds further
+>   documentation only).
+> - Combined migrations: **010 + 011**; isolated/fresh rehearsal target schema
+>   **`1.6.0`, 49 tables, 10 migration rows**.
+> - Production remains **`1.5.0`, 46 tables, migrations 002–009**; **no 010/011
+>   migration, deployment or Paid Events activation has occurred**.
+> - Business Paid API/UI exists in source: `/cash/paid`, `/cash/paid/[id]`,
+>   `business-paid` list/detail resources and correction/reversal actions.
+> - 010 remains a durable queue only; automatic WhatsApp draft delivery is
+>   **NOT IMPLEMENTED**, current mode `MANUAL_COPY_ONLY`.
+> - WA-02 is identity-only in the **current runtime**; the Owner-intended
+>   Bridge-2 → Bridge-1 order-draft workflow is **UNKNOWN / NOT VERIFIED** and
+>   requires separate evidence.
+> - The older schema/migration/Git-head statements later in this file are
+>   historical unless reconfirmed above.
+
+**Last verified:** 2026-11-08 (integration documentation audit)
 **Production runtime (DEPLOYED):** `local/al-rifai-platform:phase3-ai-rc-7da17f1` (`sha256:5f3de875…`)
 **Rollback image (available):** `phase3-ai-rc-86d659a` (`sha256:932ef856…`)
 **Superseded candidate:** `phase3-ai-rc-9e85e49` (`sha256:cb8de252…`)
