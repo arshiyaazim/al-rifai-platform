@@ -36,6 +36,12 @@ function mockBridge(mode) {
         if (!line) continue;
         if (!authed) { authed = true; continue; }
         const message = JSON.parse(line);
+        if (message.method !== 'tools/call') {
+          if (message.id !== undefined) {
+            socket.write(`${JSON.stringify({jsonrpc: '2.0', id: message.id, result: {protocolVersion: '2025-11-25', capabilities: {}, serverInfo: {name: 'mock', version: '1'}}})}\n`);
+          }
+          continue;
+        }
         state.calls += 1;
         if (mode.value === 'drop') { socket.destroy(); return; }
         const structured = mode.value === 'fail'
