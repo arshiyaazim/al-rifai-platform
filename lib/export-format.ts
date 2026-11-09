@@ -83,7 +83,7 @@ export function dhakaTime12(value: string | Date | null | undefined): string {
   if (!Number.isFinite(date.getTime())) return '';
   return new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Dhaka', hour: '2-digit', minute: '2-digit', hour12: true,
-  }).format(date);
+  }).format(date).toUpperCase();
 }
 
 /** +8801XXXXXXXXX -> 01XXXXXXXXX for display. */
