@@ -19,6 +19,7 @@ const NAV = [
   {href: '/review', label: 'Review Queue'},
   {href: '/messages', label: 'WhatsApp Inbox'},
   {href: '/reports', label: 'Reports & Archive'},
+  {href: '/audit', label: 'Audit Trail'},
   {href: '/settings', label: 'Settings / Integrations'},
 ];
 
@@ -28,7 +29,7 @@ export default async function WorkspaceLayout({children}: {children: ReactNode})
   const pendingReviews = reviewCounts.pending + reviewCounts.cashPending;
   return (
     <WorkspaceSidebar
-      navItems={NAV}
+      navItems={user.role === 'ADMIN' ? NAV : NAV.filter((item) => item.href !== '/audit')}
       pendingReviews={pendingReviews}
       user={{displayName: user.displayName, role: user.role}}
     >

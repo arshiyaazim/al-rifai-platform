@@ -5,8 +5,13 @@ import {useEffect, useRef, useState} from 'react';
 import {MoreHorizontal} from 'lucide-react';
 import {AppToaster} from '@/components/standalone/app-toaster';
 import {CashTransactionSidebar} from '@/components/standalone/cash-transaction-sidebar';
+import {TableExportControls} from '@/components/standalone/export-controls';
+import {RealtimeIndicator} from '@/components/standalone/realtime-refresher';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
+import {useRealtimeUpdates} from '@/hooks/use-realtime-updates';
+import {bdtNumber, dateDdMmYyyy, type ExportColumn} from '@/lib/export-format';
+import {cashStateTone} from '@/lib/status-tone';
 
 export type CashTransaction = {
   id: string;
@@ -40,37 +45,71 @@ export type CashTransactionPage = {
   totalPages: number;
 };
 
+type ExportRow = CashTransaction & {sl: number};
+
 const dash = (value: unknown) => value === null || value === undefined || value === '' ? '—' : String(value);
 const amount = (minor: string | number | null | undefined) =>
   minor === null || minor === undefined ? '—'
     : `৳${(Number(minor) / 100).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
-const localDate = (value: string | null | undefined) =>
-  value ? new Date(value).toLocaleString('en-GB', {timeZone: 'Asia/Dhaka', dateStyle: 'medium', timeStyle: 'short'}) : '—';
 
-export function CashTransactionsTable({initial, canManage = false}: {initial: CashTransactionPage; canManage?: boolean}) {
+const STATES = [
+  ['', 'All states'],
+  ['POSTED', 'POSTED'],
+  ['DRAFT', 'DRAFT'],
+  ['PENDING_REVIEW', 'PENDING_REVIEW'],
+  ['APPROVED', 'APPROVED'],
+  ['REVERSED', 'REVERSED'],
+  ['CORRECTION', 'CORRECTION'],
+  ['REJECTED', 'REJECTED'],
+] as const;
+
+function updateUrl(page: number, limit: number, search: string, state: string) {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  const set = (key: string, value: string) => {
+    if (value) url.searchParams.set(key, value);
+    else url.searchParams.delete(key);
+  };
+  set('search', search);
+  set('state', state);
+  set('page', page > 1 ? String(page) : '');
+  set('limit', limit !== 20 ? String(limit) : '');
+  window.history.replaceState(null, '', url);
+}
+
+export function CashTransactionsTable({
+  initial, canManage = false, initialSearch = '', initialState = '',
+}: {
+  initial: CashTransactionPage;
+  canManage?: boolean;
+  initialSearch?: string;
+  initialState?: string;
+}) {
   const [data, setData] = useState<CashTransactionPage>(initial);
   const [page, setPage] = useState(initial.page);
   const [limit, setLimit] = useState(initial.limit);
-  const [search, setSearch] = useState('');
-  const [appliedSearch, setAppliedSearch] = useState('');
+  const [search, setSearch] = useState(initialSearch);
+  const [appliedSearch, setAppliedSearch] = useState(initialSearch);
+  const [stateFilter, setStateFilter] = useState(initialState);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [selected, setSelected] = useState<CashTransaction | null>(null);
   const request = useRef(0);
-  const current = useRef({page: initial.page, limit: initial.limit, appliedSearch: ''});
+  const current = useRef({page: initial.page, limit: initial.limit, appliedSearch: initialSearch, stateFilter: initialState});
 
   useEffect(() => {
-    current.current = {page, limit, appliedSearch};
-  }, [page, limit, appliedSearch]);
+    current.current = {page, limit, appliedSearch, stateFilter};
+  }, [page, limit, appliedSearch, stateFilter]);
 
-  async function load(nextPage: number, nextLimit: number, nextSearch: string, quiet = false) {
+  async function load(nextPage: number, nextLimit: number, nextSearch: string, nextState: string, quiet = false) {
     const id = ++request.current;
     if (!quiet) setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({page: String(nextPage), limit: String(nextLimit)});
       if (nextSearch) params.set('search', nextSearch);
+      if (nextState) params.set('state', nextState);
       const response = await fetch(`/api/cash/transactions?${params.toString()}`, {
         headers: {accept: 'application/json'},
         cache: 'no-store',
@@ -92,37 +131,79 @@ export function CashTransactionsTable({initial, canManage = false}: {initial: Ca
   }
 
   useEffect(() => {
-    const {page: p, limit: l, appliedSearch: q} = current.current;
-    void load(p, l, q, true);
+    const {page: p, limit: l, appliedSearch: q, stateFilter: s} = current.current;
+    void load(p, l, q, s, true);
   }, []);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const {page: p, limit: l, appliedSearch: q} = current.current;
-      void load(p, l, q, true);
-    }, 30_000);
-    return () => clearInterval(timer);
-  }, []);
+  const realtime = useRealtimeUpdates('CASH', () => {
+    const {page: p, limit: l, appliedSearch: q, stateFilter: s} = current.current;
+    void load(p, l, q, s, true);
+  });
 
   const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setAppliedSearch(search);
-    void load(1, limit, search);
+    updateUrl(1, limit, search, stateFilter);
+    void load(1, limit, search, stateFilter);
+  };
+
+  const changeState = (value: string) => {
+    setStateFilter(value);
+    updateUrl(1, limit, appliedSearch, value);
+    void load(1, limit, appliedSearch, value);
   };
 
   const changeLimit = (value: number) => {
     setLimit(value);
-    void load(1, value, appliedSearch);
+    updateUrl(1, value, appliedSearch, stateFilter);
+    void load(1, value, appliedSearch, stateFilter);
   };
 
-  const openSidebar = (item: CashTransaction) => setSelected(item);
+  const clearFilters = () => {
+    setSearch('');
+    setAppliedSearch('');
+    setStateFilter('');
+    updateUrl(1, limit, '', '');
+    void load(1, limit, '', '');
+  };
+
+  async function fetchAllForExport(): Promise<ExportRow[]> {
+    const params = new URLSearchParams({page: '1', limit: '10000'});
+    if (appliedSearch) params.set('search', appliedSearch);
+    if (stateFilter) params.set('state', stateFilter);
+    const response = await fetch(`/api/cash/transactions?${params.toString()}`, {
+      headers: {accept: 'application/json'}, cache: 'no-store',
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json() as CashTransactionPage;
+    return payload.transactions.map((item, index) => ({...item, sl: index + 1}));
+  }
+
   const rows = data.transactions;
   const offset = (data.page - 1) * data.limit;
+  const exportRows: ExportRow[] = rows.map((item, index) => ({...item, sl: offset + index + 1}));
+  const columns: ExportColumn<ExportRow>[] = [
+    {header: 'Sl', value: (row) => row.sl},
+    {header: 'Employee ID', value: (row) => row.employeeId ?? ''},
+    {header: 'Name of Employee', value: (row) => row.nameOfEmployee},
+    {header: 'Designation', value: (row) => row.designation ?? ''},
+    {header: 'Date of Join', value: (row) => dateDdMmYyyy(row.dateOfJoin)},
+    {header: 'Payouts', value: (row) => row.payoutNumber},
+    {header: 'Amount', value: (row) => bdtNumber(row.amountMinor)},
+    {header: 'Total Paid', value: (row) => bdtNumber(row.totalPaidMinor)},
+  ];
+  const filterSummary = [
+    stateFilter && `State: ${stateFilter}`,
+    appliedSearch && `Search: ${appliedSearch}`,
+  ];
+  const activeFilters = (stateFilter ? 1 : 0) + (appliedSearch ? 1 : 0);
+
+  const openSidebar = (item: CashTransaction) => setSelected(item);
 
   return (
     <>
       <AppToaster />
-      <section className="card" style={{marginBottom: 18}}>
+      <section className="card print-area" style={{marginBottom: 18}}>
         <div className="page-head" style={{marginBottom: 8}}>
           <div>
             <h3>Cash Transactions ({data.total.toLocaleString()})</h3>
@@ -131,35 +212,57 @@ export function CashTransactionsTable({initial, canManage = false}: {initial: Ca
               financial posting remains a separate explicit action.
             </p>
           </div>
-          <span className="muted" aria-live="polite">
-            {loading ? 'Refreshing…' : updatedAt ? 'Updated just now' : 'Live data'}
+          <span className="row-actions" style={{alignItems: 'center'}}>
+            <RealtimeIndicator status={realtime.status} />
+            <span className="muted" aria-live="polite">
+              {loading ? 'Refreshing…' : updatedAt ? 'Updated just now' : 'Live data'}
+            </span>
           </span>
         </div>
 
-        <form method="get" className="form compact" onSubmit={submitSearch} style={{marginBottom: 12}}>
-          <div className="row" style={{gap: 10, flexWrap: 'wrap'}}>
-            <Input
-              name="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search Employee ID or Name"
-              aria-label="Search Employee ID or Name"
-              style={{minWidth: 260, maxWidth: 380}}
-            />
-            <Button type="submit" size="sm">Search</Button>
-            {appliedSearch ? (
-              <Button type="button" size="sm" variant="outline" onClick={() => { setSearch(''); setAppliedSearch(''); void load(1, limit, ''); }}>
-                Clear
-              </Button>
-            ) : null}
-            <label className="muted" style={{display: 'flex', alignItems: 'center', gap: 6}}>
-              Rows
-              <select value={limit} onChange={(event) => changeLimit(Number(event.target.value))} aria-label="Rows per page" className="h-8 rounded-md border bg-background px-2 text-sm">
-                {[10, 20, 50].map((value) => <option key={value} value={value}>{value}</option>)}
+        <div className="table-toolbar print-hidden">
+          <form method="get" className="form compact" onSubmit={submitSearch} style={{margin: 0, flex: 1}}>
+            <div className="row" style={{gap: 10, flexWrap: 'wrap'}}>
+              <Input
+                name="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search Employee ID or Name"
+                aria-label="Search Employee ID or Name"
+                style={{minWidth: 240, maxWidth: 360}}
+              />
+              <select
+                value={stateFilter}
+                onChange={(event) => changeState(event.target.value)}
+                aria-label="Cash state filter"
+                className="h-8 rounded-md border bg-background px-2 text-sm"
+              >
+                {STATES.map(([value, label]) => <option key={value || 'all'} value={value}>{label}</option>)}
               </select>
-            </label>
-          </div>
-        </form>
+              <Button type="submit" size="sm">Search</Button>
+              {activeFilters ? (
+                <Button type="button" size="sm" variant="outline" onClick={clearFilters}>
+                  Clear filters{activeFilters ? ` (${activeFilters})` : ''}
+                </Button>
+              ) : null}
+              <label className="muted" style={{display: 'flex', alignItems: 'center', gap: 6}}>
+                Rows
+                <select value={limit} onChange={(event) => changeLimit(Number(event.target.value))} aria-label="Rows per page" className="h-8 rounded-md border bg-background px-2 text-sm">
+                  {[10, 20, 50].map((value) => <option key={value} value={value}>{value}</option>)}
+                </select>
+              </label>
+            </div>
+          </form>
+          <TableExportControls
+            title="Cash Transactions"
+            filenamePrefix="cash_transactions"
+            columns={columns}
+            rows={exportRows}
+            fetchAll={fetchAllForExport}
+            filterSummary={filterSummary}
+            disabled={loading}
+          />
+        </div>
 
         {error ? <div className="error" role="alert">{error}</div> : null}
 
@@ -204,9 +307,12 @@ export function CashTransactionsTable({initial, canManage = false}: {initial: Ca
                       : <span className="muted">—</span>}
                   </td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>
-                    {dash(item.nameOfEmployee)}
-                    {item.reversalOf ? <small className="muted" style={{display: 'block'}}>Reversal of #{item.reversalOf}</small> : null}
-                    {(item.correctionCount ?? 0) > 0 ? <small className="muted" style={{display: 'block'}}>Corrected ×{item.correctionCount}</small> : null}
+                    <div>{dash(item.nameOfEmployee)}</div>
+                    <small className="muted">
+                      <span className={`pill ${cashStateTone(item.state, item.correctionCount ?? 0)}`}>{item.state}</span>
+                      {(item.correctionCount ?? 0) > 0 ? <span className="pill correction" style={{marginLeft: 4}}>CORRECTION</span> : null}
+                      {item.reversalOf ? <span style={{marginLeft: 4}}>Reversal of #{item.reversalOf}</span> : null}
+                    </small>
                   </td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{dash(item.designation)}</td>
                   <td>{dash(item.dateOfJoin)}</td>
@@ -236,12 +342,12 @@ export function CashTransactionsTable({initial, canManage = false}: {initial: Ca
           </table>
         </div>
 
-        <div className="row-actions cash-pagination" style={{marginTop: 12}}>
-          <Button type="button" size="sm" variant="outline" disabled={loading || data.page <= 1} onClick={() => void load(data.page - 1, limit, appliedSearch)}>
+        <div className="row-actions cash-pagination print-hidden" style={{marginTop: 12}}>
+          <Button type="button" size="sm" variant="outline" disabled={loading || data.page <= 1} onClick={() => { const next = data.page - 1; updateUrl(next, limit, appliedSearch, stateFilter); void load(next, limit, appliedSearch, stateFilter); }}>
             ← Previous
           </Button>
           <span className="muted">Page {data.page} / {data.totalPages}</span>
-          <Button type="button" size="sm" variant="outline" disabled={loading || data.page >= data.totalPages} onClick={() => void load(data.page + 1, limit, appliedSearch)}>
+          <Button type="button" size="sm" variant="outline" disabled={loading || data.page >= data.totalPages} onClick={() => { const next = data.page + 1; updateUrl(next, limit, appliedSearch, stateFilter); void load(next, limit, appliedSearch, stateFilter); }}>
             Next →
           </Button>
         </div>
@@ -249,6 +355,7 @@ export function CashTransactionsTable({initial, canManage = false}: {initial: Ca
         <p className="muted" style={{marginTop: 10, marginBottom: 0}}>
           Designation and Date of Join show “—” when the employee registry has no value. Employee ID is the parsed
           mobile; Payouts is the sequential payout for that employee; Total Paid is cumulative through this row.
+          DRAFT and PENDING_REVIEW both map to the single REVIEW instruction stage.
         </p>
       </section>
 

@@ -3,6 +3,7 @@ import {row, rows, tx, text, optionalText, isoDate, shift, mobile, optionalMobil
 import {recordAudit, stableId} from './audit.ts';
 import {assertCapability} from './authz.ts';
 import {vesselKey} from '../vessel-match.ts';
+import {emitDomainEvent} from '../realtime/server.ts';
 
 export type ProgramInput = {
   motherVessel: string;
@@ -186,6 +187,7 @@ export async function createProgram(actor: Actor, input: ProgramInput, source: P
   if (client) return createProgramOn(client, actor, input, source);
   const result = await tx((txClient) => createProgramOn(txClient, actor, input, source));
   await enqueueDraftIfApproved(result.program);
+  emitDomainEvent('VESSEL', 'PROGRAM_CREATED', result.program.id);
   return result;
 }
 
@@ -267,7 +269,10 @@ export async function assignEscort(
 ) {
   assertCapability(actor, 'vessel.command');
   if (client) return assignEscortOn(client, actor, programIdValue, input);
-  return tx((txClient) => assignEscortOn(txClient, actor, programIdValue, input));
+  return tx((txClient) => assignEscortOn(txClient, actor, programIdValue, input)).then((result) => {
+    emitDomainEvent('VESSEL', 'ESCORT_ASSIGNED', programIdValue);
+    return result;
+  });
 }
 
 async function releaseProgramOn(
@@ -376,7 +381,10 @@ export async function releaseProgram(
 ) {
   assertCapability(actor, 'vessel.release');
   if (client) return releaseProgramOn(client, actor, programIdValue, input);
-  return tx((txClient) => releaseProgramOn(txClient, actor, programIdValue, input));
+  return tx((txClient) => releaseProgramOn(txClient, actor, programIdValue, input)).then((result) => {
+    emitDomainEvent('VESSEL', 'PROGRAM_RELEASED', programIdValue);
+    return result;
+  });
 }
 
 async function voidProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, programIdValue: string, reason: string) {
@@ -398,7 +406,10 @@ async function voidProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, pr
 export async function voidProgram(actor: Actor, programIdValue: string, reason: string, client?: Pick<PoolClient, 'query'>) {
   assertCapability(actor, 'vessel.command');
   if (client) return voidProgramOn(client, actor, programIdValue, reason);
-  return tx((txClient) => voidProgramOn(txClient, actor, programIdValue, reason));
+  return tx((txClient) => voidProgramOn(txClient, actor, programIdValue, reason)).then((result) => {
+    emitDomainEvent('VESSEL', 'PROGRAM_VOIDED', programIdValue);
+    return result;
+  });
 }
 
 export type ProgramUpdateInput = {
@@ -464,6 +475,9 @@ export async function updateProgram(actor: Actor, programIdValue: string, input:
     await recordAudit({actor, action: 'PROGRAM_UPDATED', entity: 'program', entityId: current.id,
       detail: {startDate, startShift, destination}}, client);
     return {program: updated.rows[0]};
+  }).then((result) => {
+    emitDomainEvent('VESSEL', 'PROGRAM_UPDATED', programIdValue);
+    return result;
   });
 }
 
@@ -484,6 +498,9 @@ export async function startProgramDuty(actor: Actor, programIdValue: string) {
     );
     await recordAudit({actor, action: 'PROGRAM_IN_DUTY', entity: 'program', entityId: current.id}, client);
     return {programId: current.id, state: 'IN_DUTY'};
+  }).then((result) => {
+    emitDomainEvent('VESSEL', 'PROGRAM_IN_DUTY', result.programId);
+    return result;
   });
 }
 
@@ -504,6 +521,9 @@ export async function completeProgram(actor: Actor, programIdValue: string) {
     );
     await recordAudit({actor, action: 'PROGRAM_COMPLETED', entity: 'program', entityId: current.id}, client);
     return {programId: current.id, state: 'COMPLETED'};
+  }).then((result) => {
+    emitDomainEvent('VESSEL', 'PROGRAM_COMPLETED', result.programId);
+    return result;
   });
 }
 
@@ -560,6 +580,22 @@ export async function countPrograms(filters: ProgramListFilters = {}) {
     values,
   );
   return Number(counted?.count ?? 0);
+}
+
+/**
+ * Mother-vessel facet counts for the current search/state filter. The mother
+ * filter is intentionally excluded so the list still shows every choice.
+ */
+export async function motherFacets(filters: {q?: string; state?: string} = {}) {
+  const {clause, values} = programFilterSql({q: filters.q, state: filters.state});
+  const facets = await rows<{name: string; count: string}>(
+    `SELECT p.mother_vessel AS name, count(*)::text AS count
+       FROM programs p ${clause}
+      GROUP BY p.mother_vessel
+      ORDER BY lower(p.mother_vessel)`,
+    values,
+  );
+  return facets.map((facet) => ({name: facet.name, count: Number(facet.count)}));
 }
 
 export async function getProgram(programIdValue: string) {

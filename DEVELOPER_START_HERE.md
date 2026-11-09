@@ -1,10 +1,29 @@
 # DEVELOPER_START_HERE.md — AL-RIFA'I Platform
 
 **Last Updated**: 2026-11-09
-**Current Version**: v1.10.0
-**Schema Version**: 1.10.0 (52 tables, 14 migrations)
-**Main Release HEAD**: `bc5b17f62f8e04bb3a25684ef535ae920ff91780` (v1.10.0 merge; documentation follow-up is on `main`)
-**Status**: Production deployed, healthy
+**Current Version**: v1.11.0 (15-task roadmap)
+**Schema Version**: 1.11.0 (52 tables, 15 migrations)
+**Main Release HEAD**: pending push/tag for the 15-task roadmap; previous release `bc5b17f` (v1.10.0)
+**Status**: Production v1.10.0 healthy; v1.11.0 verified locally and prepared for deployment
+
+### v1.11.0 delivered (15-task roadmap)
+
+Tasks 1–12 are implemented and locally verified:
+
+1. End-to-end form audit (Cash, Vessel, Employee, Review, Settings, Login) with new service/runtime tests.
+2. CSV + Print export for the Vessel Register and Cash Transactions tables (current view or all filtered pages; UTF-8 BOM; DD-MM-YYYY; A4 landscape print).
+3. Cash state filter (`POSTED`, `DRAFT`, `PENDING_REVIEW`, `APPROVED`, `REVERSED`, `CORRECTION`, `REJECTED`) with URL persistence.
+4. Mother Vessel facets with dynamic counts, desktop pill list and mobile select.
+5. Sticky/condensed program summary on `/vessel/{id}`.
+6. Employee statement export (CSV + A4 PDF via jsPDF/autotable).
+7. Inline Escort assignment on `/vessel/drafts` (full detail sidebar retained).
+8. SSE real-time refreshes with a 15s heartbeat and automatic 30s polling fallback after three failures.
+9. Saved Message Intelligence column presets in `localStorage`.
+10. Review Queue bulk rejection with per-item audit, max 50 and partial-success reporting.
+11. Light/Dark/System theme toggle; badge palette preserved in both themes; print always light.
+12. Admin `/audit` viewer with domain/action/actor/target filters, before/after diff and related events.
+
+Tasks 13–15 remain deferred; see Section 20.
 
 This document describes the **current** application. It supersedes the older
 Phase 2 / early Phase 3 guide. Values below were read from the repository,
@@ -196,7 +215,8 @@ returned by `GET /api/auth/session`.
 
 ## 5. Database
 
-**Current production schema: 1.10.0 — 52 base tables — 14 migrations.**
+**Current schema: 1.11.0 — 52 base tables — 15 migrations.** Production was
+last verified at 1.10.0/14 migrations before the v1.11.0 deployment.
 
 ### 5.1 Tables by domain
 
@@ -253,6 +273,7 @@ returned by `GET /api/auth/session`.
 | `013_escort_workflow_authorization.sql` | 1.8.0 | Source roles, confirmation/release provenance |
 | `014_manual_programs.sql` | 1.9.0 | `programs.master_name`, `programs.source_type` |
 | `015_cash_corrections.sql` | 1.10.0 | Append-only Cash adjustments, `REVERSED` state, `reversal_of` |
+| `016_audit_indexes.sql` | 1.11.0 | Audit Trail timestamp/action indexes and program-event index |
 
 Canonical message identity is `(account_id, chat_jid, message_id)`.
 Event time (`source_timestamp`), ingestion time (`created_at`) and mirror time
@@ -321,10 +342,11 @@ public, they require a valid session. Mutation routes require
 | GET | `/api/programs` | `vessel.read` | Program list; `q,state,escort,mother,from,to,limit,offset`; `{rows,total,limit,offset}` |
 | POST | `/api/programs` | `vessel.submit` / `vessel.command` | Create/update/assign/release/void/start/complete actions |
 | GET | `/api/programs/{id}` | `vessel.read` | Program detail |
-| GET | `/api/vessel` | `vessel.read` | Vessel register alias; same filters as `/api/programs` |
-| POST | `/api/vessel` | `vessel.command` | Manual program create (`source_type=MANUAL`); audit `VESSEL:MANUAL_PROGRAM_CREATED` |
-| GET | `/api/vessel/{id}` | `vessel.read` | Detail + source messages + confirmation/release evidence |
-| PATCH | `/api/vessel/{id}` | `vessel.command`; `vessel.release` for end dates | Edit master/escort/dates/notes; audit `VESSEL:PROGRAM_UPDATED` |
+| GET/POST | `/api/vessel` | `vessel.read` / `vessel.command` | Vessel register alias; same filters as `/api/programs`, plus a `mothers` facet sidecar `[{name,count}]`; POST manual program |
+| GET/PATCH | `/api/vessel/{id}` | `vessel.read` / `vessel.command` | Detail + source/confirmation/release evidence; edit master/escort/dates/notes |
+| GET | `/api/events` | session | SSE stream (`text/event-stream`): `{domain,action,id,at}` events, 15s heartbeat, 30s client polling fallback |
+| GET | `/api/audit` | `audit.read` (ADMIN) | Unified audit viewer: `from,to,domain,action,actor,targetId,page,limit`; merges `audit_events` + `program_events` |
+| POST | `/api/review/bulk-reject` | `review.decide` (ADMIN) | `{ids,reason?}`; max 50; per-item audit; partial success `{succeeded,failed,skipped}` |
 | GET/POST | `/api/finance` | `cash.read` / action-specific | `resource=summary|payments|business-paid|business-paid-event|accounts|instruction|reconciliations|ledger|submissions|report`; POST instruction/ledger/submission/reconciliation actions |
 | GET/POST | `/api/review` | `review.decide` | Review queue and decisions |
 | GET/POST/PATCH | `/api/employees` | `employee.read` / `employee.submit` / `employee.manage` | Employee directory and edits |
@@ -393,6 +415,7 @@ mobile drawer at ≤900px.
 | `/submissions` | My submissions |
 | `/archive` | Archive |
 | `/reports` | Reports & Archive |
+| `/audit` | **Audit Trail** (ADMIN + `audit.read`): unified `audit_events` + `program_events`, filters, before/after diff, related events |
 | `/income-expenditure` | Income & expenditure |
 | `/register` | Legacy/compat register |
 | `/settings` | Settings / integrations |
@@ -730,6 +753,24 @@ Tailwind/shadcn components additionally use the standard `sm` breakpoint
   their body, keep a fixed footer, and close on Escape, backdrop click or X.
 - The navigation sidebar uses the collapsed/expanded 240px/72px variables.
 - On mobile the navigation is a drawer; the detail sidebar overlays the page.
+
+### 13.4 Dark mode and print (v1.11.0)
+
+- `next-themes` sets `data-theme="light|dark"` on `<html>` from
+  `localStorage[alrifai_theme]`; the default is `System`.
+- The three-state toggle lives in the sidebar user area (`Light`, `Dark`,
+  `System`). It is present on every authenticated page; `/login` follows the OS
+  preference.
+- The theme is applied before first paint by the provider script; a 200ms
+  background/colour/border transition avoids a flash.
+- Badge classes keep their required meaning in both themes: `pill` (DRAFT
+  gray), `pill.info` (CONFIRMED blue), `pill.ok` (RELEASED green),
+  `pill.reversed` (muted strikethrough), `pill.correction` (amber),
+  `pill.posted` (emerald).
+- Print always resolves to light colours via `@media print`, hides the
+  sidebar/nav/toolbars/pagination, and renders `.print-area` at A4 landscape.
+- CSV exports use UTF-8 BOM, CRLF, DD-MM-YYYY and plain BDT decimals; the
+  “Export all pages” option fetches the full filtered API result.
 
 ## 14. UI/UX Improvement Roadmap
 
@@ -1223,8 +1264,8 @@ export ALRIFAI_ENV_FILE=/opt/al-rifai-phase3-test/.env
 
 pnpm typecheck        # tsc --noEmit
 pnpm lint             # scripts/lint.mjs, 0 errors
-pnpm test:unit        # 149 tests (current)
-pnpm test:standalone  # 241 tests (current, includes Escort E2E)
+pnpm test:unit        # 152 tests (current)
+pnpm test:standalone  # 247 tests (current, includes Escort E2E and form audit)
 pnpm build            # Next.js standalone build
 pnpm db:preflight     # read-only migration check
 ```
@@ -1273,24 +1314,63 @@ Current production evidence: health `200`, schema `1.10.0`, app/sync healthy,
 
 ## 20. Known Limitations and Deferred Work
 
-- **OCR is not implemented.** Release slips are parsed from text only. Image
-  release slips go to review; no OCR dependency or OCR columns exist.
-- **No `release_point`, `duty_count`, `release_salary`, `release_conveyance`,
-  `release_notes` columns.** These are deliberately deferred.
-- Bridge-2 → Bridge-1 draft delivery is not active. `vessel_draft_deliveries`
-  exists but the worker is disabled and outbound sending requires explicit
-  Owner approval.
+### 20.1 OCR Release Images — Deferred (not implemented)
+
+**Status:** Not implemented. Owner directive: implement only when the Owner initiates.
+
+**Purpose:** The Escort Release group sends release-slip images via WhatsApp. The current parser (`lib/release-slip.ts`) only handles structured text. Image slips are visible in Message Intelligence with their media status but are not converted into release facts.
+
+**Required before implementation:**
+
+- Integrate an OCR engine (Tesseract, Google Cloud Vision, AWS Textract or Azure Document Intelligence).
+- Support mixed Bangla + English text.
+- Parse: escort mobile, lighter name, mother vessel, end date, end shift, release point, duty count, salary, conveyance.
+- Add columns: `release_point`, `duty_count`, `release_salary`, `release_conveyance`, `release_notes`, `release_ocr_confidence`, `release_ocr_raw_text`; requires migration 017+.
+- Match OCR output to existing programs with `lib/vessel-match.ts`; low confidence goes to `REVIEW_REQUIRED`; never create a program.
+- Preserve the original image reference for audit.
+
+**Dependencies:** OCR service account/API key, WhatsApp media download pipeline, image preprocessing (rotation, deskew, contrast). **Estimated effort:** large (5–10 days).
+
+### 20.2 Bridge-2 → Bridge-1 Draft Delivery — Deferred (not implemented)
+
+**Status:** Not implemented. Requires a separate Owner-approved workflow.
+
+**Purpose:** A DRAFT program created from a WhatsApp order on WA-02 currently stays in the platform. This feature would deliver the draft notification to WA-01 for Admin review via WhatsApp.
+
+**Required before implementation:**
+
+- Route DRAFT notifications from WA-02 context to WA-01 outbound.
+- Maintain message correlation so a WA-01 reply maps back to the original WA-02 order.
+- Respect WA-01 rate limits, session rules and the existing allowlist.
+- Audit every cross-bridge delivery.
+
+**Dependencies:** WA-01 outbound capability (currently disabled), cross-bridge correlation model. **Estimated effort:** medium (3–5 days).
+
+### 20.3 Supporting Group Evidence Linkage — Deferred (not implemented)
+
+**Status:** Not implemented. Not mandatory per Owner directive.
+
+**Purpose:** Messages in Al-Rifai Office Group (`SUPPORT_ONLY`) and Al-Aqsa Escort Program Group (`OTHER_APPROVED`) contain supporting evidence. Linking them to programs would strengthen the evidence base.
+
+**Required before implementation:**
+
+- Parse group messages for vessel/program references (names, dates, mobiles).
+- Match to existing programs with `lib/vessel-match.ts`.
+- Store linkage in `program_source_messages` with a confidence score.
+- Display a “Supporting Evidence” section on the vessel detail page.
+- Never use supporting evidence to create or modify programs — corroboration only.
+
+**Dependencies:** group parsing rules and a confidence model. **Estimated effort:** medium (3–5 days).
+
+### 20.4 Other current limitations
+
 - WA-02 is identity-only; it does not create Cash or Vessel business records.
-- Historical media files are not recovered; metadata-only rows remain visible
-  with `MISSING`/`SKIPPED` status.
-- Corrections/reversals are append-only. A correction after a Business Paid
-  Event is blocked for amount edits; future paid-event correction requires a
-  separate approved workflow.
+- Historical media files are not recovered; metadata-only rows remain visible with `MISSING`/`SKIPPED` status.
+- Corrections/reversals are append-only. A correction after a Business Paid Event is blocked for amount edits; future paid-event correction requires a separate approved workflow.
 - Legacy Vessel Register URL aliases exist; `/vessel` is the primary page.
-- Some historical employee rows have no designation/joining date; the UI shows
-  an em dash rather than inventing values.
-- Production interactive UI verification requires an Owner login; automated
-  checks cover health, auth enforcement, APIs/read models, schema and logs.
+- Some historical employee rows have no designation/joining date; the UI shows an em dash rather than inventing values.
+- Production interactive UI verification requires an Owner login; automated checks cover health, auth enforcement, APIs/read models, schema and logs.
+- `DRAFT` and `PENDING_REVIEW` are UI labels for the single Cash instruction `REVIEW` stage; `CORRECTION` filters rows with an adjustment.
 
 ---
 
@@ -1332,6 +1412,7 @@ source and source ref. Critical actions include `PROGRAM_CONFIRMED`,
 | Version | Commit | Summary |
 |---|---|---|
 | v1.10.0 | `bc5b17f` | Merge: Escort workflow, source roles, Cash/Vessel UI overhaul, manual programs, employee/vessel history, Cash correction/reversal |
+| v1.11.0 | pending | 15-task roadmap: form audit, CSV/print, Cash state filter, vessel facets, sticky summary, statement export, inline assign, SSE, column presets, bulk rejection, dark mode, audit viewer |
 | pre-merge | `5d780b1` | Cash correction/reversal workflow, schema 1.10.0 |
 | pre-merge | `1df0b4b` | Block amount edits after a paid event |
 | pre-merge | `54d2ebd` | Cash/Vessel table overhaul, shared sidebar, employee history, manual program creation |

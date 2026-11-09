@@ -9,6 +9,7 @@ import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Textarea} from '@/components/ui/textarea';
 import type {CashTransaction} from './cash-transactions-table';
+import {cashStateTone} from '@/lib/status-tone';
 
 const dash = (value: unknown) => value === null || value === undefined || value === '' ? '—' : String(value);
 const amount = (minor: string | number | null | undefined) =>
@@ -54,7 +55,7 @@ export function CashTransactionSidebar({
         credentials: 'same-origin',
         headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token},
         body: JSON.stringify({
-          designation: edit.designation.trim() || null,
+          designation: transaction.employeeId ? (edit.designation.trim() || null) : null,
           amount: amountMinor,
           notes: edit.notes.trim() || null,
         }),
@@ -219,7 +220,8 @@ export function CashTransactionSidebar({
               <dt className="text-muted-foreground">Employee ID</dt><dd>{dash(transaction.employeeId)}</dd>
               <dt className="text-muted-foreground">Name</dt><dd>{dash(transaction.nameOfEmployee)}</dd>
               <dt className="text-muted-foreground">Designation</dt>
-              <dd>{editing ? <Input value={edit.designation} onChange={(e) => setEdit({...edit, designation: e.target.value})} /> : dash(transaction.designation)}</dd>
+              <dd>{editing ? <Input value={edit.designation} onChange={(e) => setEdit({...edit, designation: e.target.value})} disabled={!transaction.employeeId} /> : dash(transaction.designation)}
+                {editing && !transaction.employeeId ? <small className="muted">Register this employee to store a designation.</small> : null}</dd>
               <dt className="text-muted-foreground">Date of Join</dt><dd>{dash(transaction.dateOfJoin)}</dd>
             </dl>
           </section>
@@ -235,7 +237,7 @@ export function CashTransactionSidebar({
               ) : amount(transaction.amountMinor)}</dd>
               <dt className="text-muted-foreground">Date</dt><dd>{localDate(transaction.createdAt)}</dd>
               <dt className="text-muted-foreground">Method</dt><dd>{dash(transaction.method)}</dd>
-              <dt className="text-muted-foreground">State</dt><dd><span className="pill">{transaction.state}</span></dd>
+              <dt className="text-muted-foreground">State</dt><dd><span className={`pill ${cashStateTone(transaction.state, transaction.correctionCount ?? 0)}`}>{transaction.state}</span></dd>
               <dt className="text-muted-foreground">Total paid</dt><dd>{amount(transaction.totalPaidMinor)}</dd>
             </dl>
           </section>

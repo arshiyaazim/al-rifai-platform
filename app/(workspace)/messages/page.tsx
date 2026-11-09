@@ -2,6 +2,7 @@ import Link from 'next/link';
 import {pageUser, when} from '@/lib/standalone/session';
 import {listCalls, listChats, listMessages, messageStats} from '@/lib/standalone/messages';
 import {MessageIntelligenceTable} from '@/components/standalone/message-intelligence-table';
+import {RealtimeRefresher} from '@/components/standalone/realtime-refresher';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,6 +113,9 @@ export default async function MessagesPage({searchParams}: {searchParams: Search
             Every message captured from both bridge stores, with original event time, identity, contact,
             conversation, media, call trace and business classification. Read-only; nothing here authorizes a business action.
           </p>
+        </div>
+        <div className="row-actions">
+          <RealtimeRefresher domain="MESSAGE" label="Live messages" />
         </div>
       </div>
 

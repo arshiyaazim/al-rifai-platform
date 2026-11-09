@@ -1,6 +1,6 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../_shared';
 import {assertCapability} from '@/lib/standalone/authz';
-import {assignEscort, countPrograms, createProgram, listPrograms} from '@/lib/standalone/programs';
+import {assignEscort, countPrograms, createProgram, listPrograms, motherFacets} from '@/lib/standalone/programs';
 import {recordAudit} from '@/lib/standalone/audit';
 
 export const runtime = 'nodejs';
@@ -23,7 +23,8 @@ export async function GET(request: Request) {
       offset: Number(url.searchParams.get('offset') ?? 0),
     };
     const [rows, total] = await Promise.all([listPrograms(filters), countPrograms(filters)]);
-    return ok({rows, total, limit: filters.limit, offset: filters.offset});
+    const mothers = await motherFacets({q: filters.q, state: filters.state});
+    return ok({rows, total, limit: filters.limit, offset: filters.offset, mothers});
   } catch (error) {
     return errorResponse(error);
   }

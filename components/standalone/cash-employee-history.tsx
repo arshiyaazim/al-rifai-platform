@@ -5,9 +5,13 @@ import {useEffect, useRef, useState} from 'react';
 import {MoreHorizontal} from 'lucide-react';
 import {AppToaster} from '@/components/standalone/app-toaster';
 import {CashTransactionSidebar} from '@/components/standalone/cash-transaction-sidebar';
+import {EmployeeStatementExport} from '@/components/standalone/employee-statement-export';
+import {RealtimeIndicator} from '@/components/standalone/realtime-refresher';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
+import {useRealtimeUpdates} from '@/hooks/use-realtime-updates';
 import type {CashTransaction, CashTransactionPage} from './cash-transactions-table';
+import {cashStateTone} from '@/lib/status-tone';
 
 export type CashEmployeeSummary = {
   employeeId: string | null;
@@ -39,7 +43,7 @@ function historyQuery(page: number, limit: number, filters: {
   return params;
 }
 
-export function CashEmployeeHistory({employeeId, initial, canManage = false}: {employeeId: string; initial: CashEmployeePayload; canManage?: boolean}) {
+export function CashEmployeeHistory({employeeId, initial, canManage = false, generatedBy = 'Admin'}: {employeeId: string; initial: CashEmployeePayload; canManage?: boolean; generatedBy?: string}) {
   const [data, setData] = useState<CashEmployeePayload>(initial);
   const [page, setPage] = useState(initial.page);
   const [limit, setLimit] = useState(initial.limit);
@@ -86,13 +90,10 @@ export function CashEmployeeHistory({employeeId, initial, canManage = false}: {e
     void load(p, l, f, true);
   }, []);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const {page: p, limit: l, filters: f} = current.current;
-      void load(p, l, f, true);
-    }, 30_000);
-    return () => clearInterval(timer);
-  }, []);
+  const realtime = useRealtimeUpdates('CASH', () => {
+    const {page: p, limit: l, filters: f} = current.current;
+    void load(p, l, f, true);
+  });
 
   const apply = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -125,6 +126,24 @@ export function CashEmployeeHistory({employeeId, initial, canManage = false}: {e
       </div>
 
       <section className="card" style={{marginBottom: 18}}>
+        <div className="page-head" style={{marginBottom: 8}}>
+          <div><h3>Statement</h3></div>
+          <div className="row-actions" style={{alignItems: 'center'}}>
+            <RealtimeIndicator status={realtime.status} />
+            {employee ? (
+              <EmployeeStatementExport
+                employeeId={employee.employeeId ?? employeeId}
+                name={employee.nameOfEmployee}
+                designation={employee.designation}
+                dateOfJoin={employee.dateOfJoin}
+                totalPayouts={employee.totalPayouts}
+                totalPaidMinor={employee.totalPaidMinor ?? employee.totalPaid}
+                filters={filters}
+                generatedBy={generatedBy}
+              />
+            ) : null}
+          </div>
+        </div>
         <div className="grid-cards">
           <div className="stat"><div className="label">Employee ID</div><div className="value" style={{fontSize: 18}}>{dash(employee?.employeeId ?? employeeId)}</div></div>
           <div className="stat"><div className="label">Name</div><div className="value" style={{fontSize: 18}}>{dash(employee?.nameOfEmployee)}</div></div>
@@ -190,7 +209,7 @@ export function CashEmployeeHistory({employeeId, initial, canManage = false}: {e
                     {amount(item.amountMinor)}{(item.correctionCount ?? 0) > 0 ? <small className="muted"> (corrected)</small> : null}
                   </td>
                   <td>{dash(item.method)}</td>
-                  <td><span className="pill">{item.state}</span></td>
+                  <td><span className={`pill ${cashStateTone(item.state, item.correctionCount ?? 0)}`}>{item.state}</span></td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{item.reversalOf ? <small className="muted" style={{display: 'block'}}>Reversal of #{item.reversalOf}</small> : null}{item.sourceMessageId
                     ? <Link href={`/messages?q=${encodeURIComponent(item.sourceMessageId)}`}>{item.sourceMessageId}</Link>
                     : dash(item.source)}</td>

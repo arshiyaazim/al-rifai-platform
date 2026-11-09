@@ -15,6 +15,7 @@ import {
 } from '@/lib/standalone/vessel-draft-delivery-store';
 import {CONFIRMATION_RULE} from '@/lib/vessel-draft-delivery';
 import {vesselDraftWorkerStatus} from '@/lib/vessel-draft-delivery-worker';
+import {DraftInlineAssign} from '@/components/standalone/draft-inline-assign';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,7 @@ export const dynamic = 'force-dynamic';
 export default async function VesselDraftsPage() {
   const user = await pageUser();
   const canRead = can(user as never, 'vessel.read');
+  const canCommand = can(user as never, 'vessel.command');
 
   const [draftPrograms, confirmedPrograms, programReviews, gate, escorts] = await Promise.all([
     listPrograms({state: 'DRAFT', limit: 100}),
@@ -216,31 +218,25 @@ export default async function VesselDraftsPage() {
 
           <section className="card" style={{marginTop: 18}}>
             <h3>DRAFT programs ({draftPrograms.length})</h3>
-            <div style={{overflowX: 'auto'}}>
-              <table>
-                <thead><tr><th>Mother</th><th>Lighter</th><th>Master</th><th>Start</th><th>Order timestamp</th><th>Client chat</th><th>Duplicates</th><th>Open</th></tr></thead>
-                <tbody>
-                  {draftPrograms.map((program) => {
-                    const duplicates = duplicateMap.get(program.id) ?? [];
-                    return (
-                      <tr key={program.id}>
-                        <td>{program.mother_vessel}</td>
-                        <td>{program.lighter_vessel}</td>
-                        <td>{program.master_mobile ?? '—'}</td>
-                        <td style={{whiteSpace: 'nowrap'}}>{program.start_date} · {program.start_shift}</td>
-                        <td style={{whiteSpace: 'nowrap'}}>{program.created_at ? when(program.created_at) : '—'}</td>
-                        <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{program.source_chat_jid ?? '—'}</td>
-                        <td>{duplicates.length ? duplicates.map((candidate) => (
-                          <div key={candidate.id}><Link href={`/vessel/${encodeURIComponent(candidate.id)}`}>{candidate.start_date}</Link></div>
-                        )) : <span className="muted">none</span>}</td>
-                        <td><Link href={`/vessel/${encodeURIComponent(program.id)}`}>Open →</Link></td>
-                      </tr>
-                    );
-                  })}
-                  {!draftPrograms.length ? <tr><td colSpan={8} className="muted">No DRAFT programs.</td></tr> : null}
-                </tbody>
-              </table>
-            </div>
+            <p className="muted">Assign an escort inline, or use the three-dot action for the full detail sidebar.</p>
+            <DraftInlineAssign
+              drafts={draftPrograms.map((program) => ({
+                id: program.id,
+                mother_vessel: program.mother_vessel,
+                lighter_vessel: program.lighter_vessel,
+                master_mobile: program.master_mobile,
+                start_date: program.start_date,
+                start_shift: program.start_shift,
+                created_at: program.created_at,
+                source_chat_jid: program.source_chat_jid,
+                escort_name: program.escort_name,
+                escort_mobile: program.escort_mobile,
+                state: program.state,
+              }))}
+              escorts={escorts.map((employee) => ({mobile: employee.employee_mobile, name: employee.preferred_name}))}
+              duplicates={Object.fromEntries(duplicateMap)}
+              canCommand={canCommand}
+            />
           </section>
 
           {clientAssignmentReviews.length ? (

@@ -7,7 +7,6 @@ import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
 import {CashPaymentForm} from '@/components/standalone/cash-payment-form';
 import {CashTransactionsTable} from '@/components/standalone/cash-transactions-table';
-import {formatReviewTimestamp} from '@/lib/review-ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +31,7 @@ function SummaryCard({label, value, hint, href}: SummaryCardProps) {
 }
 
 export default async function CashPage({searchParams}: {searchParams: Promise<{
-  q?: string; state?: string; page?: string; ledgerPage?: string; from?: string; to?: string;
+  q?: string; state?: string; page?: string; ledgerPage?: string; from?: string; to?: string; search?: string;
   employeeName?: string; employeeMobile?: string; payoutMobile?: string; openPayment?: string;
 }>}) {
   const user = await pageUser();
@@ -49,6 +48,7 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
   const filters = await searchParams;
   const q = (filters.q ?? '').trim();
   const state = filters.state ?? '';
+  const txSearch = (filters.search ?? '').trim();
   const from = filters.from ?? '';
   const to = filters.to ?? '';
   const employeeName = (filters.employeeName ?? '').trim();
@@ -71,8 +71,8 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
       'SELECT s.id, s.state, s.submitted_by, s.created_at, s.instruction_id, u.display_name FROM cash_submissions s LEFT JOIN cash_portal_users u ON u.id = s.submitted_by ORDER BY s.created_at DESC LIMIT 30',
     ),
     listReconciliations(25),
-    listCashTransactions({limit: txLimit, offset: 0}),
-    countCashTransactions(),
+    listCashTransactions({q: txSearch, state: state || undefined, limit: txLimit, offset: 0}),
+    countCashTransactions({q: txSearch, state: state || undefined}),
   ]);
   const initialTransactions = txRows.map(cashTransactionView);
   const pending = instructions.filter((instruction) => (instruction as {state: string}).state === 'REVIEW').slice(0, 20);
@@ -119,7 +119,7 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
         <SummaryCard label="Last Month Paid" value={money(summary.lastMonthPaidMinor)} hint={paidBasis ? 'Business paid last month' : 'Posted last month'} href={rangeHref(lastMonthRange)} />
       </div>
 
-      <CashTransactionsTable canManage={user.role === 'ADMIN' && canReview} initial={{
+      <CashTransactionsTable canManage={user.role === 'ADMIN' && canReview} initialSearch={txSearch} initialState={state} initial={{
         transactions: initialTransactions,
         total: txTotal,
         page: 1,

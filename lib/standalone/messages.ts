@@ -3,6 +3,7 @@ import {recordAudit} from './audit.ts';
 import {normalizeMobile} from '../business-rules.mjs';
 import {phoneFromJid} from '../whatsapp-identity.mjs';
 import {approvedGroupRoleMap, isSourceRole, type SourceRole} from '../source-roles.ts';
+import {emitDomainEvent} from '../realtime/server.ts';
 
 export type MessageQuery = {
   account?: string;
@@ -604,5 +605,8 @@ export async function setMessageIntelligence(actor: {id: string; role?: string},
       sourceRef: messageId,
     }, client);
     return saved.rows[0];
+  }).then((result) => {
+    emitDomainEvent('MESSAGE', 'CLASSIFIED', `${account}:${chat}:${messageId}`);
+    return result;
   });
 }
