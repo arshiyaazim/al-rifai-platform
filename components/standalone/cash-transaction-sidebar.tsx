@@ -10,13 +10,14 @@ import {Label} from '@/components/ui/label';
 import {Textarea} from '@/components/ui/textarea';
 import type {CashTransaction} from './cash-transactions-table';
 import {cashStateTone} from '@/lib/status-tone';
+import {dateDdMmYyyy, dhakaTime12} from '@/lib/export-format';
 
 const dash = (value: unknown) => value === null || value === undefined || value === '' ? '—' : String(value);
 const amount = (minor: string | number | null | undefined) =>
   minor === null || minor === undefined ? '—'
     : `৳${(Number(minor) / 100).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
 const localDate = (value: string | null | undefined) =>
-  value ? new Date(value).toLocaleString('en-GB', {timeZone: 'Asia/Dhaka', dateStyle: 'medium', timeStyle: 'short'}) : '—';
+  value ? `${dateDdMmYyyy(value)} ${dhakaTime12(value)}` : '—';
 
 async function csrfToken(): Promise<string> {
   const response = await fetch('/api/auth/session', {credentials: 'same-origin', cache: 'no-store'});
@@ -235,7 +236,7 @@ export function CashTransactionSidebar({
                   onChange={(e) => setEdit({...edit, amount: e.target.value})}
                   disabled={transaction.state === 'POSTED'} />
               ) : amount(transaction.amountMinor)}</dd>
-              <dt className="text-muted-foreground">Date</dt><dd>{localDate(transaction.createdAt)}</dd>
+              <dt className="text-muted-foreground">Date</dt><dd>{localDate(transaction.eventAt)}</dd>
               <dt className="text-muted-foreground">Method</dt><dd>{dash(transaction.method)}</dd>
               <dt className="text-muted-foreground">State</dt><dd><span className={`pill ${cashStateTone(transaction.state, transaction.correctionCount ?? 0)}`}>{transaction.state}</span></dd>
               <dt className="text-muted-foreground">Total paid</dt><dd>{amount(transaction.totalPaidMinor)}</dd>

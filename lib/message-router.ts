@@ -23,14 +23,14 @@
 //   - Review: review_items.one_pending unique index on (domain, target_ref)
 //     WHERE state = 'PENDING' prevents duplicate pending items.
 //
-// No automatic financial posting: cash instructions are created in REVIEW state.
-// No outbound WhatsApp sender: confirmation reuses applyConfirmation() on the
-// admin's existing outgoing reply.
+// Cash: Admin (WA-01) OUTGOING payment instructions are auto-POSTED by the
+// Owner-approved Cash exception. Vessel and other domains keep their existing
+// authorization flows. No outbound WhatsApp sender exists.
 // WA-02 is raw-ingestion/identity-only; no business processing from WA-02.
 
 import {row, rows, tx, type Actor} from './standalone/db.ts';
 import {newId, stableId, recordAudit} from './standalone/audit.ts';
-import {createInstruction} from './standalone/finance.ts';
+import {autoPostInstruction} from './standalone/finance.ts';
 import {createProgram, potentialDuplicates, releaseProgram} from './standalone/programs.ts';
 import {submitForReview} from './standalone/review.ts';
 import {classifyDomain, type Domain} from './message-classifier.ts';
@@ -483,12 +483,12 @@ async function submitReviewItem(
 }
 
 /**
- * Parse a message for cash and optionally create a cash_instruction in REVIEW.
- * Reuses createInstruction() (verified business rule: REVIEW state only,
- * never automatic posting). Unparsable messages go to submitCash() which
- * creates a cash_submission in PENDING_REVIEW (the established path for CASH
- * review — submitForReview() rejects CASH domain by design).
- * WA-01 Admin OUTGOING only.
+ * Parse a message for cash and auto-POST every clean payment block.
+ *
+ * Owner-approved Cash exception: a verified Admin (WA-01) OUTGOING payment
+ * instruction in the Accountant direct chat is financially confirmed when sent.
+ * It creates POSTED + posting + ledger in one transaction. Incomplete blocks
+ * still go to cash_submissions PENDING_REVIEW.
  */
 async function handleCash(
   actor: Actor,
@@ -520,22 +520,36 @@ async function handleCash(
       reasons.push('PAYMENT_METHOD_UNRESOLVED');
       continue;
     }
-    const created = await createInstruction(actor, {
+    if (!fields.employeeMobile || !fields.employeeName) {
+      reasons.push('EMPLOYEE_IDENTITY_UNRESOLVED');
+      continue;
+    }
+    const existing = await row(
+      'SELECT 1 AS present FROM cash_instructions WHERE source_message_id = $1 AND source_block_key = $2',
+      [message.message_id, block.blockKey],
+    );
+    if (existing) continue;
+    const created = await autoPostInstruction(actor, {
       employeeMobile: fields.employeeMobile ?? null,
       employeeName: fields.employeeName ?? '',
-      // Final Owner rule: for a single-mobile block the parser has already
-      // made payoutMobile equal to employeeMobile. For a two-number block the
-      // payout number remains distinct.
       payoutMobile: fields.payoutMobile ?? fields.employeeMobile ?? null,
       method: fields.method,
       amountMinor,
       purpose: fields.purpose ?? null,
-      accountId: null,
+      accountId: 'acc-cash',
       sourceChannel: 'WHATSAPP',
       sourceMessageId: message.message_id,
       sourceBlockKey: block.blockKey,
       sourceHash: stableId('h', [message.account_id, message.message_id, block.blockKey]),
-    }, {whatsAppVerified: true, paidAt: message.source_timestamp});
+    }, {
+      eventAt: message.source_timestamp,
+      sourceMessageId: message.message_id,
+      sourceBlockKey: block.blockKey,
+      sourceHash: stableId('h', [message.account_id, message.message_id, block.blockKey]),
+      auditAction: 'CASH:AUTO_POSTED',
+      auditSource: 'WHATSAPP',
+      whatsAppVerified: true,
+    });
     if (created) instructionsCreated += 1;
   }
 
@@ -1492,11 +1506,11 @@ export async function routePendingMessages(
               result.instructions += cashResult.instructionsCreated;
               result.reviewItems += cashResult.reviewSubmitted ? 1 : 0;
               classification = cashResult.created
-                ? (cashResult.reviewSubmitted ? `CASH:REVIEW_CREATED_WITH_MORE` : `CASH:REVIEW_CREATED`)
+                ? (cashResult.reviewSubmitted ? `CASH:AUTO_POSTED_WITH_REVIEW` : `CASH:AUTO_POSTED`)
                 : cashResult.reviewSubmitted
                   ? `CASH:REVIEW_SUBMITTED:${cashResult.reasons.join(',')}`
                   : 'CASH:IDEMPOTENT_SKIP';
-              action = cashResult.created ? 'cash_instruction_created'
+              action = cashResult.created ? 'cash_auto_posted'
                 : cashResult.reviewSubmitted ? 'cash_review_submitted' : 'cash_idempotent_skip';
             }
           }

@@ -6,7 +6,7 @@ import test, {beforeEach} from 'node:test';
 import {createPool} from '../../db/postgres.mjs';
 import {row, rows} from '../../lib/standalone/db.ts';
 import {routePendingMessages} from '../../lib/message-router.ts';
-import {approveInstruction, decideCashSubmission, setInstructionAccount} from '../../lib/standalone/finance.ts';
+import {decideCashSubmission} from '../../lib/standalone/finance.ts';
 import {correctCashSubmission} from '../../lib/standalone/review.ts';
 import {createProgram} from '../../lib/standalone/programs.ts';
 import {listCashTransactions} from '../../lib/standalone/finance.ts';
@@ -182,7 +182,7 @@ async function countLedgerEntries() {
 // Cash Handler: WA-01 Admin outgoing messages in Accountant conversation
 // ──────────────────────────────────────────────────────────────────────
 
-test('cash: valid Admin outgoing message creates REVIEW instruction', async () => {
+test('cash: valid Admin outgoing message auto-posts', async () => {
   await ensureAccount('wa-01');
   const before = await countInstructions();
   await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-cash-valid-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
@@ -196,19 +196,17 @@ test('cash: valid Admin outgoing message creates REVIEW instruction', async () =
 
   const instr = await row("SELECT * FROM cash_instructions WHERE source_channel = 'WHATSAPP' AND source_message_id = 'msg-cash-valid-1'");
   assert.ok(instr);
-  assert.equal(instr.state, 'REVIEW');
+  assert.equal(instr.state, 'POSTED');
   assert.equal(Number(instr.amount_minor), 125050);
   assert.equal(instr.source_channel, 'WHATSAPP');
   assert.equal(instr.source_message_id, 'msg-cash-valid-1');
   assert.equal(instr.source_block_key, 'payment-block-0');
   assert.ok(instr.source_hash);
-  // Automated writes are attributed to the stable system actor, so the sole
-  // human Administrator can approve them without a self-review deadlock.
   assert.equal(instr.created_by, 'system:whatsapp-router');
-  const account = await row('SELECT id FROM cash_accounts ORDER BY code LIMIT 1');
-  await setInstructionAccount(admin, instr.id, account.id);
-  const approved = await approveInstruction(admin, instr.id);
-  assert.equal(approved.state, 'APPROVED');
+  assert.equal(instr.posted_by, 'system:whatsapp-router');
+  assert.ok(instr.event_at);
+  assert.ok(await row('SELECT 1 FROM cash_postings WHERE instruction_id = $1', [instr.id]));
+  assert.ok(await row('SELECT 1 FROM ledger_entries WHERE instruction_id = $1', [instr.id]));
 });
 
 test('cash: bare bridge sender matches a full configured Admin JID', async () => {
@@ -218,7 +216,7 @@ test('cash: bare bridge sender matches a full configured Admin JID', async () =>
   const result = await routePendingMessages(admin, 10);
   assert.equal(result.instructions, 1);
   const created = await row("SELECT state,amount_minor,source_message_id FROM cash_instructions WHERE source_message_id='msg-cash-bare-admin-1'");
-  assert.equal(created.state, 'REVIEW');
+  assert.equal(created.state, 'POSTED');
   assert.equal(Number(created.amount_minor), 33300);
 });
 
@@ -274,14 +272,16 @@ test('cash: Bangla amount and payment expressions', async () => {
 
   const instr = await row("SELECT * FROM cash_instructions WHERE source_message_id = 'msg-cash-bangla-1'");
   assert.ok(instr);
-  assert.equal(instr.state, 'REVIEW');
+  assert.equal(instr.state, 'POSTED');
 });
 
-test('cash: single mobile becomes employee identity and payout destination (automatic Paid)', async () => {
+test('cash: single mobile becomes employee identity and payout destination (auto-POSTED)', async () => {
   await ensureAccount('wa-01');
   const previous = process.env.PHASE3_PAID_EVENTS_ENABLED;
   process.env.PHASE3_PAID_EVENTS_ENABLED = '1';
   try {
+    const beforePostings = (await row('SELECT count(*)::int AS n FROM cash_postings')).n;
+    const beforeLedger = (await row('SELECT count(*)::int AS n FROM ledger_entries')).n;
     await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-cash-single-mobile-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
       'ID: 01712345678 Rahim Uddin (B) 500/- duty pay');
     const result = await routePendingMessages(admin, 10);
@@ -290,13 +290,14 @@ test('cash: single mobile becomes employee identity and payout destination (auto
     assert.ok(instruction);
     assert.equal(instruction.employee_mobile, '+8801712345678');
     assert.equal(instruction.payout_mobile, '+8801712345678');
-    assert.equal(instruction.state, 'REVIEW', 'business paid does not post or auto-approve');
+    assert.equal(instruction.state, 'POSTED');
     const event = await row('SELECT * FROM cash_payment_events WHERE instruction_id = $1', [instruction.id]);
     assert.ok(event, 'automatic Paid Event created without Office approval');
     assert.equal(event.source_category, 'WHATSAPP');
     assert.equal(event.status, 'PAID');
     assert.equal(event.employee_mobile, event.payout_mobile);
-    assert.equal((await row('SELECT count(*)::int AS n FROM cash_postings')).n, 0);
+    assert.equal((await row('SELECT count(*)::int AS n FROM cash_postings')).n, beforePostings + 1);
+    assert.equal((await row('SELECT count(*)::int AS n FROM ledger_entries')).n, beforeLedger + 1);
     assert.equal((await row('SELECT count(*)::int AS n FROM cash_submissions')).n, 0);
   } finally {
     if (previous === undefined) delete process.env.PHASE3_PAID_EVENTS_ENABLED;
@@ -319,6 +320,8 @@ test('cash: multiple payment blocks in one message create separate instructions 
     const events = await rows('SELECT * FROM cash_payment_events WHERE source_message_id = $1 ORDER BY source_block_key',
       ['msg-cash-multiblock-1']);
     assert.equal(events.length, 2);
+    assert.equal((await row("SELECT count(*)::int AS n FROM cash_postings WHERE instruction_id IN (SELECT id FROM cash_instructions WHERE source_message_id='msg-cash-multiblock-1')")).n, 2);
+    assert.equal((await row("SELECT count(*)::int AS n FROM ledger_entries WHERE instruction_id IN (SELECT id FROM cash_instructions WHERE source_message_id='msg-cash-multiblock-1')")).n, 2);
   } finally {
     if (previous === undefined) delete process.env.PHASE3_PAID_EVENTS_ENABLED;
     else process.env.PHASE3_PAID_EVENTS_ENABLED = previous;
@@ -427,9 +430,10 @@ test('cash: similar but legitimate transactions create separate instructions', a
   assert.equal(after, before + 2);
 });
 
-test('cash: no automatic ledger posting', async () => {
+test('cash: auto-post creates a posting and ledger entry', async () => {
   await ensureAccount('wa-01');
   const beforeLedger = await countLedgerEntries();
+  const beforePostings = (await row('SELECT count(*)::int AS n FROM cash_postings')).n;
   await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-cash-nopost-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
     'ID: 01712345678 Rahim Uddin 01812345678(B) 1,250.50/- duty pay');
 
@@ -437,10 +441,11 @@ test('cash: no automatic ledger posting', async () => {
   assert.equal(result.instructions, 1);
 
   const instr = await row("SELECT state FROM cash_instructions WHERE source_message_id = 'msg-cash-nopost-1'");
-  assert.equal(instr.state, 'REVIEW', 'Instruction should remain in REVIEW, not POSTED');
+  assert.equal(instr.state, 'POSTED');
 
   const afterLedger = await countLedgerEntries();
-  assert.equal(afterLedger, beforeLedger, 'No ledger entries should be created automatically');
+  assert.equal(afterLedger, beforeLedger + 1);
+  assert.equal((await row('SELECT count(*)::int AS n FROM cash_postings')).n, beforePostings + 1);
 });
 
 test('cash: unauthorized chat is ignored', async () => {
@@ -1065,7 +1070,7 @@ test('review: multiple lighter vessels remain separate programs', async () => {
   assert.equal(after, before + 2);
 });
 
-test('review: no automatic Cash posting', async () => {
+test('review: Cash auto-posts with a ledger entry', async () => {
   await ensureAccount('wa-01');
   const beforeLedger = await row('SELECT count(*)::int AS n FROM ledger_entries');
   await stageMessage('wa-01', '8801844836824@s.whatsapp.net', 'msg-review-nopost-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
@@ -1075,10 +1080,10 @@ test('review: no automatic Cash posting', async () => {
   assert.equal(result.instructions, 1);
 
   const instr = await row("SELECT state FROM cash_instructions WHERE source_message_id = 'msg-review-nopost-1'");
-  assert.equal(instr.state, 'REVIEW', 'Instruction should remain in REVIEW');
+  assert.equal(instr.state, 'POSTED');
 
   const afterLedger = await row('SELECT count(*)::int AS n FROM ledger_entries');
-  assert.equal(afterLedger.n, beforeLedger.n, 'No automatic ledger entries');
+  assert.equal(afterLedger.n, beforeLedger.n + 1);
 });
 
 test('review: concurrent retry — same message processed by two workers', async () => {

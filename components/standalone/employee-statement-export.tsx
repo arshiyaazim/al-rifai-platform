@@ -79,7 +79,7 @@ export function EmployeeStatementExport({
       ];
       for (const row of transactions) {
         lines.push([
-          dhakaDateTime(row.createdAt),
+          dhakaDateTime(row.eventAt),
           String(row.payoutNumber),
           bdtNumber(row.amountMinor),
           row.method,
@@ -131,7 +131,7 @@ export function EmployeeStatementExport({
         startY: 44,
         head: [['Date', 'Payout', 'Amount (BDT)', 'Method', 'State', 'Source', 'Notes']],
         body: transactions.map((row) => [
-          dhakaDateTime(row.createdAt),
+          dhakaDateTime(row.eventAt),
           String(row.payoutNumber),
           bdtNumber(row.amountMinor),
           row.method,

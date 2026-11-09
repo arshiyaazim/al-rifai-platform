@@ -71,6 +71,8 @@ export type InstructionInput = {
   sourceMessageId?: string | null;
   sourceBlockKey?: string | null;
   sourceHash?: string | null;
+  /** Real-world WhatsApp event time. Manual WEB rows default to now(). */
+  eventAt?: string | null;
   // Cash review-candidate provenance (stored on cash_submissions, not on the
   // instruction itself; the instruction is only created after approval).
   sourceChatJid?: string | null;
@@ -92,8 +94,8 @@ async function insertInstruction(client: Tx, actor: Actor, input: InstructionInp
   const created = await client.query(
     `INSERT INTO cash_instructions
        (id, employee_mobile, employee_name, payout_mobile, method, amount_minor, purpose, account_id, state,
-        source_channel, source_message_id, source_block_key, source_hash, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'REVIEW',$9,$10,$11,$12,$13)
+        source_channel, source_message_id, source_block_key, source_hash, event_at, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'REVIEW',$9,$10,$11,$12,COALESCE($13::timestamptz, now()),$14)
      ON CONFLICT (source_message_id, source_block_key)
        WHERE source_message_id IS NOT NULL
      DO NOTHING
@@ -105,6 +107,7 @@ async function insertInstruction(client: Tx, actor: Actor, input: InstructionInp
       input.sourceMessageId ?? null,
       input.sourceBlockKey ?? null,
       input.sourceHash ?? null,
+      input.eventAt ?? null,
       actor.id],
   );
   return created.rows[0] ?? null;
@@ -215,6 +218,128 @@ export async function createInstruction(actor: Actor, input: InstructionInput, o
 }
 
 /**
+ * Owner-approved Cash auto-post path.
+ *
+ * An Admin (WA-01) OUTGOING payment instruction is financially confirmed at
+ * the moment it is sent. This inserts the instruction, posting and ledger entry
+ * in one transaction. It is used by the live WhatsApp router and by the
+ * one-time historical backfill. Manual create/approve/post remain available.
+ */
+export type AutoPostMeta = {
+  eventAt: string;
+  sourceMessageId?: string | null;
+  sourceBlockKey?: string | null;
+  sourceHash?: string | null;
+  /** `undefined` -> CASH:AUTO_POSTED; `null` -> caller writes its own audit. */
+  auditAction?: string | null;
+  auditSource?: 'WEB' | 'WHATSAPP' | 'SYSTEM';
+  whatsAppVerified?: boolean;
+};
+
+export async function postCashInstructionOn(
+  client: Tx,
+  actor: Actor,
+  input: InstructionInput,
+  meta: AutoPostMeta,
+) {
+  assertCapability(actor, 'cash.post');
+  if (!PAYMENT_METHODS.includes(input.method as PaymentMethod)) throw new DomainError('INVALID_METHOD');
+  const amountMinor = moneyMinor(input.amountMinor);
+  if (!meta.eventAt || !Number.isFinite(Date.parse(meta.eventAt))) throw new DomainError('EVENT_TIME_REQUIRED', 400);
+  const employeeMobile = optionalMobile(input.employeeMobile, 'employeeMobile');
+  if (!employeeMobile) throw new DomainError('EMPLOYEE_MOBILE_REQUIRED', 400);
+  const payoutMobile = optionalMobile(input.payoutMobile, 'payoutMobile') ?? employeeMobile;
+  const employeeName = text(input.employeeName, 'employeeName', {max: 150});
+  const purpose = optionalText(input.purpose, 'purpose', 500);
+  const accountId = input.accountId ?? 'acc-cash';
+  const sourceMessageId = meta.sourceMessageId ?? input.sourceMessageId ?? null;
+  const sourceBlockKey = meta.sourceBlockKey ?? input.sourceBlockKey ?? null;
+  const sourceHash = meta.sourceHash ?? input.sourceHash ?? null;
+  const id = stableId('ins', ['cash-post', sourceMessageId ?? employeeName, sourceBlockKey ?? '', meta.eventAt, amountMinor]);
+
+  const inserted = await client.query<{id: string}>(
+    `INSERT INTO cash_instructions
+       (id, employee_mobile, employee_name, payout_mobile, method, amount_minor, purpose, account_id, state,
+        source_channel, source_message_id, source_block_key, source_hash,
+        approved_at, approved_by, posted_at, posted_by, created_by, created_at, updated_at, event_at, legacy)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'POSTED',$9,$10,$11,$12,$13,$14,$15,$16,$17,now(),now(),$18,false)
+     ON CONFLICT (source_message_id, source_block_key)
+       WHERE source_message_id IS NOT NULL
+     DO NOTHING
+     RETURNING id`,
+    [id, employeeMobile, employeeName, payoutMobile, input.method, amountMinor, purpose, accountId,
+      input.sourceChannel ?? 'WHATSAPP', sourceMessageId, sourceBlockKey, sourceHash,
+      meta.eventAt, actor.id, meta.eventAt, actor.id, actor.id, meta.eventAt],
+  );
+  if (!inserted.rowCount) return null;
+
+  const entry = await client.query<{id: string}>(
+    `INSERT INTO ledger_entries
+       (account_id, entry_date, direction, amount_minor, category, description, source, instruction_id, created_by)
+     VALUES ($1, ($2::timestamptz AT TIME ZONE 'Asia/Dhaka')::date, 'DEBIT', $3, 'PAYROLL', $4, 'INSTRUCTION', $5, $6)
+     RETURNING id::text`,
+    [accountId, meta.eventAt, amountMinor, `Cash payment: ${employeeName}`.slice(0, 500), id, actor.id],
+  );
+  const postingId = stableId('pos', ['cash-post', id]);
+  await client.query(
+    `INSERT INTO cash_postings
+       (id, instruction_id, account_id, amount_minor, method, posted_at, posted_by, ledger_entry_id, legacy)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,false)`,
+    [postingId, id, accountId, amountMinor, input.method, meta.eventAt, actor.id, entry.rows[0].id],
+  );
+
+  let paidEventId: string | null = null;
+  if (meta.whatsAppVerified && paidEventsEnabled() && sourceMessageId && sourceBlockKey) {
+    paidEventId = await insertBusinessPaidEvent(client, {
+      instructionId: id,
+      employeeMobile,
+      payoutMobile,
+      employeeName,
+      amountMinor,
+      method: input.method,
+      sourceCategory: 'WHATSAPP',
+      sourceMessageId,
+      sourceBlockKey,
+      paidAt: meta.eventAt,
+      createdBy: actor.id,
+    });
+    if (paidEventId) {
+      await recordAudit({
+        actor, action: 'CASH_PAYMENT_EVENT_CREATED', entity: 'cash_payment_events',
+        entityId: paidEventId,
+        detail: {instructionId: id, sourceCategory: 'WHATSAPP', sourceMessageId, sourceBlockKey},
+      }, client);
+    }
+  }
+
+  const auditAction = meta.auditAction === undefined ? 'CASH:AUTO_POSTED' : meta.auditAction;
+  if (auditAction) {
+    await recordAudit({
+      actor,
+      action: auditAction,
+      entity: 'cash_instruction',
+      entityId: id,
+      detail: {
+        amountMinor, method: input.method, eventAt: meta.eventAt,
+        sourceMessageId, sourceBlockKey, postingId,
+        ledgerEntryId: entry.rows[0].id, paidEventId,
+      },
+      source: meta.auditSource ?? 'WHATSAPP',
+      sourceRef: sourceMessageId,
+    }, client);
+  }
+
+  return {instructionId: id, postingId, ledgerEntryId: entry.rows[0].id, paidEventId};
+}
+
+export async function autoPostInstruction(actor: Actor, input: InstructionInput, meta: AutoPostMeta) {
+  assertCapability(actor, 'cash.post');
+  const result = await tx((client) => postCashInstructionOn(client, actor, input, meta));
+  if (result) emitDomainEvent('CASH', 'AUTO_POSTED', result.instructionId);
+  return result;
+}
+
+/**
  * Correct a POSTED transaction without touching the original posting.
  *
  * A new append-only `cash_transaction_adjustments` row records the corrected
@@ -294,7 +419,7 @@ export async function reverseCashTransaction(
     const found = await client.query<{
       id: string; state: string; amount_minor: string; method: string; account_id: string | null;
       employee_mobile: string | null; employee_name: string; payout_mobile: string | null;
-      purpose: string | null;
+      purpose: string | null; event_at: string;
     }>('SELECT * FROM cash_instructions WHERE id=$1 FOR UPDATE', [id]);
     if (!found.rowCount) throw new DomainError('CASH_TRANSACTION_NOT_FOUND', 404);
     const original = found.rows[0];
@@ -329,10 +454,10 @@ export async function reverseCashTransaction(
     await client.query(
       `INSERT INTO cash_instructions
          (id, employee_mobile, employee_name, payout_mobile, method, amount_minor, purpose,
-          account_id, state, source_channel, posted_at, posted_by, created_by, reversal_of)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'POSTED','WEB',now(),$9,$9,$10)`,
+          account_id, state, source_channel, posted_at, posted_by, created_by, reversal_of, event_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'POSTED','WEB',now(),$9,$9,$10,$11)`,
       [replacementId, original.employee_mobile, original.employee_name, original.payout_mobile,
-        method, amount, notes, original.account_id, actor.id, id],
+        method, amount, notes, original.account_id, actor.id, id, original.event_at ?? new Date().toISOString()],
     );
     const debit = await client.query<{id: string}>(
       `INSERT INTO ledger_entries
@@ -378,11 +503,11 @@ export async function getCashTransaction(id: string): Promise<CashTransactionRow
        SELECT i.*,
               row_number() OVER (
                 PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
-                ORDER BY i.created_at, i.id
+                ORDER BY i.event_at, i.id
               )::text AS payout_number,
               sum(CASE WHEN i.state = 'REVERSED' THEN 0 ELSE i.effective_amount_minor END) OVER (
                 PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
-                ORDER BY i.created_at, i.id
+                ORDER BY i.event_at, i.id
                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
               )::text AS total_paid_minor
          FROM adjusted i
@@ -394,7 +519,7 @@ export async function getCashTransaction(id: string): Promise<CashTransactionRow
             i.amount_minor::text AS original_amount_minor,
             i.adjustment_minor::text AS adjustment_minor,
             i.total_paid_minor, i.correction_count, i.last_correction_id, i.reversal_of,
-            i.method, i.state, i.created_at::text AS created_at,
+            i.method, i.state, i.created_at::text AS created_at, i.event_at::text AS event_at,
             i.source_channel, i.source_message_id, i.purpose AS notes
        FROM ordered i LEFT JOIN employees e ON e.employee_mobile = i.employee_mobile
       WHERE i.id = $1`,
@@ -540,6 +665,7 @@ export type CashTransactionRow = {
   method: string;
   state: string;
   created_at: string;
+  event_at: string;
   source_channel: string | null;
   source_message_id: string | null;
   notes: string | null;
@@ -587,8 +713,8 @@ export async function listCashTransactions(filters: CashTransactionFilters = {})
   if (employeeMobile) where.push(`i.employee_mobile = ${bind(employeeMobile)}`);
   if (Number.isFinite(Number(filters.amountMin)) && filters.amountMin !== undefined) where.push(`i.effective_amount_minor >= ${bind(Number(filters.amountMin))}`);
   if (Number.isFinite(Number(filters.amountMax)) && filters.amountMax !== undefined) where.push(`i.effective_amount_minor <= ${bind(Number(filters.amountMax))}`);
-  if (filters.from) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date >= ${bind(filters.from)}::date`);
-  if (filters.to) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date <= ${bind(filters.to)}::date`);
+  if (filters.from) where.push(`(i.event_at AT TIME ZONE 'Asia/Dhaka')::date >= ${bind(filters.from)}::date`);
+  if (filters.to) where.push(`(i.event_at AT TIME ZONE 'Asia/Dhaka')::date <= ${bind(filters.to)}::date`);
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const baseExcluded = filters.state === 'REJECTED'
     ? `i.state <> 'VOID'`
@@ -615,11 +741,11 @@ export async function listCashTransactions(filters: CashTransactionFilters = {})
        SELECT i.*,
               row_number() OVER (
                 PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
-                ORDER BY i.created_at, i.id
+                ORDER BY i.event_at, i.id
               )::text AS payout_number,
               sum(CASE WHEN i.state = 'REVERSED' THEN 0 ELSE i.effective_amount_minor END) OVER (
                 PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
-                ORDER BY i.created_at, i.id
+                ORDER BY i.event_at, i.id
                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
               )::text AS total_paid_minor
          FROM adjusted i
@@ -639,14 +765,14 @@ export async function listCashTransactions(filters: CashTransactionFilters = {})
             i.reversal_of,
             i.method,
             i.state,
-            i.created_at::text AS created_at,
+            i.created_at::text AS created_at, i.event_at::text AS event_at,
             i.source_channel,
             i.source_message_id,
             i.purpose AS notes
        FROM ordered i
        LEFT JOIN employees e ON e.employee_mobile = i.employee_mobile
        ${clause}
-      ORDER BY i.created_at DESC, i.id DESC
+      ORDER BY i.event_at DESC, i.id DESC
       LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params,
   );
@@ -678,6 +804,7 @@ export function cashTransactionView(row: CashTransactionRow) {
     sourceMessageId: row.source_message_id,
     notes: row.notes,
     createdAt: row.created_at,
+    eventAt: row.event_at,
   };
 }
 
@@ -709,8 +836,8 @@ export async function countCashTransactions(filters: Omit<CashTransactionFilters
   if (employeeMobile) where.push(`i.employee_mobile = ${bind(employeeMobile)}`);
   if (Number.isFinite(Number(filters.amountMin)) && filters.amountMin !== undefined) where.push(`i.amount_minor + coalesce(a.adjustment_minor,0) >= ${bind(Number(filters.amountMin))}`);
   if (Number.isFinite(Number(filters.amountMax)) && filters.amountMax !== undefined) where.push(`i.amount_minor + coalesce(a.adjustment_minor,0) <= ${bind(Number(filters.amountMax))}`);
-  if (filters.from) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date >= ${bind(filters.from)}::date`);
-  if (filters.to) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date <= ${bind(filters.to)}::date`);
+  if (filters.from) where.push(`(i.event_at AT TIME ZONE 'Asia/Dhaka')::date >= ${bind(filters.from)}::date`);
+  if (filters.to) where.push(`(i.event_at AT TIME ZONE 'Asia/Dhaka')::date <= ${bind(filters.to)}::date`);
   const result = await row<{n: number}>(
     `SELECT count(*)::int AS n
        FROM cash_instructions i
@@ -1234,6 +1361,7 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
         sourceChatJid: submission.source_chat_jid,
         sourceAccountId: submission.source_account_id,
         category: submission.category,
+        eventAt: (payload.sourceTimestamp as string | null | undefined) ?? null,
       });
       if (!instruction) throw new DomainError('INSTRUCTION_ALREADY_EXISTS', 409);
       instructionId = instruction.id;

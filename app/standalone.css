@@ -797,3 +797,14 @@ input, select, textarea, .pill, .vessel-facets button, .button-link,
 [data-theme="dark"] .source-note,
 [data-theme="dark"] .coverage-note { color: #94a3b8; }
 [data-theme="dark"] .goal-stat { background: #0b1220; border-color: #334155; }
+
+/* Cash 9-column table: event date/time, sticky header, readable zebra rows. */
+.cash-payment-table { table-layout: fixed; }
+.cash-payment-table thead th { position: sticky; top: 0; z-index: 2; }
+.cash-payment-table th, .cash-payment-table td { padding: 8px 10px; }
+.cash-payment-table tbody tr:nth-child(even) { background: #f8fafc; }
+.cash-payment-table tbody tr:hover { background: #eef6fb; }
+.cash-date { white-space: nowrap; line-height: 1.25; }
+.cash-date small { display: block; }
+[data-theme="dark"] .cash-payment-table tbody tr:nth-child(even) { background: #172033; }
+[data-theme="dark"] .cash-payment-table tbody tr:hover { background: #243247; }

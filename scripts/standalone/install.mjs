@@ -46,6 +46,7 @@ const EXTRA_SCHEMA_FILES = [
   join(APP_ROOT, 'db', 'standalone', '014_manual_programs.sql'),
   join(APP_ROOT, 'db', 'standalone', '015_cash_corrections.sql'),
   join(APP_ROOT, 'db', 'standalone', '016_audit_indexes.sql'),
+  join(APP_ROOT, 'db', 'standalone', '017_cash_event_at.sql'),
 ];
 
 const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;

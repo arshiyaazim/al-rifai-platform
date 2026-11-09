@@ -314,8 +314,8 @@ async function main() {
               `INSERT INTO cash_instructions
                  (id, employee_mobile, employee_name, payout_mobile, method, amount_minor, purpose,
                   account_id, state, source_channel, source_message_id, source_block_key, source_hash,
-                  approved_at, approved_by, posted_at, posted_by, created_by, created_at, updated_at, legacy)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'POSTED','IMPORT',$9,'IMPORT',$10,$11,$12,$13,$14,$15,$16,$16,true)
+                  approved_at, approved_by, posted_at, posted_by, created_by, created_at, updated_at, event_at, legacy)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'POSTED','IMPORT',$9,'IMPORT',$10,$11,$12,$13,$14,$15,$16,$16,$16,true)
                ON CONFLICT (id) DO NOTHING RETURNING id`,
               [id, plusMobile(row.employee_mobile), clip(row.employee_name, 150),
                 plusMobile(row.payout_mobile), row.method, row.amount_minor, clip(row.purpose, 500) || null,
@@ -362,8 +362,8 @@ async function main() {
               `INSERT INTO cash_instructions
                  (id, employee_mobile, employee_name, payout_mobile, method, amount_minor, purpose,
                   account_id, state, source_channel, source_message_id, source_block_key, source_hash,
-                  created_by, created_at, updated_at, legacy)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'REVIEW','IMPORT',$9,'IMPORT',$10,$11,$12,$12,true)
+                  created_by, created_at, updated_at, event_at, legacy)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'REVIEW','IMPORT',$9,'IMPORT',$10,$11,$12,$12,$12,true)
                ON CONFLICT (id) DO NOTHING RETURNING id`,
               [id, plusMobile(row.employee_mobile), clip(row.employee_name, 150),
                 plusMobile(row.payout_mobile), row.method, row.amount_minor, clip(row.purpose, 500) || null,

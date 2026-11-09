@@ -41,10 +41,17 @@ in `docs/` and the Phase 3 reports.
 
 - **Business Paid** = a verified `cash_payment_events` row.
 - **Financial POSTED** = an immutable `cash_postings` / `ledger_entries` write.
-- A verified WhatsApp payment creates a Business Paid Event automatically when
-  `PHASE3_PAID_EVENTS_ENABLED=1`. It does NOT call `postInstruction()` and does
-  NOT write `cash_postings` or `ledger_entries`.
-- Financial posting keeps its separate `cash.post` authorization.
+- **Owner-approved Cash auto-post exception:** a verified Admin (WA-01)
+  OUTGOING payment instruction in the Accountant direct chat creates a
+  `POSTED` `cash_instructions` row plus `cash_postings` and `ledger_entries`
+  automatically. No separate approval step is required for that Cash path.
+  This exception is limited to Cash; Vessel and other domains retain their
+  existing authorization flows.
+- When `PHASE3_PAID_EVENTS_ENABLED=1`, the same verified WhatsApp payment may
+  also append a Business Paid Event. The Business Paid Event is still separate
+  from the financial posting.
+- Manual / non-WhatsApp financial posting keeps its separate `cash.post`
+  authorization.
 - Business corrections/reversals are append-only events. They must never
   generate a financial ledger reversal automatically.
 - `PHASE3_PAID_EVENTS_ENABLED` defaults to `'0'`. It is separate from the

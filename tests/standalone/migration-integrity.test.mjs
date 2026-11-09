@@ -26,7 +26,7 @@ async function withOwner(fn) {
   }
 }
 
-test('010–016 are installed in order with the exact file checksums', async () => {
+test('010–017 are installed in order with the exact file checksums', async () => {
   const installed = await withOwner(async (owner) =>
     (await owner.query('SELECT version, name, checksum FROM schema_migrations ORDER BY version')).rows);
   const byVersion = new Map(installed.map((entry) => [entry.version, entry]));
@@ -37,6 +37,7 @@ test('010–016 are installed in order with the exact file checksums', async () 
   const fourteen = byVersion.get('014');
   const fifteen = byVersion.get('015');
   const sixteen = byVersion.get('016');
+  const seventeen = byVersion.get('017');
   assert.ok(ten, 'migration 010 is recorded');
   assert.ok(eleven, 'migration 011 is recorded');
   assert.ok(twelve, 'migration 012 is recorded');
@@ -58,6 +59,9 @@ test('010–016 are installed in order with the exact file checksums', async () 
   assert.ok(sixteen, 'migration 016 is recorded');
   assert.equal(sixteen.name, '016_audit_indexes.sql');
   assert.equal(sixteen.checksum, sha256(sqlFile('016_audit_indexes.sql')));
+  assert.ok(seventeen, 'migration 017 is recorded');
+  assert.equal(seventeen.name, '017_cash_event_at.sql');
+  assert.equal(seventeen.checksum, sha256(sqlFile('017_cash_event_at.sql')));
   const order = installed.map((entry) => entry.version);
   assert.ok(order.indexOf('010') < order.indexOf('011'), '010 must be applied before 011');
   assert.ok(order.indexOf('011') < order.indexOf('012'), '011 must be applied before 012');
@@ -65,6 +69,7 @@ test('010–016 are installed in order with the exact file checksums', async () 
   assert.ok(order.indexOf('013') < order.indexOf('014'), '013 must be applied before 014');
   assert.ok(order.indexOf('014') < order.indexOf('015'), '014 must be applied before 015');
   assert.ok(order.indexOf('015') < order.indexOf('016'), '015 must be applied before 016');
+  assert.ok(order.indexOf('016') < order.indexOf('017'), '016 must be applied before 017');
 });
 
 
@@ -251,7 +256,8 @@ test('duplicate WhatsApp source and invalid event values are rejected', async ()
   );
 });
 
-test('016–010 re-apply safely in the same database', async () => {
+test('017–010 re-apply safely in the same database', async () => {
+  const seventeen = sqlFile('017_cash_event_at.sql').toString('utf8');
   const sixteen = sqlFile('016_audit_indexes.sql').toString('utf8');
   const fifteen = sqlFile('015_cash_corrections.sql').toString('utf8');
   const fourteen = sqlFile('014_manual_programs.sql').toString('utf8');
@@ -269,6 +275,7 @@ test('016–010 re-apply safely in the same database', async () => {
       await owner.query(fourteen);
       await owner.query(fifteen);
       await owner.query(sixteen);
+      await owner.query(seventeen);
       await owner.query('COMMIT');
     } catch (error) {
       await owner.query('ROLLBACK');
@@ -285,11 +292,12 @@ test('016–010 re-apply safely in the same database', async () => {
       await owner.query(fourteen);
       await owner.query(fifteen);
       await owner.query(sixteen);
+      await owner.query(seventeen);
       await owner.query('COMMIT');
     } catch (error) {
       await owner.query('ROLLBACK');
       throw error;
     }
   });
-  assert.equal((await row("SELECT value FROM schema_meta WHERE key='schema_version'")).value, '1.11.0');
+  assert.equal((await row("SELECT value FROM schema_meta WHERE key='schema_version'")).value, '1.12.0');
 });

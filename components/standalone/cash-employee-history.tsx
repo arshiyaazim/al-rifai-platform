@@ -12,6 +12,7 @@ import {Input} from '@/components/ui/input';
 import {useRealtimeUpdates} from '@/hooks/use-realtime-updates';
 import type {CashTransaction, CashTransactionPage} from './cash-transactions-table';
 import {cashStateTone} from '@/lib/status-tone';
+import {dateDdMmYyyy, dhakaTime12, localMobile} from '@/lib/export-format';
 
 export type CashEmployeeSummary = {
   employeeId: string | null;
@@ -30,7 +31,7 @@ const amount = (minor: string | number | null | undefined) =>
   minor === null || minor === undefined ? '—'
     : `৳${(Number(minor) / 100).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
 const localDate = (value: string | null | undefined) =>
-  value ? new Date(value).toLocaleString('en-GB', {timeZone: 'Asia/Dhaka', dateStyle: 'medium', timeStyle: 'short'}) : '—';
+  value ? `${dateDdMmYyyy(value)} ${dhakaTime12(value)}` : '—';
 
 function historyQuery(page: number, limit: number, filters: {
   from: string; to: string; amountMin: string; amountMax: string;
@@ -145,7 +146,7 @@ export function CashEmployeeHistory({employeeId, initial, canManage = false, gen
           </div>
         </div>
         <div className="grid-cards">
-          <div className="stat"><div className="label">Employee ID</div><div className="value" style={{fontSize: 18}}>{dash(employee?.employeeId ?? employeeId)}</div></div>
+          <div className="stat"><div className="label">Employee ID</div><div className="value" style={{fontSize: 18}}>{dash(localMobile(employee?.employeeId ?? employeeId))}</div></div>
           <div className="stat"><div className="label">Name</div><div className="value" style={{fontSize: 18}}>{dash(employee?.nameOfEmployee)}</div></div>
           <div className="stat"><div className="label">Designation</div><div className="value" style={{fontSize: 18}}>{dash(employee?.designation)}</div></div>
           <div className="stat"><div className="label">Date of Join</div><div className="value" style={{fontSize: 18}}>{dash(employee?.dateOfJoin)}</div></div>
@@ -203,7 +204,7 @@ export function CashEmployeeHistory({employeeId, initial, canManage = false, gen
               )) : data.transactions.map((item, index) => (
                 <tr key={item.id} style={item.state === 'REVERSED' ? {opacity: 0.6} : undefined}>
                   <td>{offset + index + 1}</td>
-                  <td>{localDate(item.createdAt)}</td>
+                  <td>{localDate(item.eventAt)}</td>
                   <td>{item.payoutNumber}</td>
                   <td className="cash-amount" style={{textAlign: 'right', textDecoration: item.state === 'REVERSED' ? 'line-through' : undefined}}>
                     {amount(item.amountMinor)}{(item.correctionCount ?? 0) > 0 ? <small className="muted"> (corrected)</small> : null}

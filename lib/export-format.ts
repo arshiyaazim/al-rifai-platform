@@ -76,6 +76,24 @@ export function dhakaDateTime(value: string | Date | null | undefined): string {
   }).format(date);
 }
 
+/** Dhaka clock time with AM/PM, e.g. 08:26 PM. */
+export function dhakaTime12(value: string | Date | null | undefined): string {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Dhaka', hour: '2-digit', minute: '2-digit', hour12: true,
+  }).format(date);
+}
+
+/** +8801XXXXXXXXX -> 01XXXXXXXXX for display. */
+export function localMobile(value: string | null | undefined): string {
+  const raw = String(value ?? '').trim();
+  if (raw.startsWith('+880')) return `0${raw.slice(4)}`;
+  if (raw.startsWith('8801')) return `0${raw.slice(3)}`;
+  return raw;
+}
+
 export function todayStamp(date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit', day: '2-digit',
