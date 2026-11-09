@@ -1,10 +1,10 @@
 # AL-RIFA'I — Standalone Business Management Application
 
-## Release status (verified 2026-11-08)
+## Release status (verified 2026-11-09)
 
 | Category | Value |
 |---|---|
-| **Current Production** | Image `local/al-rifai-platform:phase3-ai-rc-vd-b379dd2` (digest `sha256:aec08d34…602a`), database `alrifai_v2_phase3`, schema **1.6.0**, migrations **002–011** applied, 49 tables. Router `PHASE3_ROUTER_WORKER_ENABLED=1`, Vessel `ALRIFAI_VESSEL_PROCESSING_ENABLED=1`, `ALRIFAI_LIVE_CASH_SYNC=0`; 8 live WA-01 DRAFT programs exist. WA-01 outbound gate is enabled and the bridge identity is verified; the delivery worker is **disabled pending the first exact Owner-approved send**. `PHASE3_PAID_EVENTS_ENABLED` remains **OFF**; 0 Business Paid Events and 0 posting links. All `AI_*` flags `0`. |
+| **Current Production (v1.12.0)** | Image `local/al-rifai-platform:cash-final-eb70d91` (digest `sha256:ed624cea…8d51dc`), database `alrifai_v2_phase3`, schema **1.12.0**, migration files **001–017** (16 additive rows + baseline), **52 tables**. Cash source of truth is `whatsapp_messages`; Admin WA-01 OUTGOING payments auto-POST. Backfill: **2,359 POSTED**, **222 employees**, **৳12,11,555.00**. Router `PHASE3_ROUTER_WORKER_ENABLED=1`, Vessel `ALRIFAI_VESSEL_PROCESSING_ENABLED=1`, `PHASE3_PAID_EVENTS_ENABLED` OFF. |
 | **Historical Release** | `v1.4.0-phase3-rc2` / `phase3-rc-final5` / schema 1.4.0 (2026-11-06 cutover); prior image `phase3-ai-rc-8a6c2c6` / schema 1.6.0 is the immediate rollback. Tags and rollback instructions are retained. |
 | **Deployed, activation pending** | `feature/phase3-010-011-activation` (image `phase3-ai-rc-vd-b379dd2`, digest `sha256:aec08d34…602a`): original-conversation recipient resolution, pre-send source revalidation, WA-01 bridge identity verification, and the read-only preflight / controlled enqueue-tick CLI. The outbound gate is enabled; the worker is disabled until the first exact Owner-approved send. See `docs/VESSEL_DRAFT_ACTIVATION_APPROVAL_PACKAGE.md`. |
 | **Pending Migration / Activation** | No new migration. Outbound draft delivery remains `MANUAL_COPY_ONLY`: WA-01 has **no `messages.send` capability**, the app container has no WA-01 socket/token mount, and no sender/recipient is configured. Business Paid activation (`PHASE3_PAID_EVENTS_ENABLED=1`) is also pending explicit Owner approval. |

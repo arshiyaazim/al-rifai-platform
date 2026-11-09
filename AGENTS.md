@@ -37,6 +37,21 @@ in `docs/` and the Phase 3 reports.
 - An unregistered employee mobile is recorded as `UNREGISTERED`; never attach
   the payment to a different employee and never auto-create an unrelated one.
 
+## Cash source of truth and event time
+
+- The source of truth for Cash is `whatsapp_messages`, not legacy Cashbook or
+  Excel data. Legacy `IMPORT` rows were replaced by WhatsApp-linked rows in the
+  v1.12.0 overhaul.
+- `whatsapp_messages.source_timestamp` is the real WhatsApp event time.
+  `created_at` is the database insertion time; `mirrored_at` is the mirror time.
+  Never substitute one for another.
+- `cash_instructions.event_at` stores the real event time and is used for
+  display, payout numbering and cumulative totals. `cash_instructions.created_at`
+  remains the database insertion/backfill time.
+- Verified Admin (WA-01) OUTGOING payment instructions in the Accountant direct
+  chat are auto-POSTED under the Owner-approved Cash exception. Incomplete
+  blocks remain `cash_submissions` in `PENDING_REVIEW`.
+
 ## Paid vs POSTED
 
 - **Business Paid** = a verified `cash_payment_events` row.

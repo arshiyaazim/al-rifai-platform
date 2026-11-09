@@ -2,7 +2,7 @@
 
 **Last Updated**: 2026-11-09
 **Current Version**: v1.12.0 (Cash pipeline overhaul)
-**Schema Version**: 1.12.0 (52 tables; 16 applied additive migrations + baseline `schema.sql`)
+**Schema Version**: 1.12.0 (52 tables; 17 migration files 001–017; 16 applied additive rows + baseline `schema.sql`)
 **Main Release HEAD**: `v1.12.0` (release merge `3e12fc5`; release tag points to the final documentation commit)
 **Status**: Production deployed, healthy
 
@@ -10,7 +10,7 @@
 
 - **WhatsApp source of truth:** `whatsapp_messages.source_timestamp` is the real event time; `created_at`/`mirrored_at` are ingestion/mirror times.
 - **Migration 017:** added `cash_instructions.event_at` (NOT NULL, indexed). `event_at` is the display/order date; `created_at` remains DB insertion time.
-- **Historical backfill:** 2,359 POSTED instructions, 2,359 postings, 2,359 ledger entries, 8 PENDING_REVIEW submissions; 222 employees; **1,211,555.00 BDT**; event range 2026-07-12 → 2026-11-09.
+- **Historical backfill:** 2,359 POSTED instructions, 2,359 postings, 2,359 ledger entries, 8 PENDING_REVIEW submissions; 222 employees; **৳12,11,555.00 (1,211,555.00 BDT)**; event range 2026-07-12 → 2026-11-09.
 - **Auto-post exception:** verified Admin (WA-01) OUTGOING payment instructions in the Accountant direct chat create POSTED + posting + ledger automatically. No approval step for this Cash path.
 - **Read model:** Cash rows display and order by `event_at` in Asia/Dhaka; payout number and total paid are computed in event-time order.
 - **UI:** `/cash` now has exactly nine columns: Date, Employee ID, Name, Designation, Date of Join, Payouts, Amount, Total Paid, Actions. Date shows DD-MM-YYYY + HH:MM AM/PM. Name is clean, single-line, with no REVIEW/WHATSAPP artifact.
@@ -123,7 +123,7 @@ Two processes, one image:
 | `sync` | `al-rifai-phase3-sync-1` | `node scripts/sync-worker.mjs --mode=tail` |
 
 One image, no separate worker image:
-`local/al-rifai-platform:cash-overhaul-bd0519d`.
+`local/al-rifai-platform:cash-final-eb70d91`.
 
 ---
 
@@ -141,7 +141,7 @@ One image, no separate worker image:
 | Merge status | pushed to `origin/main`; tag pushed |
 
 The production image was built from the code commit `bd0519d`; the merge
-commit contains the same code. Image tag: `cash-overhaul-bd0519d`.
+commit contains the same code. Image tag: `cash-final-eb70d91`.
 
 ### Last 10 commits on `main`
 
@@ -225,7 +225,7 @@ returned by `GET /api/auth/session`.
 
 ## 5. Database
 
-**Current schema: 1.12.0 — 52 base tables — 16 applied additive migrations + baseline `schema.sql`.** Production was verified at 1.12.0 after the Cash pipeline overhaul.
+**Current schema: 1.12.0 — 52 base tables — 17 migration files (001–017); 16 applied additive rows + baseline `schema.sql`.** Production was verified at 1.12.0 after the Cash pipeline overhaul.
 
 ### 5.1 Tables by domain
 
@@ -1191,7 +1191,7 @@ Read from production containers and `compose.phase3.yaml`:
 
 | Flag | Current | Meaning |
 |---|---|---|
-| `ALRIFAI_TAG` | `cash-overhaul-bd0519d` | Image tag |
+| `ALRIFAI_TAG` | `cash-final-eb70d91` | Image tag |
 | `ALRIFAI_VESSEL_PROCESSING_ENABLED` | `1` | Vessel intake/release routing enabled |
 | `PHASE3_ROUTER_WORKER_ENABLED` | `1` | Live Router worker runs every 5s |
 | `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED` | `0` | Draft delivery worker disabled |
@@ -1217,10 +1217,10 @@ approval and one-message verification.
 
 | Service | Image | Digest |
 |---|---|---|
-| app | `local/al-rifai-platform:cash-overhaul-bd0519d` | `sha256:1185393f56a30642a94555c22a17c64f092ce760e32ebfb4b3ded36e4f995a4a` |
-| sync | `local/al-rifai-platform:cash-overhaul-bd0519d` | same |
+| app | `local/al-rifai-platform:cash-final-eb70d91` | `sha256:ed624cea52febf25800b0e6158450efea023bf7cc916d9dd9f04dcc72a668a3e` |
+| sync | `local/al-rifai-platform:cash-final-eb70d91` | same |
 
-Image tags use the pattern `phase3-` or the feature name plus `-prod-`/release suffix. Current tag: `cash-overhaul-bd0519d` (older releases:
+Image tags use the pattern `phase3-` or the feature name plus `-prod-`/release suffix. Current tag: `cash-final-eb70d91` (older releases:
 `phase3-roadmap-prod-109446c`, `phase3-cash-corr-prod-5d780b1`, `phase3-overhaul-prod-54d2ebd`, etc.).
 
 ### Backup pattern
@@ -1241,10 +1241,10 @@ Never commit dumps, `.env` files or media.
 ```bash
 cd /opt/al-rifai-phase3-activation
 git checkout main && git pull
-docker build -t local/al-rifai-platform:cash-overhaul-bd0519d .
+docker build -t local/al-rifai-platform:cash-final-eb70d91 .
 
 cd /opt/al-rifai-platform
-ALRIFAI_TAG=cash-overhaul-bd0519d \
+ALRIFAI_TAG=cash-final-eb70d91 \
 ALRIFAI_VESSEL_PROCESSING_ENABLED=1 \
 PHASE3_ROUTER_WORKER_ENABLED=1 \
   docker compose -p al-rifai-phase3 \
@@ -1312,12 +1312,12 @@ docker logs --since 10m al-rifai-phase3-sync-1
 ```
 
 Current production evidence: health `200`, schema `1.12.0`, image
-`cash-overhaul-bd0519d`, app/sync healthy, 0 restarts, 0 error log lines
+`cash-final-eb70d91`, app/sync healthy, 0 restarts, 0 error log lines
 after deployment. Cash backfill: 2,359 POSTED / 2,359 postings / 2,359 ledger
 entries, 8 pending review submissions, 222 employees, 1,211,555.00 BDT.
 Backup: `/opt/al-rifai-backups/alrifai_v2_phase3_20261109T101559Z.pre-cash-overhaul.sql.gz`
 (SHA-256 `fb87581fdef6d3bfb8ac69c9074b1ebeeedccd4be394fbcd5f1badaa81ec8390`).
-Deployment record: `/opt/al-rifai-backups/deployment-cash-overhaul-bd0519d.txt`.
+Deployment record: `/opt/al-rifai-backups/deployment-cash-final-eb70d91.txt`.
 
 ---
 
