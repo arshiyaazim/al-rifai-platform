@@ -3,8 +3,8 @@
 **Last Updated**: 2026-11-09
 **Current Version**: v1.11.0 (15-task roadmap)
 **Schema Version**: 1.11.0 (52 tables, 15 migrations)
-**Main Release HEAD**: pending push/tag for the 15-task roadmap; previous release `bc5b17f` (v1.10.0)
-**Status**: Production v1.10.0 healthy; v1.11.0 verified locally and prepared for deployment
+**Main Release HEAD**: `v1.11.0` (release merge `510f105`; release tag points to the final documentation commit)
+**Status**: Production deployed, healthy
 
 ### v1.11.0 delivered (15-task roadmap)
 
@@ -113,7 +113,7 @@ Two processes, one image:
 | `sync` | `al-rifai-phase3-sync-1` | `node scripts/sync-worker.mjs --mode=tail` |
 
 One image, no separate worker image:
-`local/al-rifai-platform:phase3-cash-corr-prod-5d780b1`.
+`local/al-rifai-platform:phase3-roadmap-prod-b6e7c0f`.
 
 ---
 
@@ -123,15 +123,15 @@ One image, no separate worker image:
 
 | Item | Value |
 |---|---|
-| Branch merged | `feature/phase3-010-011-activation` |
-| Merge commit / main HEAD | `bc5b17f62f8e04bb3a25684ef535ae920ff91780` |
+| Branch merged | `feat/15-task-roadmap` → `release/v1.11.0` → `origin/main` |
+| Merge commit / main HEAD | `510f105` (release merge); docs commit is tagged `v1.11.0` |
 | Merge strategy | `--no-ff` merge commit, full history preserved |
-| Tag | **`v1.10.0`** (annotated) |
+| Tag | **`v1.11.0`** (annotated) |
 | Feature branch | retained for reference; **not deleted** |
 | Merge status | pushed to `origin/main`; tag pushed |
 
-The production image was built from the feature commit `5d780b1`; `main` at
-`bc5b17f` is the merge commit of that same code, so runtime code is identical.
+The production image was built from the code commit `b6e7c0f`; the merge
+commit contains the same code. Image tag: `phase3-roadmap-prod-b6e7c0f`.
 
 ### Last 10 commits on `main`
 
@@ -168,10 +168,10 @@ branches, `origin/arena/e574efa6-al-rifai-platform`, and the historical
 
 The repository uses multiple Git worktrees. The `main` branch is checked out at
 `/opt/al-rifai-platform`; that worktree contains unrelated uncommitted
-deployment files and must not be reset. The v1.10.0 merge was performed in a
-clean temporary clone and pushed to `origin/main`. `origin/main` is the
-authoritative main branch; do not force-update or delete the dirty deployment
-worktree.
+deployment files and must not be reset. The v1.11.0 merge was performed in a
+clean temporary worktree (`release/v1.11.0`) and pushed to `origin/main`.
+`origin/main` is the authoritative main branch; do not force-update or delete
+the dirty deployment worktree.
 
 ---
 
@@ -216,7 +216,7 @@ returned by `GET /api/auth/session`.
 ## 5. Database
 
 **Current schema: 1.11.0 — 52 base tables — 15 migrations.** Production was
-last verified at 1.10.0/14 migrations before the v1.11.0 deployment.
+verified at 1.11.0/15 migrations after the v1.11.0 deployment.
 
 ### 5.1 Tables by domain
 
@@ -1166,7 +1166,7 @@ Read from production containers and `compose.phase3.yaml`:
 
 | Flag | Current | Meaning |
 |---|---|---|
-| `ALRIFAI_TAG` | `phase3-cash-corr-prod-5d780b1` | Image tag |
+| `ALRIFAI_TAG` | `phase3-roadmap-prod-b6e7c0f` | Image tag |
 | `ALRIFAI_VESSEL_PROCESSING_ENABLED` | `1` | Vessel intake/release routing enabled |
 | `PHASE3_ROUTER_WORKER_ENABLED` | `1` | Live Router worker runs every 5s |
 | `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED` | `0` | Draft delivery worker disabled |
@@ -1192,11 +1192,11 @@ approval and one-message verification.
 
 | Service | Image | Digest |
 |---|---|---|
-| app | `local/al-rifai-platform:phase3-cash-corr-prod-5d780b1` | `sha256:6b60ddc6d7d1bab616296fdb8b1276c4e153bc6b3ddb4bc6f08b9e5ad58e9bf2` |
-| sync | `local/al-rifai-platform:phase3-cash-corr-prod-5d780b1` | same |
+| app | `local/al-rifai-platform:phase3-roadmap-prod-b6e7c0f` | `sha256:c03ea4b4f1cb433ca4ef53a4bfc902e8055451bf7776c35eec55c770aa343ac1` |
+| sync | `local/al-rifai-platform:phase3-roadmap-prod-b6e7c0f` | same |
 
-Image tags use the pattern `phase3-` plus the feature name plus `-prod-` plus the short commit SHA. Current tag: `phase3-cash-corr-prod-5d780b1` (older releases:
-`phase3-overhaul-prod-54d2ebd`, `phase3-cash-prod-771ea18`, etc.).
+Image tags use the pattern `phase3-` plus the feature name plus `-prod-` plus the short commit SHA. Current tag: `phase3-roadmap-prod-b6e7c0f` (older releases:
+`phase3-cash-corr-prod-5d780b1`, `phase3-overhaul-prod-54d2ebd`, `phase3-cash-prod-771ea18`, etc.).
 
 ### Backup pattern
 
@@ -1216,10 +1216,10 @@ Never commit dumps, `.env` files or media.
 ```bash
 cd /opt/al-rifai-phase3-activation
 git checkout main && git pull
-docker build -t local/al-rifai-platform:phase3-cash-corr-prod-5d780b1 .
+docker build -t local/al-rifai-platform:phase3-roadmap-prod-b6e7c0f .
 
 cd /opt/al-rifai-platform
-ALRIFAI_TAG=phase3-cash-corr-prod-5d780b1 \
+ALRIFAI_TAG=phase3-roadmap-prod-b6e7c0f \
 ALRIFAI_VESSEL_PROCESSING_ENABLED=1 \
 PHASE3_ROUTER_WORKER_ENABLED=1 \
   docker compose -p al-rifai-phase3 \
@@ -1286,8 +1286,11 @@ docker logs --since 10m al-rifai-phase3-app-1
 docker logs --since 10m al-rifai-phase3-sync-1
 ```
 
-Current production evidence: health `200`, schema `1.10.0`, app/sync healthy,
-0 restarts, 0 error log lines after deployment.
+Current production evidence: health `200`, schema `1.11.0`, image
+`phase3-roadmap-prod-b6e7c0f`, app/sync healthy, 0 restarts, 0 error log lines
+after deployment. Backup:
+`/opt/al-rifai-backups/alrifai_v2_phase3_20261109T053432Z.pre-016.sql.gz`.
+Deployment record: `/opt/al-rifai-backups/deployment-b6e7c0f.txt`.
 
 ---
 
@@ -1412,7 +1415,7 @@ source and source ref. Critical actions include `PROGRAM_CONFIRMED`,
 | Version | Commit | Summary |
 |---|---|---|
 | v1.10.0 | `bc5b17f` | Merge: Escort workflow, source roles, Cash/Vessel UI overhaul, manual programs, employee/vessel history, Cash correction/reversal |
-| v1.11.0 | pending | 15-task roadmap: form audit, CSV/print, Cash state filter, vessel facets, sticky summary, statement export, inline assign, SSE, column presets, bulk rejection, dark mode, audit viewer |
+| v1.11.0 | tag `v1.11.0` | 15-task roadmap: form audit, CSV/print, Cash state filter, vessel facets, sticky summary, statement export, inline assign, SSE, column presets, bulk rejection, dark mode, audit viewer |
 | pre-merge | `5d780b1` | Cash correction/reversal workflow, schema 1.10.0 |
 | pre-merge | `1df0b4b` | Block amount edits after a paid event |
 | pre-merge | `54d2ebd` | Cash/Vessel table overhaul, shared sidebar, employee history, manual program creation |
