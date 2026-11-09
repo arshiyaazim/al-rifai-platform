@@ -37,8 +37,8 @@ async function insertPosted(accountId, {
   await row(
     `INSERT INTO cash_instructions
        (id, employee_mobile, employee_name, payout_mobile, method, amount_minor, state,
-        source_channel, source_message_id, source_block_key, account_id, posted_at, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'test')`,
+        source_channel, source_message_id, source_block_key, account_id, posted_at, event_at, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,'test')`,
     [
       id, employeeMobile, employeeName, payoutMobile, method, amountMinor, state,
       source, sourceMessageId, sourceBlockKey, accountId, postedAt,
@@ -242,8 +242,8 @@ test('cash transactions: 8-column read model, cumulative total, search and pagin
   const insert = (id, amountMinor, state, createdAt) => row(
     `INSERT INTO cash_instructions
        (id, employee_mobile, employee_name, method, amount_minor, state,
-        source_channel, source_message_id, source_block_key, created_by, created_at)
-     VALUES ($1,$2,'Tx Target','bkash',$3,$4,'WHATSAPP',$1,'b-'||$1,'test',$5)`,
+        source_channel, source_message_id, source_block_key, created_by, created_at, event_at)
+     VALUES ($1,$2,'Tx Target','bkash',$3,$4,'WHATSAPP',$1,'b-'||$1,'test',$5,$5)`,
     [id, `+88${mobile}`, amountMinor, state, createdAt],
   );
   await insert('tx-a', 1000, 'REVIEW', '2026-10-01T10:00:00+06:00');

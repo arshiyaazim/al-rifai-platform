@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import {useEffect, useRef, useState} from 'react';
-import {MoreHorizontal} from 'lucide-react';
+import {Eye} from 'lucide-react';
 import {AppToaster} from '@/components/standalone/app-toaster';
 import {CashTransactionSidebar} from '@/components/standalone/cash-transaction-sidebar';
 import {TableExportControls} from '@/components/standalone/export-controls';
@@ -10,8 +10,7 @@ import {RealtimeIndicator} from '@/components/standalone/realtime-refresher';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {useRealtimeUpdates} from '@/hooks/use-realtime-updates';
-import {bdtNumber, dateDdMmYyyy, type ExportColumn} from '@/lib/export-format';
-import {cashStateTone} from '@/lib/status-tone';
+import {bdtNumber, dateDdMmYyyy, dhakaTime12, localMobile, type ExportColumn} from '@/lib/export-format';
 
 export type CashTransaction = {
   id: string;
@@ -35,6 +34,7 @@ export type CashTransaction = {
   sourceMessageId: string | null;
   notes?: string | null;
   createdAt: string;
+  eventAt: string;
 };
 
 export type CashTransactionPage = {
@@ -50,7 +50,7 @@ type ExportRow = CashTransaction & {sl: number};
 const dash = (value: unknown) => value === null || value === undefined || value === '' ? '—' : String(value);
 const amount = (minor: string | number | null | undefined) =>
   minor === null || minor === undefined ? '—'
-    : `৳${(Number(minor) / 100).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+    : `৳${(Number(minor) / 100).toLocaleString('en-IN', {minimumFractionDigits: 2})}`;
 
 const STATES = [
   ['', 'All states'],
@@ -183,9 +183,9 @@ export function CashTransactionsTable({
   const offset = (data.page - 1) * data.limit;
   const exportRows: ExportRow[] = rows.map((item, index) => ({...item, sl: offset + index + 1}));
   const columns: ExportColumn<ExportRow>[] = [
-    {header: 'Sl', value: (row) => row.sl},
-    {header: 'Employee ID', value: (row) => row.employeeId ?? ''},
-    {header: 'Name of Employee', value: (row) => row.nameOfEmployee},
+    {header: 'Date', value: (row) => `${dateDdMmYyyy(row.eventAt)} ${dhakaTime12(row.eventAt)}`},
+    {header: 'Employee ID', value: (row) => localMobile(row.employeeId)},
+    {header: 'Name', value: (row) => row.nameOfEmployee},
     {header: 'Designation', value: (row) => row.designation ?? ''},
     {header: 'Date of Join', value: (row) => dateDdMmYyyy(row.dateOfJoin)},
     {header: 'Payouts', value: (row) => row.payoutNumber},
@@ -208,8 +208,7 @@ export function CashTransactionsTable({
           <div>
             <h3>Cash Transactions ({data.total.toLocaleString()})</h3>
             <p className="muted" style={{marginTop: 0}}>
-              Parsed from the Accountant ↔ Admin direct WhatsApp conversation. Amounts are instructed payouts;
-              financial posting remains a separate explicit action.
+              Parsed from the Accountant ↔ Admin direct WhatsApp conversation. Admin OUTGOING payments are auto-POSTED; manual instructions still follow the approval workflow.
             </p>
           </div>
           <span className="row-actions" style={{alignItems: 'center'}}>
@@ -267,26 +266,26 @@ export function CashTransactionsTable({
         {error ? <div className="error" role="alert">{error}</div> : null}
 
         <div className="cash-table-scroll">
-          <table className="cash-payment-table" style={{tableLayout: 'fixed', minWidth: 1080}}>
+          <table className="cash-payment-table" style={{tableLayout: 'fixed', minWidth: 940}}>
             <colgroup>
-              <col style={{width: 50}} />
-              <col style={{width: 150}} />
-              <col style={{width: 230}} />
+              <col style={{width: 110}} />
+              <col style={{width: 110}} />
+              <col style={{width: 180}} />
               <col style={{width: 120}} />
-              <col style={{width: 120}} />
-              <col style={{width: 90}} />
-              <col style={{width: 130}} />
-              <col style={{width: 140}} />
+              <col style={{width: 100}} />
+              <col style={{width: 70}} />
+              <col style={{width: 100}} />
+              <col style={{width: 100}} />
               <col style={{width: 50}} />
             </colgroup>
             <thead>
               <tr>
-                <th>Sl</th>
+                <th>Date</th>
                 <th>Employee ID</th>
-                <th>Name of Employee</th>
+                <th>Name</th>
                 <th>Designation</th>
                 <th>Date of Join</th>
-                <th>Payouts</th>
+                <th style={{textAlign: 'center'}}>Payouts</th>
                 <th style={{textAlign: 'right'}}>Amount</th>
                 <th style={{textAlign: 'right'}}>Total Paid</th>
                 <th><span className="sr-only">Actions</span></th>
@@ -298,39 +297,37 @@ export function CashTransactionsTable({
                   <td>—</td>
                   <td colSpan={8}><span className="muted">Loading…</span></td>
                 </tr>
-              )) : rows.map((item, index) => (
+              )) : rows.map((item) => (
                 <tr key={item.id} style={item.state === 'REVERSED' ? {opacity: 0.6} : undefined}>
-                  <td>{offset + index + 1}</td>
+                  <td className="cash-date">
+                    <div>{dateDdMmYyyy(item.eventAt)}</div>
+                    <small className="muted">{dhakaTime12(item.eventAt)}</small>
+                  </td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>
                     {item.employeeId
-                      ? <Link href={`/employees/${encodeURIComponent(item.employeeId)}`}>{item.employeeId}</Link>
+                      ? <Link href={`/employees/${encodeURIComponent(item.employeeId)}`}>{localMobile(item.employeeId)}</Link>
                       : <span className="muted">—</span>}
                   </td>
-                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>
-                    <div>{dash(item.nameOfEmployee)}</div>
-                    <small className="muted">
-                      <span className={`pill ${cashStateTone(item.state, item.correctionCount ?? 0)}`}>{item.state}</span>
-                      {(item.correctionCount ?? 0) > 0 ? <span className="pill correction" style={{marginLeft: 4}}>CORRECTION</span> : null}
-                      {item.reversalOf ? <span style={{marginLeft: 4}}>Reversal of #{item.reversalOf}</span> : null}
-                    </small>
+                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
+                    {dash(item.nameOfEmployee)}
                   </td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{dash(item.designation)}</td>
-                  <td>{dash(item.dateOfJoin)}</td>
-                  <td>{item.payoutNumber}</td>
+                  <td>{item.dateOfJoin ? dateDdMmYyyy(item.dateOfJoin) : '—'}</td>
+                  <td style={{textAlign: 'center'}}>{item.payoutNumber}</td>
                   <td className="cash-amount" style={{textAlign: 'right', textDecoration: item.state === 'REVERSED' ? 'line-through' : undefined}} title={(item.correctionCount ?? 0) > 0 ? `Original ${amount(item.originalAmountMinor)} → effective ${amount(item.amountMinor)}` : undefined}>
                     {amount(item.amountMinor)}
                     {(item.correctionCount ?? 0) > 0 ? <small className="muted"> (corrected)</small> : null}
                   </td>
                   <td className="cash-amount" style={{textAlign: 'right'}}>{amount(item.totalPaidMinor)}</td>
-                  <td>
+                  <td style={{textAlign: 'center'}}>
                     <Button
                       type="button"
                       size="icon-sm"
                       variant="ghost"
-                      aria-label={`Actions for ${item.nameOfEmployee}`}
+                      aria-label={`View details for ${item.nameOfEmployee}`}
                       onClick={() => openSidebar(item)}
                     >
-                      <MoreHorizontal className="size-4" />
+                      <Eye className="size-4" />
                     </Button>
                   </td>
                 </tr>
@@ -353,9 +350,7 @@ export function CashTransactionsTable({
         </div>
 
         <p className="muted" style={{marginTop: 10, marginBottom: 0}}>
-          Designation and Date of Join show “—” when the employee registry has no value. Employee ID is the parsed
-          mobile; Payouts is the sequential payout for that employee; Total Paid is cumulative through this row.
-          DRAFT and PENDING_REVIEW both map to the single REVIEW instruction stage.
+          Date is the real WhatsApp event time (Asia/Dhaka). Designation and Date of Join show “—” when the employee registry has no value. Payouts is the sequential payout for that employee; Total Paid is cumulative through this row in event-time order.
         </p>
       </section>
 
