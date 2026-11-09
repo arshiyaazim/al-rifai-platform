@@ -4,7 +4,16 @@
 2026-11-09 (UTC)
 
 ## Last Completed Step
-**Step 1 — Migration 018 applied (schema 1.13.0).**
+**Steps 10–19 code + Stage 1 deploy (schema 1.13.1).**
+
+### 2026-11-10 — Steps 10–19
+- Migration 019 applied: `MV ` stripped from 210 program names; `vessel.auto_confirm.shadow=false`; schema **1.13.1**.
+- Parser-backed ORDER_INTAKE gate, `orderIntakeShift()` (15:30 Dhaka), Phase 2 template renderer, duplicate/master-correction, escort-change, weighted confirmation scorer, draft-delivery/Office-forward helpers, extended `/review` vessel queue, vessel UI event-date/escort-mobile/typeahead.
+- WA-02: config documentation only; **no send**, no policy/socket/token host change.
+- `tsc --noEmit` PASS; `next build` PASS.
+- Image: `local/al-rifai-platform:vessel-1.13.1` deployed.
+- Git commits: `9bf0d8b`, `a0b5ee0`, `42689ce` (not pushed; tag held).
+- Stage 1 active: `ALRIFAI_VESSEL_PROCESSING_ENABLED=1`; draft worker/outbound remain `0`.
 
 ## Current Freeze State
 **ACTIVE.** Live vessel processing and draft delivery are disabled.

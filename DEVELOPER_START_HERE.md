@@ -2,12 +2,12 @@
 
 **Last Updated**: 2026-11-09
 **Current Version**: v1.12.0 Cash final (`cash-final-eb70d91`); Vessel Phase 2 in progress
-**Schema Version**: 1.13.0 (56 tables, 17 migrations)
+**Schema Version**: 1.13.1 (base + 6 snapshot tables, 18 migrations)
 **Main Release HEAD**: `bd0519d` (Cash final); Vessel overhaul branch `feat/15-task-roadmap`
 **Status**: Production healthy; Cash live (2,361 POSTED). Vessel pipeline **FROZEN** for Phase 2 backfill.
 
-> **Vessel Phase 2 freeze (2026-11-09):** Migration 018 is applied (schema
-> 1.13.0). `ALRIFAI_VESSEL_PROCESSING_ENABLED=0`,
+> **Vessel Phase 2 freeze (2026-11-09):** Migration 019 is applied (schema
+> 1.13.1). Stage 1 processing is enabled; draft worker/outbound remain off. `ALRIFAI_VESSEL_PROCESSING_ENABLED=0`,
 > `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED=0`,
 > `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=0`. Order processing and draft
 > delivery are disabled until the backfill and Owner gates complete. See
@@ -222,7 +222,7 @@ returned by `GET /api/auth/session`.
 
 ## 5. Database
 
-**Current schema: 1.13.0 — 56 base tables — 17 migrations.** Migration 018
+**Current schema: 1.13.1 — 62 base tables (incl. 6 snapshot tables) — 18 migrations.** Migration 018
 (vessel overhaul schema) was applied on 2026-11-09 through the checksum-tracked
 runner. Production Cash remains on the v1.12.0 baseline (2,361 POSTED,
 121,195,500 minor, 218 employees).
@@ -289,6 +289,7 @@ runner. Production Cash remains on the v1.12.0 baseline (2,361 POSTED,
 | `016_audit_indexes.sql` | 1.11.0 | Audit Trail timestamp/action indexes and program-event index |
 | `017_cash_event_at.sql` | 1.12.0 | Cash `event_at` + index (WhatsApp event time, not insert time) |
 | `018_vessel_overhaul.sql` | 1.13.0 | Vessel `event_at`, source block/order keys, draft text, escort-change link; feature flags, review queue, pipeline state, backlog progress |
+| `019_vessel_cleanup.sql` | 1.13.1 | Strip `MV ` display prefix from stored names; add `vessel.auto_confirm.shadow` |
 
 Canonical message identity is `(account_id, chat_jid, message_id)`.
 Event time (`source_timestamp`), ingestion time (`created_at`) and mirror time
