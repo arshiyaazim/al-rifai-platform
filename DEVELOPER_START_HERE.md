@@ -75,7 +75,7 @@ scripts/sync-worker.mjs
   │  messages, media metadata, calls, contact evidence, identity aliases
   ▼
 PostgreSQL (whatsapp_messages, whatsapp_media, whatsapp_calls,
-            identity_aliases, whatsapp_chats, ...)
+            identity_aliases, whatsapp_chats, escort_client_group_authorizations)
   │
   ├─ message classifier + Live Router (PHASE3_ROUTER_WORKER_ENABLED=1)
   │    ├─ Cash instructions  → cash_instructions → review/approval/posting
@@ -94,7 +94,7 @@ Two processes, one image:
 | `sync` | `al-rifai-phase3-sync-1` | `node scripts/sync-worker.mjs --mode=tail` |
 
 One image, no separate worker image:
-`local/al-rifai-platform:<tag>`.
+`local/al-rifai-platform:phase3-cash-corr-prod-5d780b1`.
 
 ---
 
@@ -318,7 +318,7 @@ public, they require a valid session. Mutation routes require
 | POST | `/api/cash/transactions/{id}/correct` | `cash.review` (ADMIN) | `{correctedAmount,reason}`; append-only adjustment; original untouched |
 | POST | `/api/cash/transactions/{id}/reverse` | `cash.reverse` (ADMIN) | `{amount,method,notes,reason}`; original `REVERSED`, new `POSTED` replacement |
 | GET | `/api/cash/employees/{employeeId}/transactions` | `cash.read` | `{employee,transactions,total,page,limit,totalPages}`; `from,to,amountMin,amountMax` |
-| GET | `/api/programs` | `vessel.read` | Program list; `q,state,escort,mother,from,to,limit,offset`; `{rows,total,...}` |
+| GET | `/api/programs` | `vessel.read` | Program list; `q,state,escort,mother,from,to,limit,offset`; `{rows,total,limit,offset}` |
 | POST | `/api/programs` | `vessel.submit` / `vessel.command` | Create/update/assign/release/void/start/complete actions |
 | GET | `/api/programs/{id}` | `vessel.read` | Program detail |
 | GET | `/api/vessel` | `vessel.read` | Vessel register alias; same filters as `/api/programs` |
@@ -677,26 +677,449 @@ not enabled in production).
 
 ## 13. Responsive Behaviour
 
-The app uses a custom CSS shell plus Tailwind/shadcn components.
+Measured from `app/standalone.css`, `app/globals.css`, the shadcn sheet
+component and the table components. These are real CSS values, not estimates.
 
-| Range | Behaviour |
+### 13.1 Exact dimensions
+
+| Item | Exact value | Source |
+|---|---|---|
+| Authenticated page shell | `100vw` fluid grid: `240px + minmax(0, 1fr)` | `.wx-workspace` |
+| Authenticated content max-width | **1400px** | `.wx-workspace__content { max-width: 1400px }` |
+| Authenticated content padding (desktop) | `22px 26px 40px` | `.wx-workspace__content` |
+| Legacy page container max-width | **1680px** | `.workspace { max-width: 1680px }` |
+| Navigation sidebar expanded | **240px** | `--wx-sidebar-expanded: 240px` |
+| Navigation sidebar collapsed | **72px** | `--wx-sidebar-collapsed: 72px` |
+| Detail sidebar (Cash/Vessel) | **480px** at `sm` and above; full width below 640px | `sm:max-w-[480px]` in `DetailSidebar` |
+| Cash live table scroll width | **1080px** | inline `minWidth: 1080` |
+| Vessel register table scroll width | **1120px** | inline `minWidth: 1120` |
+| Employee Cash history table | **980px** | inline `minWidth: 980` |
+| Message Intelligence table | **2200px** | inline `minWidth: 2200` |
+| Shared cash-payment table minimum | **1050px** | `.cash-payment-table` |
+| Legacy program table minimum | **1190px** | `.program-table` |
+| Cash search input | `min-width: 260px`, `max-width: 380px` | Cash table |
+| Vessel search input | `min-width: 260px`, `max-width: 420px` | Vessel table |
+
+The desktop shell is fluid rather than a fixed page width; the content itself
+is capped at 1400px (authenticated) or 1680px (legacy pages). On narrower
+screens the content width follows the viewport.
+
+### 13.2 Breakpoints
+
+| Width | Behaviour |
 |---|---|
-| **>1250px** | Full desktop: 240px expanded sidebar, multi-column filters, wide tables |
-| **1100–1250px** | Compact filters, reduced card padding, table columns still visible |
-| **900–1100px** | Sidebar still visible but filters/tables compress; some grids stack |
-| **≤900px** | Sidebar becomes an off-canvas drawer with hamburger/overlay; tables use horizontal scroll |
-| **≤750/700/650px** | Multi-column forms/cards stack; dialogs/sidebars become full-width |
-| **≤600px** | Mobile paddings, single-column forms, reduced type sizes, horizontal table scroll |
+| **>1250px** | Full desktop: 240px sidebar, multi-column filters, wide tables |
+| **1100–1250px** | Compact filter grids and card padding (`@media max-width:1250px`) |
+| **900–1100px** | Tablet compression; filter/card grids narrow (`@media max-width:1100px`) |
+| **≤900px** | Sidebar becomes an off-canvas drawer with hamburger/overlay; shell becomes one column; content padding `16px 14px 28px`; tables scroll horizontally |
+| **≤820px** | Additional standalone-table/panel compression |
+| **750–820px** | Dialogs/forms tighten; some grids collapse |
+| **700–750px** | Form grids become single-column; dialogs full-width |
+| **600–700px** | Mobile card padding and typography reduce; search/filter controls wrap |
+| **≤600px** | Mobile layout: content padding `14px 12px 24px`, single-column forms, 70px mobile masthead, sticky mobile nav bar, tables horizontal scroll |
+| **≤520px** | Narrow-phone spacing and control sizing |
 
-Container: legacy `.workspace` max-width **1680px**; the authenticated shell uses
-a 240px/72px sidebar grid and fluid content. Wide tables are wrapped in
-horizontal-scroll containers (`cash-table-scroll`, `overflowX:auto`) and keep
-the header visible. The sidebars are 480px on desktop (`sm:max-w-[480px]`) and
-full width on mobile; Escape/backdrop/X closes them.
+Tailwind/shadcn components additionally use the standard `sm` breakpoint
+(640px) for the detail sidebar width and grid changes.
 
----
+### 13.3 Tables and sidebars
 
-## 14. Configuration and Feature Flags
+- Wide tables are wrapped in `overflow-x:auto` containers and keep the table's
+  explicit minimum width listed above.
+- Cash/Vessel sidebars are 480px on desktop, full-width under 640px, scroll
+  their body, keep a fixed footer, and close on Escape, backdrop click or X.
+- The navigation sidebar uses the collapsed/expanded 240px/72px variables.
+- On mobile the navigation is a drawer; the detail sidebar overlays the page.
+
+## 14. UI/UX Improvement Roadmap
+
+Priorities: **P1** = highest value / usability or data-safety issue; **P2** =
+meaningful workflow improvement; **P3** = polish. Effort: small (≤1 day),
+medium (2–5 days), large (1–2 weeks).
+
+### 14.1 `/dashboard`
+
+**Strengths:** single overview; vessel pipeline counts; review counts;
+recent activity; quick actions.
+
+**Pain points:** cards are mostly static totals with no trend/date range;
+counts do not always link to the precise filtered view; the page does not show
+which orders are awaiting confirmation.
+
+| Priority | Improvement | Effort |
+|---|---|---|
+| P1 | Make every pipeline/review count link to the exact filtered `/vessel`, `/cash`, or `/review` query | Small |
+| P1 | Show the oldest DRAFT awaiting confirmation and the oldest confirmed-open program | Small |
+| P2 | Add 7/30/90-day trend sparklines for paid amount and new orders | Medium |
+| P2 | Add a compact “needs attention” list with direct sidebar actions | Medium |
+| P3 | Configurable dashboard cards per role | Large |
+
+### 14.2 `/vessel` (Vessel Register)
+
+**Strengths:** legacy-aligned columns; Master/Escort sub-lines; state badges;
+search/state filter/pagination; three-dot sidebar; live polling.
+
+**Pain points:** no Mother-Vessel facet or saved filters; no CSV/print; no
+column visibility; the long review sections below the table can bury the
+register; DRAFT vs ASSIGNED is easy to confuse.
+
+| Priority | Improvement | Effort |
+|---|---|---|
+| P1 | Add CSV/print export for the current filtered register | Small |
+| P1 | Add a Mother Vessel facet and a “DRAFT only / awaiting confirmation” quick filter | Small |
+| P2 | Add column visibility and sticky first columns on wide screens | Medium |
+| P2 | Move the review/evidence sections behind tabs so the register stays primary | Medium |
+| P3 | Bulk selection for assignment/release with a single confirmation step | Large |
+
+### 14.3 `/vessel/{id}` (Program detail)
+
+**Strengths:** full program info, order/confirmation/release provenance,
+lifecycle timeline, duplicate warning, Mother-Vessel history, sidebar editing.
+
+**Pain points:** very long page; history table duplicates the register table;
+provenance text is not copyable/exportable; no sticky summary; no quick anchor
+navigation.
+
+| Priority | Improvement | Effort |
+|---|---|---|
+| P1 | Add sticky summary/anchor nav (Program, Provenance, History, Events) | Small |
+| P1 | Add “copy confirmation/release text” and print/export program record | Small |
+| P2 | Collapse technical provenance by default; expand on demand | Small |
+| P2 | Make the history table the single source and remove duplicated program rows | Medium |
+| P3 | Side-by-side confirmation vs release evidence diff | Medium |
+
+### 14.4 `/vessel/drafts`
+
+**Strengths:** clear DRAFT assignment; escort dropdown; duplicate links;
+client-assignment review separation; delivery status/gate.
+
+**Pain points:** delivery-status block dominates the page; draft cards and
+DRAFT table duplicate the same programs; no bulk copy/assignment; no clear
+“next action” per draft.
+
+| Priority | Improvement | Effort |
+|---|---|---|
+| P1 | Put “Assign” and “Copy draft” on each DRAFT row; make the table primary | Small |
+| P1 | Collapse delivery status/gate into a summary with an expandable detail | Small |
+| P2 | Bulk select drafts and copy/assign in one pass | Medium |
+| P2 | Show a prerequisite checklist per draft (escort, date, confirmation link) | Medium |
+| P3 | Draft delivery queue filters and retry actions | Medium |
+
+### 14.5 `/cash`
+
+**Strengths:** summary cards; exact 8-column live table; search/pagination;
+correction/reversal sidebar; retained instruction workflow; review candidates
+hidden from this page.
+
+**Pain points:** two tables (live transactions and instruction workflow) can
+look duplicative; instruction workflow is far below the fold; no state filter
+on the live table; correction/reversal forms require opening the sidebar;
+no CSV export of the live table.
+
+| Priority | Improvement | Effort |
+|---|---|---|
+| P1 | Add a state filter (All/REVIEW/POSTED/REVERSED/corrected) to the live table | Small |
+| P1 | Add CSV export of the current filtered live table | Small |
+| P2 | Collapse the instruction workflow into a secondary tab/section | Medium |
+| P2 | Add inline “Correct/Reverse” shortcuts for POSTED rows | Medium |
+| P3 | Saved filter views and date presets | Medium |
+
+### 14.6 `/cash/employee/{employeeId}`
+
+**Strengths:** clear employee header; total payouts/paid; date/amount filters;
+history with sidebar; polling.
+
+**Pain points:** no print/statement export; no running balance column; amount
+inputs are in BDT while backend uses paisa (easy to mistype); no quick date
+presets.
+
+| Priority | Improvement | Effort |
+|---|---|---|
+| P1 | Add “Print statement” and CSV export | Small |
+| P1 | Add 7/30/90-day and “this month” date presets | Small |
+| P2 | Add running effective balance after each payout | Medium |
+| P2 | Show correction/reversal history inline on the affected row | Medium |
+| P3 | Shareable statement link with expiry | Large |
+
+### 14.7 `/messages` (WhatsApp Message Intelligence)
+
+**Strengths:** complete identity/contact/media/call/business columns; column
+control; source-role filter; row detail review; call panel; Dhaka event time.
+
+**Pain points:** 60+ columns can overwhelm; filters are numerous and not
+grouped; call trace is conversation-level only; no saved column presets; large
+result sets need clearer account/chat context.
+
+| Priority | Improvement | Effort |
+|---|---|---|
+| P1 | Add saved column presets (Identity, Operations, Media, Calls, Review) | Small |
+| P1 | Group filters into collapsible “Conversation / Identity / Media / Business” sections | Small |
+| P2 | Add a conversation drilldown (chat summary → messages → calls) | Medium |
+| P2 | Add CSV export of the current filtered view | Medium |
+| P3 | Link media status rows directly to a preview/download drawer | Medium |
+
+### 14.8 `/review` (Review Queue)
+
+**Strengths:** single queue for Cash/Vessel/Employee; source evidence; duplicate
+comparison; audit history; role-aware actions.
+
+**Pain points:** one-item-at-a-time triage; no bulk approval/rejection; long
+forms; no age/SLA indicator; category filters can be slow to scan.
+
+| Priority | Improvement | Effort |
+|---|---|---|
+| P1 | Add multi-select and bulk reject with one mandatory reason | Medium |
+| P1 | Show item age and oldest-first default | Small |
+| P2 | Add keyboard shortcuts (next/approve/reject) | Medium |
+| P2 | Sticky decision bar while scrolling evidence | Small |
+| P3 | SLA/escalation badges and reviewer assignment | Large |
+
+## 15. Form Field Reference
+
+All list-page `<form method="get">` controls are filters, documented with their
+pages in Section 8; they never mutate data. The forms below are the mutation
+forms. Validation is shown from the UI plus the server-side rules that enforce
+it. Submit uses `X-CSRF-Token` from `GET /api/auth/session` for every mutation.
+
+### 15.1 New Program — `/vessel` right sidebar
+
+| Field | Type | Required | Validation / default | Data source |
+|---|---|---|---|---|
+| `motherVessel` | text + datalist | Yes | Non-empty, max 120; datalist from existing non-voided mothers; default blank or fixed mother on history page | `programs.mother_vessel` / `motherRows` |
+| `lighterName` | text | Yes | Non-empty, max 120 | User input |
+| `masterName` | text | No | Optional, max 150 | User input |
+| `masterMobile` | tel/text | No | If supplied, server normalizes to `01XXXXXXXXX` / `+8801XXXXXXXXX`; invalid rejected | User input |
+| `startDate` | date | Yes | ISO date; duplicate ±1-day Mother+Lighter check | User input |
+| `startShift` | select | Yes | `D` or `N`; default `D` | Fixed options |
+| `escortMobile` | select | No | Active employee mobile; default “No escort yet” | `GET`-loaded employee list (`listEmployees({state:'ACTIVE'})`) |
+| `notes` | textarea | No | Max 2000 | User input |
+
+**Submit:** `POST /api/vessel` with `source_type=MANUAL`; creates DRAFT (or
+ASSIGNED if an escort is selected), audit `VESSEL:MANUAL_PROGRAM_CREATED`;
+success toast and table refresh. Duplicate/invalid → red toast, form remains.
+**Cancel:** closes the sidebar; no request. **Close X/Escape/backdrop:** same.
+
+### 15.2 Edit Program — `/vessel` or `/vessel/{id}` sidebar
+
+| Field | Type | Required | Validation / default | Data source |
+|---|---|---|---|---|
+| `masterName` | text | No | Optional, max 150; default current | Program detail |
+| `masterMobile` | text | No | Optional; normalized; default current | Program detail |
+| `escortName` | text | No | Optional, max 150; only sent with `escortMobile` | Program detail |
+| `escortMobile` | text | No | If set, assigns/replaces escort; default current | Program detail |
+| `startDate` | date | No | ISO date; default current | Program detail |
+| `startShift` | select | No | `D`/`N`; default current | Fixed options |
+| `endDate` | date | No | If set, runs release; must be ≥ start date | Program detail |
+| `endShift` | select | No | Blank, `D`, `N`; required by server if `endDate` set | Fixed options |
+| `notes` | textarea | No | Max 2000; default current | Program detail |
+
+Mother Vessel and Lighter Vessel are intentionally read-only here.
+**Submit:** `PATCH /api/vessel/{id}`; updates fields, assigns escort and/or
+releases according to supplied values; audit `VESSEL:PROGRAM_UPDATED`; success
+toast and detail refresh. Invalid/forbidden → red toast.
+**Cancel:** exits edit mode and discards unsaved values; sidebar stays open.
+
+### 15.3 Escort Assignment — `/vessel/drafts`
+
+| Field | Type | Required | Validation / default | Data source |
+|---|---|---|---|---|
+| `programId` | select | Yes | Must be a DRAFT program; label `Mother → Lighter · Start Shift` | `listPrograms({state:'DRAFT'})` |
+| `employeeMobile` | select | Yes | Must be an active employee | `listEmployees({state:'ACTIVE'})` |
+| `employeeName` | text | No | Optional override; max 150 | User input |
+| `startDate` | date | No | ISO date; defaults to current program start on server | User input |
+| `startShift` | select | No | `D`/`N` | Fixed options |
+
+**Submit:** `POST /api/programs` with `action: assign`; sets the program to
+ASSIGNED and records the assignment; `ActionForm` shows “Saved” and refreshes.
+**Cancel:** no cancel button; the form resets only after a successful submit.
+
+### 15.4 Create Correction — `/cash` sidebar, POSTED rows only
+
+| Field | Type | Required | Validation / default | Data source |
+|---|---|---|---|---|
+| Corrected Amount | number | Yes | `> 0`, 2 decimals; converted to integer paisa; default original/effective amount | Selected transaction |
+| Reason | textarea | Yes | 10–500 characters | User input |
+
+**Submit:** `POST /api/cash/transactions/{id}/correct`; original stays
+POSTED/unchanged; appends `cash_transaction_adjustments`, contra ledger entry,
+audit `CASH:CORRECTION`; success toast; sidebar shows effective amount.
+**Cancel:** exits correction mode; no request. **Close:** closes sidebar.
+
+### 15.5 Reverse & Re-post — `/cash` sidebar, POSTED rows only
+
+| Field | Type | Required | Validation / default | Data source |
+|---|---|---|---|---|
+| New Amount | number | Yes | `> 0`, 2 decimals; converted to paisa; default original | Selected transaction |
+| Method | select | Yes | `bkash`, `nagad`, `rocket`, `bank`, `cash`; default original | Fixed options |
+| Notes | textarea | No | Max 500; default original notes | Selected transaction |
+| Reason | textarea | Yes | 10–500 characters | User input |
+
+**Submit:** `POST /api/cash/transactions/{id}/reverse`; original becomes
+REVERSED; a new POSTED instruction/posting is created with `reversal_of`;
+contra and replacement ledger entries; audit `CASH:REVERSAL`; success toast.
+**Cancel:** exits reversal mode; no request.
+
+### 15.6 Edit Transaction — `/cash` sidebar, REVIEW/APPROVED only
+
+| Field | Type | Required | Validation / default | Data source |
+|---|---|---|---|---|
+| `designation` | text | No | Max 100; saved on the employee registry; default current | Transaction/employee |
+| `amount` | number | Yes | `> 0`, 2 decimals; blocked on POSTED/REVERSED or if a paid event exists; default current | Transaction |
+| `notes` | textarea | No | Max 500; stored in `cash_instructions.purpose`; default current | Transaction |
+
+**Submit:** `PATCH /api/cash/transactions/{id}`; success toast and row update.
+POSTED/REVERSED amount → 409 `POSTED_FINANCIAL_FIELDS_LOCKED`.
+**Cancel:** exits edit mode; no request.
+
+### 15.7 New payment instruction — `/cash`
+
+| Field | Type | Required | Validation / default | Data source |
+|---|---|---|---|---|
+| `employeeName` | text + typeahead | Yes | Must resolve to an employee name; default blank | Employee lookup |
+| `employeeMobile` | text | No | Normalized mobile | Employee lookup or input |
+| `payoutMobile` | text | No | Normalized mobile; defaults to employee mobile | User input |
+| `method` | select | Yes | `bkash` default; `nagad`, `rocket`, `bank`, `cash` | Fixed options |
+| `amount` | number | Yes | `> 0`, 2 decimals, BDT | User input |
+| `accountId` | select | No | Default first active account | `cash_accounts` |
+| `purpose` | text | No | Max 500 | User input |
+
+**Submit:** `POST /api/finance` `action=instruction.create`; creates a REVIEW
+instruction; clears amount/purpose; refreshes page; inline error on failure.
+**Cancel:** none; form is always visible inside the collapsible panel.
+
+### 15.8 Record income / expense — `/cash`
+
+Fields: `accountId` (select, required, active accounts), `entryDate` (date,
+required, default today), `direction` (select, CREDIT/DEBIT), `amount` (text,
+required, BDT), `category` (text, required, max 60), `description` (text,
+optional, max 500).
+**Submit:** `POST /api/finance` `action=ledger.create`; success “Saved” and
+refresh; error inline. **Cancel:** none.
+
+### 15.9 Assign paying account — `/cash`
+
+Fields: `id` (instruction id, required), `accountId` (select, required, active
+accounts). **Submit:** `POST /api/finance` `action=instruction.account`; only
+REVIEW instructions; success refresh. **Cancel:** none.
+
+### 15.10 Instruction workflow actions — `/cash`
+
+Approve (no fields), Reject (`reason` required), Post (no fields), Reverse
+(`reason` required). Each calls `POST /api/finance` with the corresponding
+action. Buttons appear only for the matching state and capability.
+
+### 15.11 Staff submission — `/cash`
+
+Fields: `employeeName` (required), `method` (select: bKash, Nagad, Bank, Cash),
+`amountMinor` (number, paisa, required). **Submit:** `POST /api/finance`
+`action=submission.submit`; creates PENDING_REVIEW. **Cancel:** none.
+
+### 15.12 Start / close reconciliation — `/cash`
+
+Start: `accountId` (select, required), `periodStart` (date, required, default
+month start), `periodEnd` (date, required, default today), `countedBalance`
+(text, required, BDT), `note` (text, optional). **Submit:**
+`POST /api/finance` `action=reconciliation.create`.
+Close: `id` (required), `note` (textarea, required only for non-zero variance).
+**Submit:** `action=reconciliation.close`; no automatic adjustment is posted.
+
+### 15.13 Vessel detail actions — `/vessel/{id}`
+
+- **Replace/assign escort:** `employeeMobile` (required, mobile), `employeeName`
+  (optional), `startDate` (date), `startShift` (D/N), `replace` (yes/no).
+  `POST /api/programs` `action=assign`.
+- **Mark in duty:** no fields; `action=start`.
+- **Record release:** `endDate` (date, required), `endShift` (D/N), `note`
+  (textarea). `action=release`.
+- **Complete program:** no fields; `action=complete`.
+- **Void program:** `reason` (required); `action=void`.
+All success paths show “Saved” and refresh; invalid state/capability returns an
+inline error.
+
+### 15.14 Message identity / domain review — `/messages` row detail
+
+Fields: `identityRole` (select from `OWNER, ADMIN, ACCOUNTANT, ESCORT_CLIENT,
+ESCORT, EMPLOYEE, SUPPLIER, CUSTOMER, UNKNOWN`), `businessDomain` (select from
+`CASH, VESSEL, SECURITY, HR, PAYROLL, OPERATIONS, PERSONAL, GENERAL, UNKNOWN`),
+`reviewStatus` (`UNREVIEWED, CONFIRMED, CORRECTED, REJECTED`), `notes`
+(textarea). Defaults from the message. Hidden: account/chat/message id.
+**Submit:** `POST /api/messages` `action=classify`; audited; row update.
+**Cancel:** none; panel/row closes via its own control.
+
+### 15.15 Review actions — `/review/{id}`
+
+- Approve: no fields; `POST /api/review` `action=decide`, `decision=APPROVED`.
+- Reject: `reason` required; `decision=REJECTED`.
+- Mark duplicate: `reason` required with `DUPLICATE_OF:` prefix;
+  `decision=REJECTED`.
+- Correct supported fields: dynamic fields per review domain; `action=correct`;
+  stays pending.
+- Withdraw: no fields; `action=withdraw`.
+Decisions are final and audited.
+
+### 15.16 Employee forms — `/employees`, `/employees/{mobile}`
+
+Add employee: `employeeMobile` (required, normalized mobile), `preferredName`
+(required), `dutyType` (select: escort/employee/other as configured),
+`designation` (optional), `joinedOn` (date, optional), `notes` (textarea).
+`POST /api/employees` `action=create`.
+Edit employee: `preferredName`, `designation`, `state`
+(ACTIVE/INACTIVE/SUSPENDED), `notes`; `PATCH /api/employees`.
+Attendance from employee detail: `dutyDate` (required), `shift` (D/N), `state`
+(PRESENT/ABSENT/LEAVE), `hours` (number), `reason` (required only when
+changing an existing day).
+
+### 15.17 Attendance form — `/attendance`
+
+`employeeMobile` (select, required), `dutyDate` (date, required), `shift`
+(D/N), `state` (PRESENT/ABSENT/LEAVE), `hours` (number), `reason` (required only
+for an existing day correction). `POST /api/attendance`.
+Delete attendance uses `DELETE /api/attendance` with the employee/date identity.
+
+### 15.18 Payroll rate form — `/payroll`
+
+`destinationKey` (required), `destinationLabel` (required), `shiftRateMinor`
+(number, paisa, required), `conveyanceMinor` (number, paisa, optional),
+`effectiveFrom` (date, optional). `POST /api/payroll`; success refresh.
+
+### 15.19 Settings forms — `/settings`
+
+- Create account: `code` (required), `name` (required), `type` (select),
+  `currency` (default BDT), `openingBalanceMinor` (number). `POST /api/finance`
+  `action=account.create`.
+- Configure WhatsApp account: `id` (required), `label` (required), `socketPath`,
+  `tokenFile`, `accountJid`, `adminJids`, `chatJid`, `purpose`
+  (ORDERS/CASH/BOTH). `POST /api/whatsapp`.
+- Test connection / sync / process staged: `accountId` where applicable;
+  `POST /api/whatsapp` `health|sync|process`.
+- Change password: `newPassword` (min 8), `confirmPassword` (min 8, must match).
+  `POST /api/auth/password`.
+- Create user: `username` (required), `displayName`, `role` (ADMIN/USER),
+  `password` (min 8, required). `POST /api/users`.
+- Update user: `user` (required), `displayName`, `role`, `active`.
+- Reset user password: `user` (required), `password` (min 8).
+
+### 15.20 Business Paid correction/reversal — `/cash/paid/{id}`
+
+Correction: `amountMinor` (number, paisa, required), `employeeName` (optional),
+`method` (select), `reason` (textarea, required). `POST /api/finance`
+`action=business-paid.correct`.
+Reversal: `reason` (textarea, required). `action=business-paid.reverse`.
+These operate on Business Paid Event chains; they do not edit financial
+postings directly.
+
+### 15.21 Login — `/login`
+
+`username` (required), `password` (required). `POST /api/auth/login`; session
+cookie and CSRF on success; error shown without revealing which field failed.
+
+### 15.22 AI assistant — `/assistant`
+
+Prompt/query input (required non-empty), optional conversation context. Submits
+to `POST /api/assistant`; authorized tools only; response/stream rendered in the
+console. No business mutation is performed by the assistant UI.
+
+## 16. Configuration and Feature Flags
 
 Read from production containers and `compose.phase3.yaml`:
 
@@ -722,7 +1145,7 @@ approval and one-message verification.
 
 ---
 
-## 15. Deployment, Backup and Rollback
+## 17. Deployment, Backup and Rollback
 
 ### Current production images
 
@@ -731,7 +1154,7 @@ approval and one-message verification.
 | app | `local/al-rifai-platform:phase3-cash-corr-prod-5d780b1` | `sha256:6b60ddc6d7d1bab616296fdb8b1276c4e153bc6b3ddb4bc6f08b9e5ad58e9bf2` |
 | sync | `local/al-rifai-platform:phase3-cash-corr-prod-5d780b1` | same |
 
-Image tag pattern: `phase3-<feature>-prod-<short-sha>` (older releases:
+Image tags use the pattern `phase3-` plus the feature name plus `-prod-` plus the short commit SHA. Current tag: `phase3-cash-corr-prod-5d780b1` (older releases:
 `phase3-overhaul-prod-54d2ebd`, `phase3-cash-prod-771ea18`, etc.).
 
 ### Backup pattern
@@ -739,9 +1162,9 @@ Image tag pattern: `phase3-<feature>-prod-<short-sha>` (older releases:
 Full logical backups are written outside the repository:
 
 ```
-/opt/al-rifai-backups/<database>_<UTC timestamp>.sql.gz
-/opt/al-rifai-backups/<database>_<UTC timestamp>.pre-<migration>.sql.gz
-/opt/al-rifai-backups/deployment-<sha>.txt
+/opt/al-rifai-backups/alrifai_v2_phase3_20261108T204543Z.sql.gz
+/opt/al-rifai-backups/alrifai_v2_phase3_20261108T230530Z.pre-015.sql.gz
+/opt/al-rifai-backups/deployment-8825b7f.txt
 ```
 
 Backups are `chmod 600`; use `pg_dump --no-owner --no-privileges | gzip -9`.
@@ -752,10 +1175,10 @@ Never commit dumps, `.env` files or media.
 ```bash
 cd /opt/al-rifai-phase3-activation
 git checkout main && git pull
-docker build -t local/al-rifai-platform:phase3-<name>-prod-<sha> .
+docker build -t local/al-rifai-platform:phase3-cash-corr-prod-5d780b1 .
 
 cd /opt/al-rifai-platform
-ALRIFAI_TAG=phase3-<name>-prod-<sha> \
+ALRIFAI_TAG=phase3-cash-corr-prod-5d780b1 \
 ALRIFAI_VESSEL_PROCESSING_ENABLED=1 \
 PHASE3_ROUTER_WORKER_ENABLED=1 \
   docker compose -p al-rifai-phase3 \
@@ -790,7 +1213,7 @@ explicit `--allow-checksum-change` review.
 
 ---
 
-## 16. Verification Commands
+## 18. Verification Commands
 
 Always use a disposable database for integration tests:
 
@@ -827,7 +1250,7 @@ Current production evidence: health `200`, schema `1.10.0`, app/sync healthy,
 
 ---
 
-## 17. Troubleshooting
+## 19. Troubleshooting
 
 | Symptom | Check |
 |---|---|
@@ -848,7 +1271,7 @@ Current production evidence: health `200`, schema `1.10.0`, app/sync healthy,
 
 ---
 
-## 18. Known Limitations and Deferred Work
+## 20. Known Limitations and Deferred Work
 
 - **OCR is not implemented.** Release slips are parsed from text only. Image
   release slips go to review; no OCR dependency or OCR columns exist.
@@ -871,7 +1294,7 @@ Current production evidence: health `200`, schema `1.10.0`, app/sync healthy,
 
 ---
 
-## 19. Key Data Contracts
+## 21. Key Data Contracts
 
 ### Message identity
 
@@ -904,7 +1327,7 @@ source and source ref. Critical actions include `PROGRAM_CONFIRMED`,
 
 ---
 
-## 20. Change History (recent releases)
+## 22. Change History (recent releases)
 
 | Version | Commit | Summary |
 |---|---|---|
@@ -919,7 +1342,7 @@ source and source ref. Critical actions include `PROGRAM_CONFIRMED`,
 
 ---
 
-## 21. Safety Rules for Developers
+## 23. Safety Rules for Developers
 
 1. Never run migrations, deployments, WhatsApp sends or production writes
    without explicit Owner approval.
