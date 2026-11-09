@@ -3,6 +3,8 @@ import {listCashReviewCandidates, listReviewQueue, reviewQueueCounts} from '@/li
 import {ReviewFilters} from '@/components/standalone/review-filters';
 import {ActionForm} from '@/components/standalone/action-form';
 import {ReviewQueueTables} from '@/components/standalone/review-queue-tables';
+import {MessageReviewActions} from '@/components/standalone/message-review-actions';
+import {listMessageReviewQueue} from '@/lib/standalone/message-review-queue';
 import {RealtimeRefresher} from '@/components/standalone/realtime-refresher';
 
 export const dynamic = 'force-dynamic';
@@ -24,12 +26,13 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
   const q = params.q ?? '';
   const mine = params.mine === '1';
 
-  const [rows, cashCandidates, counts] = await Promise.all([
+  const [rows, cashCandidates, counts, vesselQueue] = await Promise.all([
     listReviewQueue({state, domain, category, q, mine, actor: user as never}),
     domain === 'ALL' || domain === 'CASH'
       ? listCashReviewCandidates({state: state === 'PENDING' ? 'PENDING_REVIEW' : state, q, mine, actor: user as never})
       : Promise.resolve([]),
     reviewQueueCounts(),
+    listMessageReviewQueue({state: state === 'PENDING' ? 'PENDING' : state, limit: 100}),
   ]);
 
   return (
@@ -90,6 +93,34 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
           payload: candidate.payload,
         }))}
       />
+
+      <section className="card" style={{marginBottom: 18}}>
+        <div className="page-head" style={{marginBottom: 8}}>
+          <div><h3>Vessel Queue ({vesselQueue.length} pending)</h3></div>
+          <span className="muted">Raw messages from the Phase 2 message_review_queue: confirmations, release gaps and client issues.</span>
+        </div>
+        {vesselQueue.length ? (
+          <div style={{overflowX: 'auto'}}>
+            <table>
+              <thead><tr><th>Source</th><th>Reason</th><th>Workflow</th><th>Message</th><th>Actions</th></tr></thead>
+              <tbody>
+                {vesselQueue.map((item) => (
+                  <tr key={item.id}>
+                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>
+                      {item.sender_display_name ?? item.sender_jid}<br />
+                      <span className="muted">{item.source_chat_jid}</span>
+                    </td>
+                    <td><span className="pill warn">{item.confusion_reason}</span></td>
+                    <td>{item.suggested_workflow ?? '—'}</td>
+                    <td style={{maxWidth: 420, whiteSpace: 'pre-wrap'}}>{item.message_text.slice(0, 500)}</td>
+                    <td><MessageReviewActions id={item.id} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <p className="muted">No vessel queue items are pending.</p>}
+      </section>
 
       <section className="card">
         <h3>How this queue works</h3>

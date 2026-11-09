@@ -15,7 +15,7 @@ import {useRealtimeUpdates} from '@/hooks/use-realtime-updates';
 import {cleanEmployeeName} from '@/lib/display-name';
 import {dateDdMmYyyy, dhakaDateTime, type ExportColumn} from '@/lib/export-format';
 
-export type VesselRow = VesselProgram & {updated_at?: string | null; source_type?: string | null};
+export type VesselRow = VesselProgram & {updated_at?: string | null; source_type?: string | null; event_at?: string | null};
 
 export type MotherFacet = {name: string; count: number};
 
@@ -40,6 +40,13 @@ async function csrfToken(): Promise<string> {
   return body.csrf;
 }
 
+function eventDate(value: string | null | undefined) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString('en-GB', {timeZone: 'Asia/Dhaka'}).replaceAll('/', '-');
+}
+
 function shift(value: string | null | undefined, shiftValue: string | null | undefined) {
   return value ? `${value} · ${shiftValue ?? '—'}` : '—';
 }
@@ -60,12 +67,15 @@ function updateUrl(page: number, limit: number, q: string, state: string, mother
 }
 
 export function VesselRegisterClient({
-  initial, escorts, mothers: initialMothers, fixedMother, initialQ = '', initialState = '', initialMother = '',
+  initial, escorts, mothers: initialMothers, lighters: initialLighters, escortNames: initialEscortNames, escortMobiles: initialEscortMobiles, fixedMother, initialQ = '', initialState = '', initialMother = '',
   canCommand, canRelease, showNew = true,
 }: {
   initial: VesselPage;
   escorts: Array<{mobile: string; name: string}>;
   mothers: string[];
+  lighters: string[];
+  escortNames: string[];
+  escortMobiles: string[];
   fixedMother?: string;
   initialQ?: string;
   initialState?: string;
@@ -89,7 +99,7 @@ export function VesselRegisterClient({
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     motherVessel: fixedMother ?? '', lighterName: '', masterName: '', masterMobile: '',
-    startDate: '', startShift: 'D', escortMobile: '', notes: '',
+    startDate: '', startShift: 'D', escortName: '', escortMobile: '', notes: '',
   });
   const request = useRef(0);
   const current = useRef({page: initial.page, limit: initial.limit, q: initialQ, state: initialState, mother: fixedMother ?? initialMother});
@@ -175,7 +185,7 @@ export function VesselRegisterClient({
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
       toast.success('Program created.');
       setNewOpen(false);
-      setForm({motherVessel: fixedMother ?? '', lighterName: '', masterName: '', masterMobile: '', startDate: '', startShift: 'D', escortMobile: '', notes: ''});
+      setForm({motherVessel: fixedMother ?? '', lighterName: '', masterName: '', masterMobile: '', startDate: '', startShift: 'D', escortName: '', escortMobile: '', notes: ''});
       await load(1, limit, q, state, mother);
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'Create failed.', {duration: Infinity});
@@ -188,10 +198,11 @@ export function VesselRegisterClient({
   const offset = (data.page - 1) * data.limit;
   const exportRows: ExportRow[] = rows.map((row, index) => ({...row, sl: offset + index + 1}));
   const columns: ExportColumn<ExportRow>[] = [
-    {header: 'Sl', value: (row) => row.sl},
+    {header: 'Event Date', value: (row) => eventDate(row.event_at)},
     {header: 'Mother Vessel', value: (row) => row.mother_vessel},
     {header: 'Lighter Vessel', value: (row) => row.master_mobile ? `${row.lighter_vessel} (${row.master_mobile})` : row.lighter_vessel},
-    {header: 'Escort Name', value: (row) => row.escort_mobile ? `${cleanEmployeeName(row.escort_name)} (${row.escort_mobile})` : cleanEmployeeName(row.escort_name)},
+    {header: 'Escort Name', value: (row) => cleanEmployeeName(row.escort_name)},
+    {header: 'Escort Mobile', value: (row) => row.escort_mobile ?? ''},
     {header: 'Start', value: (row) => `${dateDdMmYyyy(row.start_date)} · ${row.start_shift}`},
     {header: 'End', value: (row) => row.end_date ? `${dateDdMmYyyy(row.end_date)} · ${row.end_shift ?? ''}` : ''},
     {header: 'Status', value: (row) => row.state},
@@ -291,13 +302,13 @@ export function VesselRegisterClient({
         <div style={{overflowX: 'auto'}}>
           <table className="cash-payment-table" style={{tableLayout: 'fixed', minWidth: 1120}}>
             <colgroup>
-              <col style={{width: 50}} /><col style={{width: 150}} /><col style={{width: 170}} />
-              <col style={{width: 180}} /><col style={{width: 120}} /><col style={{width: 120}} />
-              <col style={{width: 110}} /><col style={{width: 150}} /><col style={{width: 50}} />
+              <col style={{width: 100}} /><col style={{width: 150}} /><col style={{width: 170}} />
+              <col style={{width: 150}} /><col style={{width: 130}} /><col style={{width: 120}} /><col style={{width: 120}} />
+              <col style={{width: 110}} /><col style={{width: 130}} /><col style={{width: 50}} />
             </colgroup>
             <thead>
               <tr>
-                <th>Sl</th><th>Mother Vessel</th><th>Lighter Vessel</th><th>Escort Name</th>
+                <th>Event Date</th><th>Mother Vessel</th><th>Lighter Vessel</th><th>Escort Name</th><th>Escort Mobile</th>
                 <th>Start</th><th>End</th><th>Status</th><th>Updated</th><th><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
@@ -306,16 +317,14 @@ export function VesselRegisterClient({
                 <tr key={`sk-${index}`}><td>—</td><td colSpan={8}><span className="muted">Loading…</span></td></tr>
               )) : rows.map((program, index) => (
                 <tr key={program.id}>
-                  <td>{offset + index + 1}</td>
+                  <td>{eventDate(program.event_at)}</td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}} title={program.mother_vessel}>{program.mother_vessel}</td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>
                     <div>{program.lighter_vessel}</div>
                     <small className="muted">{program.master_mobile ?? '—'}</small>
                   </td>
-                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>
-                    <div>{cleanEmployeeName(program.escort_name)}</div>
-                    <small className="muted">{program.escort_mobile ?? '—'}</small>
-                  </td>
+                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{cleanEmployeeName(program.escort_name)}</td>
+                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{program.escort_mobile ?? '—'}</td>
                   <td>{shift(program.start_date, program.start_shift)}</td>
                   <td>{shift(program.end_date, program.end_shift)}</td>
                   <td><span className={`pill ${stateTone(program.state)}`}>{program.state}</span></td>
@@ -327,7 +336,7 @@ export function VesselRegisterClient({
                   </td>
                 </tr>
               ))}
-              {!loading && !rows.length ? <tr><td colSpan={9} className="muted">No programs match this filter.</td></tr> : null}
+              {!loading && !rows.length ? <tr><td colSpan={10} className="muted">No programs match this filter.</td></tr> : null}
             </tbody>
           </table>
         </div>
@@ -365,7 +374,10 @@ export function VesselRegisterClient({
             <Input list="vessel-mothers" value={form.motherVessel} onChange={(e) => setForm({...form, motherVessel: e.target.value})} required />
             <datalist id="vessel-mothers">{initialMothers.map((motherName) => <option key={motherName} value={motherName} />)}</datalist>
           </label>
-          <label className="text-sm">Lighter Name *<Input value={form.lighterName} onChange={(e) => setForm({...form, lighterName: e.target.value})} required /></label>
+          <label className="text-sm">Lighter Vessel *
+            <Input list="vessel-lighters" value={form.lighterName} onChange={(e) => setForm({...form, lighterName: e.target.value})} required />
+            <datalist id="vessel-lighters">{initialLighters.map((name) => <option key={name} value={name} />)}</datalist>
+          </label>
           <label className="text-sm">Master Name<Input value={form.masterName} onChange={(e) => setForm({...form, masterName: e.target.value})} /></label>
           <label className="text-sm">Master Mobile<Input value={form.masterMobile} onChange={(e) => setForm({...form, masterMobile: e.target.value})} inputMode="tel" /></label>
           <div className="flex gap-2">
@@ -374,11 +386,13 @@ export function VesselRegisterClient({
               <select value={form.startShift} onChange={(e) => setForm({...form, startShift: e.target.value})} className="h-9 w-full rounded-md border bg-background px-2 text-sm"><option value="D">Day (D)</option><option value="N">Night (N)</option></select>
             </label>
           </div>
-          <label className="text-sm">Escort (optional)
-            <select value={form.escortMobile} onChange={(e) => setForm({...form, escortMobile: e.target.value})} className="h-9 w-full rounded-md border bg-background px-2 text-sm">
-              <option value="">No escort yet</option>
-              {escorts.map((escort) => <option key={escort.mobile} value={escort.mobile}>{escort.name} · {escort.mobile}</option>)}
-            </select>
+          <label className="text-sm">Escort Name (optional)
+            <Input list="vessel-escort-names" value={form.escortName} onChange={(e) => setForm({...form, escortName: e.target.value})} />
+            <datalist id="vessel-escort-names">{initialEscortNames.map((name) => <option key={name} value={name} />)}</datalist>
+          </label>
+          <label className="text-sm">Escort Mobile (optional)
+            <Input list="vessel-escort-mobiles" value={form.escortMobile} onChange={(e) => setForm({...form, escortMobile: e.target.value})} inputMode="tel" />
+            <datalist id="vessel-escort-mobiles">{initialEscortMobiles.map((mobile) => <option key={mobile} value={mobile} />)}</datalist>
           </label>
           <label className="text-sm">Notes<Textarea rows={3} value={form.notes} onChange={(e) => setForm({...form, notes: e.target.value})} /></label>
           <p className="text-xs text-muted-foreground">Mother + Lighter + Start Date are required. Duplicate ±1-day Mother/Lighter programs are checked by the server.</p>

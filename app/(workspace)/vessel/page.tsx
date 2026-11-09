@@ -27,7 +27,7 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
   const q = (filters.q ?? '').trim();
   const state = filters.state ?? '';
   const mother = filters.mother ?? '';
-  const [initialPrograms, tableTotal, programs, vesselReviews, escorts, motherRows, motherCounts] = await Promise.all([
+  const [initialPrograms, tableTotal, programs, vesselReviews, escorts, motherRows, motherCounts, lighterRows, escortNameRows, escortMobileRows] = await Promise.all([
     listPrograms({q, state: state || undefined, mother: mother || undefined, limit: 20, offset: 0}),
     countPrograms({q, state: state || undefined, mother: mother || undefined}),
     listPrograms({q, state: state || undefined, mother: mother || undefined, limit: 200, offset: 0}),
@@ -35,6 +35,9 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
     listEmployees({state: 'ACTIVE', limit: 500}),
     rows<{mother_vessel: string}>('SELECT DISTINCT mother_vessel FROM programs WHERE state <> \'VOIDED\' ORDER BY mother_vessel'),
     motherFacets({q, state: state || undefined}),
+    rows<{lighter_vessel: string}>('SELECT DISTINCT lighter_vessel FROM programs WHERE state <> \'VOIDED\' ORDER BY lighter_vessel'),
+    rows<{escort_name: string}>('SELECT DISTINCT escort_name FROM programs WHERE escort_name IS NOT NULL ORDER BY escort_name'),
+    rows<{escort_mobile: string}>('SELECT DISTINCT escort_mobile FROM programs WHERE escort_mobile IS NOT NULL ORDER BY escort_mobile'),
   ]);
   const programSources = await listProgramSourcesForPrograms(programs.map((program) => program.id));
   const sourcesByProgram = new Map<string, typeof programSources>();
@@ -69,6 +72,9 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
         }}
         escorts={escorts.map((employee) => ({mobile: employee.employee_mobile, name: employee.preferred_name}))}
         mothers={motherRows.map((row) => row.mother_vessel)}
+        lighters={lighterRows.map((row) => row.lighter_vessel)}
+        escortNames={escortNameRows.map((row) => row.escort_name)}
+        escortMobiles={escortMobileRows.map((row) => row.escort_mobile)}
         initialQ={q}
         initialState={state}
         initialMother={mother}

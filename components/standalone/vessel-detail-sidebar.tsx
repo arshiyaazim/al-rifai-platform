@@ -13,7 +13,7 @@ export type VesselProgram = {
   id: string; mother_vessel: string; lighter_vessel: string; master_name?: string | null;
   master_mobile: string | null; escort_name: string | null; escort_mobile: string | null;
   start_date: string; start_shift: string; end_date: string | null; end_shift: string | null;
-  state: string; notes: string | null; created_at?: string; updated_at?: string;
+  state: string; notes: string | null; created_at?: string; updated_at?: string; event_at?: string | null;
   source_message_id?: string | null; source_chat_jid?: string | null;
   confirmation_message_id?: string | null; confirmation_chat_jid?: string | null;
   confirmation_sender_jid?: string | null; confirmation_account_id?: string | null;
@@ -158,6 +158,8 @@ export function VesselDetailSidebar({
               <dd>{editing ? <Input value={form.escortName} onChange={(e) => setForm({...form, escortName: e.target.value})} /> : cleanEmployeeName(program.escort_name)}</dd>
               <dt className="text-muted-foreground">Escort Mobile</dt>
               <dd>{editing ? <Input value={form.escortMobile} onChange={(e) => setForm({...form, escortMobile: e.target.value})} /> : dash(program.escort_mobile)}</dd>
+              <dt className="text-muted-foreground">Event Date</dt>
+              <dd>{program.event_at ? new Date(program.event_at).toLocaleDateString('en-GB', {timeZone: 'Asia/Dhaka'}).replaceAll('/', '-') : '—'}</dd>
               <dt className="text-muted-foreground">Start</dt>
               <dd>{editing ? (
                 <span className="flex gap-2"><Input type="date" value={form.startDate} onChange={(e) => setForm({...form, startDate: e.target.value})} />
