@@ -16,6 +16,7 @@ import {
 import {CONFIRMATION_RULE} from '@/lib/vessel-draft-delivery';
 import {vesselDraftWorkerStatus} from '@/lib/vessel-draft-delivery-worker';
 import {DraftInlineAssign} from '@/components/standalone/draft-inline-assign';
+import {RealtimeRefresher} from '@/components/standalone/realtime-refresher';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,6 +79,7 @@ export default async function VesselDraftsPage() {
           </p>
         </div>
         <div className="row-actions">
+          <RealtimeRefresher domain="VESSEL" label="Live drafts" />
           <Link href="/vessel">Vessel Register →</Link>
           <Link href="/review?domain=PROGRAM">Program review queue →</Link>
         </div>

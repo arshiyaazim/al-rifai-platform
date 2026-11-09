@@ -768,3 +768,32 @@ input, select, textarea, .pill, .vessel-facets button, .button-link,
 .wx-workspace__sidebar, .wx-workspace__nav-link {
   transition: background-color .2s ease, color .2s ease, border-color .2s ease;
 }
+
+/* Additional dark-mode surfaces used by legacy Cash/Vessel/Review panels. */
+[data-theme="dark"] .cash-lookup__menu,
+[data-theme="dark"] .cash-clear-filter,
+[data-theme="dark"] .source-body,
+[data-theme="dark"] .analysis-details,
+[data-theme="dark"] .import-preview,
+[data-theme="dark"] .file-upload,
+[data-theme="dark"] .review-explainer,
+[data-theme="dark"] .duplicate-head,
+[data-theme="dark"] .count-equation,
+[data-theme="dark"] .target,
+[data-theme="dark"] .reconcile-splits > div,
+[data-theme="dark"] .directory-summary,
+[data-theme="dark"] .inline-filters,
+[data-theme="dark"] .table-panel table th,
+[data-theme="dark"] .import-preview th {
+  background: #1e293b;
+  color: #f1f5f9;
+  border-color: #334155;
+}
+[data-theme="dark"] .cash-lookup__menu,
+[data-theme="dark"] .duplicate-card,
+[data-theme="dark"] .target,
+[data-theme="dark"] .count-equation { border-color: #334155; }
+[data-theme="dark"] .review-explainer strong { color: #e2e8f0; }
+[data-theme="dark"] .source-note,
+[data-theme="dark"] .coverage-note { color: #94a3b8; }
+[data-theme="dark"] .goal-stat { background: #0b1220; border-color: #334155; }

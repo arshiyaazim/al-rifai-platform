@@ -105,7 +105,12 @@ export async function listAuditEvents(filters: AuditFilters) {
 
   const total = Number(counted?.count ?? 0);
   const events: AuditEventView[] = eventRows.map((event) => {
-    const detail = event.detail ?? {};
+    const rawDetail = event.detail ?? {};
+    const serialized = JSON.stringify(rawDetail);
+    // Keep the viewer responsive: very large payloads are truncated at 10 KB.
+    const detail: Record<string, unknown> = serialized.length > 10_240
+      ? {truncated: true, preview: serialized.slice(0, 10_240)}
+      : rawDetail;
     return {
       id: event.id,
       timestamp: event.at,
