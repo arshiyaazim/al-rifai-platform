@@ -113,7 +113,7 @@ Two processes, one image:
 | `sync` | `al-rifai-phase3-sync-1` | `node scripts/sync-worker.mjs --mode=tail` |
 
 One image, no separate worker image:
-`local/al-rifai-platform:phase3-roadmap-prod-b6e7c0f`.
+`local/al-rifai-platform:phase3-roadmap-prod-109446c`.
 
 ---
 
@@ -124,14 +124,14 @@ One image, no separate worker image:
 | Item | Value |
 |---|---|
 | Branch merged | `feat/15-task-roadmap` → `release/v1.11.0` → `origin/main` |
-| Merge commit / main HEAD | `510f105` (release merge); docs commit is tagged `v1.11.0` |
+| Merge commit / main HEAD | `c998824` (release merge); docs commit is tagged `v1.11.0` |
 | Merge strategy | `--no-ff` merge commit, full history preserved |
 | Tag | **`v1.11.0`** (annotated) |
 | Feature branch | retained for reference; **not deleted** |
 | Merge status | pushed to `origin/main`; tag pushed |
 
-The production image was built from the code commit `b6e7c0f`; the merge
-commit contains the same code. Image tag: `phase3-roadmap-prod-b6e7c0f`.
+The production image was built from the code commit `109446c`; the merge
+commit contains the same code. Image tag: `phase3-roadmap-prod-109446c`.
 
 ### Last 10 commits on `main`
 
@@ -1166,7 +1166,7 @@ Read from production containers and `compose.phase3.yaml`:
 
 | Flag | Current | Meaning |
 |---|---|---|
-| `ALRIFAI_TAG` | `phase3-roadmap-prod-b6e7c0f` | Image tag |
+| `ALRIFAI_TAG` | `phase3-roadmap-prod-109446c` | Image tag |
 | `ALRIFAI_VESSEL_PROCESSING_ENABLED` | `1` | Vessel intake/release routing enabled |
 | `PHASE3_ROUTER_WORKER_ENABLED` | `1` | Live Router worker runs every 5s |
 | `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED` | `0` | Draft delivery worker disabled |
@@ -1192,10 +1192,10 @@ approval and one-message verification.
 
 | Service | Image | Digest |
 |---|---|---|
-| app | `local/al-rifai-platform:phase3-roadmap-prod-b6e7c0f` | `sha256:c03ea4b4f1cb433ca4ef53a4bfc902e8055451bf7776c35eec55c770aa343ac1` |
-| sync | `local/al-rifai-platform:phase3-roadmap-prod-b6e7c0f` | same |
+| app | `local/al-rifai-platform:phase3-roadmap-prod-109446c` | `sha256:1fe5f00f70202be681de7727ad32f998c0479224a1a906d25dd1fe401131a8bf` |
+| sync | `local/al-rifai-platform:phase3-roadmap-prod-109446c` | same |
 
-Image tags use the pattern `phase3-` plus the feature name plus `-prod-` plus the short commit SHA. Current tag: `phase3-roadmap-prod-b6e7c0f` (older releases:
+Image tags use the pattern `phase3-` plus the feature name plus `-prod-` plus the short commit SHA. Current tag: `phase3-roadmap-prod-109446c` (older releases:
 `phase3-cash-corr-prod-5d780b1`, `phase3-overhaul-prod-54d2ebd`, `phase3-cash-prod-771ea18`, etc.).
 
 ### Backup pattern
@@ -1216,10 +1216,10 @@ Never commit dumps, `.env` files or media.
 ```bash
 cd /opt/al-rifai-phase3-activation
 git checkout main && git pull
-docker build -t local/al-rifai-platform:phase3-roadmap-prod-b6e7c0f .
+docker build -t local/al-rifai-platform:phase3-roadmap-prod-109446c .
 
 cd /opt/al-rifai-platform
-ALRIFAI_TAG=phase3-roadmap-prod-b6e7c0f \
+ALRIFAI_TAG=phase3-roadmap-prod-109446c \
 ALRIFAI_VESSEL_PROCESSING_ENABLED=1 \
 PHASE3_ROUTER_WORKER_ENABLED=1 \
   docker compose -p al-rifai-phase3 \
@@ -1287,10 +1287,10 @@ docker logs --since 10m al-rifai-phase3-sync-1
 ```
 
 Current production evidence: health `200`, schema `1.11.0`, image
-`phase3-roadmap-prod-b6e7c0f`, app/sync healthy, 0 restarts, 0 error log lines
+`phase3-roadmap-prod-109446c`, app/sync healthy, 0 restarts, 0 error log lines
 after deployment. Backup:
 `/opt/al-rifai-backups/alrifai_v2_phase3_20261109T053432Z.pre-016.sql.gz`.
-Deployment record: `/opt/al-rifai-backups/deployment-b6e7c0f.txt`.
+Deployment record: `/opt/al-rifai-backups/deployment-109446c.txt`.
 
 ---
 
