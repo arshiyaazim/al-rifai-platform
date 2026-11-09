@@ -1,11 +1,14 @@
 import {listRates, monthlySalary, payrollSummary, programPayList} from '@/lib/standalone/payroll';
-import {money} from '@/lib/standalone/session';
+import {money, pageUser} from '@/lib/standalone/session';
+import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
 
 export const dynamic = 'force-dynamic';
 
 export default async function PayrollPage({searchParams}: {searchParams: Promise<{month?: string}>}) {
   const {month} = await searchParams;
+  const user = await pageUser();
+  const canManageRates = can(user as never, 'payroll.manage');
   const target = month && /^\d{4}-\d{2}$/.test(month) ? month : new Date().toISOString().slice(0, 7);
   const [summary, monthly, rates, programs] = await Promise.all([
     payrollSummary(), monthlySalary(target), listRates(), programPayList({}),
@@ -28,18 +31,20 @@ export default async function PayrollPage({searchParams}: {searchParams: Promise
         <div className="stat"><div className="label">{target} shifts</div><div className="value">{monthly.shifts}</div></div>
       </div>
 
-      <ActionForm
-        title="Configure a rate"
-        endpoint="/api/payroll"
-        submitLabel="Save rate"
-        fields={[
-          {name: 'destinationKey', label: 'Destination key', required: true, placeholder: 'default'},
-          {name: 'destinationLabel', label: 'Label', required: true, placeholder: 'Default (uniform)'},
-          {name: 'shiftRateMinor', label: 'Rate per shift (paisa)', type: 'number', required: true, placeholder: '20000'},
-          {name: 'conveyanceMinor', label: 'Conveyance (paisa)', type: 'number', placeholder: '0'},
-          {name: 'effectiveFrom', label: 'Effective from', type: 'date'},
-        ]}
-      />
+      {canManageRates ? (
+        <ActionForm
+          title="Configure a rate"
+          endpoint="/api/payroll"
+          submitLabel="Save rate"
+          fields={[
+            {name: 'destinationKey', label: 'Destination key', required: true, placeholder: 'default'},
+            {name: 'destinationLabel', label: 'Label', required: true, placeholder: 'Default (uniform)'},
+            {name: 'shiftRateMinor', label: 'Rate per shift (paisa)', type: 'number', required: true, placeholder: '20000'},
+            {name: 'conveyanceMinor', label: 'Conveyance (paisa)', type: 'number', placeholder: '0'},
+            {name: 'effectiveFrom', label: 'Effective from', type: 'date'},
+          ]}
+        />
+      ) : null}
 
       <div className="split">
         <section className="card">

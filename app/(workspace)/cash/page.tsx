@@ -1,13 +1,13 @@
 import Link from 'next/link';
-import {countInstructions, countLedger, listAccounts, listInstructions, listLedger, listReconciliations} from '@/lib/standalone/finance';
-import {cashDashboardSummary, currentMonthRange, previousMonthRange, shiftIsoDate} from '@/lib/standalone/cash-dashboard';
-import {listCashReviewCandidates} from '@/lib/standalone/review';
+import {cashTransactionView, countCashTransactions, countInstructions, countLedger, listAccounts, listCashTransactions, listInstructions, listLedger, listReconciliations} from '@/lib/standalone/finance';
+import {cashDashboardSummary, currentMonthRange, previousMonthRange, shiftIsoDate, paidEventsReportingEnabled} from '@/lib/standalone/cash-dashboard';
 import {rows} from '@/lib/standalone/db';
 import {money, pageUser, when} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
 import {CashPaymentForm} from '@/components/standalone/cash-payment-form';
-import {formatReviewAmount, formatReviewTimestamp, reviewCategoryLabel, reviewCategoryTone, reviewStateLabel, reviewStateTone} from '@/lib/review-ui';
+import {CashTransactionsTable} from '@/components/standalone/cash-transactions-table';
+import {formatReviewTimestamp} from '@/lib/review-ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,9 +36,15 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
   employeeName?: string; employeeMobile?: string; payoutMobile?: string; openPayment?: string;
 }>}) {
   const user = await pageUser();
+  const canSubmit = can(user as never, 'cash.submit');
   const canReview = can(user as never, 'cash.review');
+  const canPost = can(user as never, 'cash.post');
   const canReverse = can(user as never, 'cash.reverse');
+  const canLedger = can(user as never, 'cash.ledger');
   const canReconcile = can(user as never, 'cash.reconcile');
+  const canDecide = can(user as never, 'review.decide');
+  const paidBasis = paidEventsReportingEnabled();
+  const cashDetailPath = paidBasis ? '/cash/paid' : '/cash/transactions';
   const today = new Date().toISOString().slice(0, 10);
   const filters = await searchParams;
   const q = (filters.q ?? '').trim();
@@ -53,7 +59,8 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
   const ledgerPage = Math.max(1, Number(filters.ledgerPage) || 1);
   const pageSize = 100;
   const ledgerSize = 50;
-  const [accounts, instructions, instructionTotal, ledger, ledgerTotal, summary, submissions, cashCandidates, reconciliations] = await Promise.all([
+  const txLimit = 20;
+  const [accounts, instructions, instructionTotal, ledger, ledgerTotal, summary, submissions, reconciliations, txRows, txTotal] = await Promise.all([
     listAccounts(),
     listInstructions({q, state: state || undefined, limit: pageSize, offset: (page - 1) * pageSize}),
     countInstructions({q, state: state || undefined}),
@@ -63,16 +70,18 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
     rows<{id: string; state: string; submitted_by: string; created_at: string; instruction_id: string | null; display_name: string | null}>(
       'SELECT s.id, s.state, s.submitted_by, s.created_at, s.instruction_id, u.display_name FROM cash_submissions s LEFT JOIN cash_portal_users u ON u.id = s.submitted_by ORDER BY s.created_at DESC LIMIT 30',
     ),
-    listCashReviewCandidates({state: 'PENDING_REVIEW', limit: 50}),
     listReconciliations(25),
+    listCashTransactions({limit: txLimit, offset: 0}),
+    countCashTransactions(),
   ]);
+  const initialTransactions = txRows.map(cashTransactionView);
   const pending = instructions.filter((instruction) => (instruction as {state: string}).state === 'REVIEW').slice(0, 20);
   const instructionPages = Math.max(1, Math.ceil(instructionTotal / pageSize));
   const ledgerPages = Math.max(1, Math.ceil(ledgerTotal / ledgerSize));
   const monthRange = currentMonthRange(summary.asOfDate);
   const lastMonthRange = previousMonthRange(summary.asOfDate);
-  const rangeHref = (range: {from: string; to: string}) => `/cash/transactions?from=${range.from}&to=${range.to}`;
-  const dateHref = (date: string) => `/cash/transactions?date=${date}`;
+  const rangeHref = (range: {from: string; to: string}) => `${cashDetailPath}?from=${range.from}&to=${range.to}`;
+  const dateHref = (date: string) => `${cashDetailPath}?date=${date}`;
   const href = (overrides: Record<string, string | number>) => {
     const values: Record<string, string> = {};
     if (q) values.q = q;
@@ -95,84 +104,61 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
         <div><h1>Cash &amp; Accounts</h1><p className="muted">Instructions, approvals, postings and the ledger.</p></div>
         <div className="row-actions">
           <Link href="/review?domain=CASH">Open Cash review queue →</Link>
+          {paidBasis ? <Link href="/cash/transactions">Financial POSTED →</Link> : <Link href="/cash/paid">Business Paid →</Link>}
         </div>
       </div>
 
       <div className="cash-dashboard-grid">
-        <SummaryCard label="Total Paid Amount" value={money(summary.totalPaidMinor)} hint="All posted payments" href="/cash/transactions" />
-        <SummaryCard label="Current Month Paid" value={money(summary.currentMonthPaidMinor)} hint="Posted this month" href={rangeHref(monthRange)} />
-        <SummaryCard label="Today's Paid Amount" value={money(summary.todayPaidMinor)} hint="Posted today" href={dateHref(summary.asOfDate)} />
-        <SummaryCard label="Yesterday Paid" value={money(summary.yesterdayPaidMinor)} hint="Posted yesterday" href={dateHref(shiftIsoDate(summary.asOfDate, -1))} />
-        <SummaryCard label="Paid Via WA" value={money(summary.viaWhatsAppPaidMinor)} hint="Posted from WhatsApp source" href="/cash/transactions?source=WHATSAPP" />
-        <SummaryCard label="Paid By Office" value={money(summary.byOfficePaidMinor)} hint="Posted non-WhatsApp payments" href="/cash/transactions?source=OFFICE" />
+        <SummaryCard label="Total Paid Amount" value={money(summary.totalPaidMinor)} hint={paidBasis ? 'Business Paid Events' : 'Posted payments'} href={cashDetailPath} />
+        <SummaryCard label="Current Month Paid" value={money(summary.currentMonthPaidMinor)} hint={paidBasis ? 'Business paid this month' : 'Posted this month'} href={rangeHref(monthRange)} />
+        <SummaryCard label="Today's Paid Amount" value={money(summary.todayPaidMinor)} hint={paidBasis ? 'Business paid today' : 'Posted today'} href={dateHref(summary.asOfDate)} />
+        <SummaryCard label="Yesterday Paid" value={money(summary.yesterdayPaidMinor)} hint={paidBasis ? 'Business paid yesterday' : 'Posted yesterday'} href={dateHref(shiftIsoDate(summary.asOfDate, -1))} />
+        <SummaryCard label="Paid Via WA" value={money(summary.viaWhatsAppPaidMinor)} hint={paidBasis ? 'Business paid from WhatsApp' : 'Posted from WhatsApp source'} href={`${cashDetailPath}?source=WHATSAPP`} />
+        <SummaryCard label="Paid By Office" value={money(summary.byOfficePaidMinor)} hint={paidBasis ? 'Business paid via Office' : 'Posted non-WhatsApp payments'} href={`${cashDetailPath}?source=OFFICE`} />
         <SummaryCard label="Number of Employee" value={String(summary.employeeCount)} hint="Employees on record" href="/employees" />
-        <SummaryCard label="Last Month Paid" value={money(summary.lastMonthPaidMinor)} hint="Posted last month" href={rangeHref(lastMonthRange)} />
+        <SummaryCard label="Last Month Paid" value={money(summary.lastMonthPaidMinor)} hint={paidBasis ? 'Business paid last month' : 'Posted last month'} href={rangeHref(lastMonthRange)} />
       </div>
+
+      <CashTransactionsTable canManage={user.role === 'ADMIN' && canReview} initial={{
+        transactions: initialTransactions,
+        total: txTotal,
+        page: 1,
+        limit: txLimit,
+        totalPages: Math.max(1, Math.ceil(txTotal / txLimit)),
+      }} />
 
       <div className="cash-form-grid">
-        <details className="cash-form-panel" id="new-payment" open={paymentOpen}>
-          <summary>New payment instruction</summary>
-          <CashPaymentForm
-            key={`${employeeName}|${employeeMobile}|${payoutMobile}|${paymentOpen ? '1' : '0'}`}
-            accounts={accounts.map((account) => ({id: account.id, code: account.code, name: account.name}))}
-            defaults={{employeeName, employeeMobile, payoutMobile}}
-          />
-        </details>
-        <details className="cash-form-panel">
-          <summary>Record income / expense</summary>
-          <ActionForm
-            endpoint="/api/finance"
-            action="ledger.create"
-            submitLabel="Post entry"
-            fields={[
-              {name: 'accountId', label: 'Account', type: 'select', required: true,
-                options: accounts.map((account) => ({value: account.id, label: `${account.code} — ${account.name}`}))},
-              {name: 'entryDate', label: 'Date', type: 'date', required: true, defaultValue: today},
-              {name: 'direction', label: 'Direction', type: 'select', options: [
-                {value: 'CREDIT', label: 'Income (credit)'}, {value: 'DEBIT', label: 'Expense (debit)'}]},
-              {name: 'amount', label: 'Amount (BDT)', required: true},
-              {name: 'category', label: 'Category', required: true, placeholder: 'office / fuel / salary'},
-              {name: 'description', label: 'Description'},
-            ]}
-          />
-        </details>
+        {canSubmit ? (
+          <details className="cash-form-panel" id="new-payment" open={paymentOpen}>
+            <summary>New payment instruction</summary>
+            <CashPaymentForm
+              key={`${employeeName}|${employeeMobile}|${payoutMobile}|${paymentOpen ? '1' : '0'}`}
+              accounts={accounts.map((account) => ({id: account.id, code: account.code, name: account.name}))}
+              defaults={{employeeName, employeeMobile, payoutMobile}}
+            />
+          </details>
+        ) : null}
+        {canLedger ? (
+          <details className="cash-form-panel">
+            <summary>Record income / expense</summary>
+            <ActionForm
+              endpoint="/api/finance"
+              action="ledger.create"
+              submitLabel="Post entry"
+              fields={[
+                {name: 'accountId', label: 'Account', type: 'select', required: true,
+                  options: accounts.map((account) => ({value: account.id, label: `${account.code} — ${account.name}`}))},
+                {name: 'entryDate', label: 'Date', type: 'date', required: true, defaultValue: today},
+                {name: 'direction', label: 'Direction', type: 'select', options: [
+                  {value: 'CREDIT', label: 'Income (credit)'}, {value: 'DEBIT', label: 'Expense (debit)'}]},
+                {name: 'amount', label: 'Amount (BDT)', required: true},
+                {name: 'category', label: 'Category', required: true, placeholder: 'office / fuel / salary'},
+                {name: 'description', label: 'Description'},
+              ]}
+            />
+          </details>
+        ) : null}
       </div>
-
-      <section className="card" style={{marginBottom: 18}}>
-        <div className="page-head" style={{marginBottom: 8}}>
-          <div><h3>Cash review candidates ({cashCandidates.length})</h3></div>
-          <span className="muted">Reviewers can inspect source evidence and correct supported fields. Approving a candidate creates a linked REVIEW instruction; it never posts or settles funds.</span>
-        </div>
-        {cashCandidates.length ? (
-          <table>
-            <thead><tr><th>Candidate</th><th>Category</th><th>State</th><th>Submitter</th><th>Created</th><th>Source message</th><th>Parsed</th><th>Review</th></tr></thead>
-            <tbody>
-              {cashCandidates.map((candidate) => {
-                const payload = (candidate.payload ?? {}) as Record<string, unknown>;
-                return (
-                  <tr key={candidate.id}>
-                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{candidate.id}</td>
-                    <td><span className={`pill ${reviewCategoryTone(candidate.category)}`}>{reviewCategoryLabel(candidate.category)}</span></td>
-                    <td><span className={`pill ${reviewStateTone(candidate.state)}`}>{reviewStateLabel(candidate.state)}</span></td>
-                    <td>{candidate.submitter_name ?? candidate.submitted_by.slice(0, 12)}</td>
-                    <td style={{whiteSpace: 'nowrap'}}>{formatReviewTimestamp(candidate.created_at)}</td>
-                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>
-                      {candidate.source_message_id ? (
-                        <Link href={`/messages?q=${encodeURIComponent(candidate.source_message_id)}`}>{candidate.source_message_id}</Link>
-                      ) : <span className="muted">—</span>}
-                    </td>
-                    <td style={{maxWidth: 320}}>
-                      <div>{String(payload.employeeName ?? payload.employee_name ?? '—')}</div>
-                      <div className="muted">{formatReviewAmount(payload.amountMinor as string | number | null)} · {String(payload.method ?? '—')}</div>
-                    </td>
-                    <td><Link href={`/review/${candidate.id}`}>Inspect →</Link></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        ) : <p className="muted">No cash review candidates are pending.</p>}
-      </section>
 
       <form method="get" className="card form compact" style={{marginBottom: 18}}>
         <div className="grid">
@@ -235,12 +221,12 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
                     {item.source_block_key ? <div className="muted" style={{fontSize: 10}}>block {item.source_block_key}</div> : null}
                   </td>
                   <td>
-                    {item.state === 'REVIEW' ? (
+                    {item.state === 'REVIEW' && canReview ? (
                       <div className="row-actions">
                         <ActionForm compact endpoint="/api/finance" action="instruction.approve" submitLabel="Approve" hidden={{id: item.id}} fields={[]} />
                         <ActionForm compact endpoint="/api/finance" action="instruction.reject" submitLabel="Reject" hidden={{id: item.id}} fields={[{name: 'reason', label: 'Reason', required: true}]} />
                       </div>
-                    ) : item.state === 'APPROVED' ? (
+                    ) : item.state === 'APPROVED' && canPost ? (
                       <ActionForm compact endpoint="/api/finance" action="instruction.post" submitLabel="Post" hidden={{id: item.id}} fields={[]} />
                     ) : item.state === 'POSTED' && canReverse ? (
                       <ActionForm compact endpoint="/api/finance" action="instruction.reverse" submitLabel="Reverse" hidden={{id: item.id}} fields={[{name: 'reason', label: 'Reversal reason', required: true}]} />
@@ -291,17 +277,19 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
 
         <section className="card">
           <h3>Staff submissions</h3>
-          <ActionForm
-            endpoint="/api/finance"
-            action="submission.submit"
-            submitLabel="Submit for approval"
-            fields={[
-              {name: 'employeeName', label: 'Payee', required: true},
-              {name: 'method', label: 'Method', type: 'select', options: [
-                {value: 'bkash', label: 'bKash'}, {value: 'nagad', label: 'Nagad'}, {value: 'bank', label: 'Bank'}, {value: 'cash', label: 'Cash'}]},
-              {name: 'amountMinor', label: 'Amount (paisa)', type: 'number', required: true},
-            ]}
-          />
+          {canSubmit ? (
+            <ActionForm
+              endpoint="/api/finance"
+              action="submission.submit"
+              submitLabel="Submit for approval"
+              fields={[
+                {name: 'employeeName', label: 'Payee', required: true},
+                {name: 'method', label: 'Method', type: 'select', options: [
+                  {value: 'bkash', label: 'bKash'}, {value: 'nagad', label: 'Nagad'}, {value: 'bank', label: 'Bank'}, {value: 'cash', label: 'Cash'}]},
+                {name: 'amountMinor', label: 'Amount (paisa)', type: 'number', required: true},
+              ]}
+            />
+          ) : null}
           <table>
             <thead><tr><th>Submitted by</th><th>State</th><th>Instruction</th><th>Decision</th></tr></thead>
             <tbody>
@@ -311,7 +299,7 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
                   <td><span className={`pill ${submission.state === 'APPROVED' ? 'ok' : submission.state === 'REJECTED' ? 'bad' : 'warn'}`}>{submission.state}</span></td>
                   <td>{submission.instruction_id ? <Link href={`/cash/${submission.instruction_id}`}>{submission.instruction_id}</Link> : <span className="muted">—</span>}</td>
                   <td>
-                    {submission.state === 'PENDING_REVIEW' && canReview ? (
+                    {submission.state === 'PENDING_REVIEW' && canDecide ? (
                       <div className="row-actions">
                         <ActionForm compact endpoint="/api/review" action="decide" submitLabel="Approve candidate" hidden={{id: submission.id, kind: 'cash_submission', decision: 'APPROVED'}} fields={[]} />
                         <ActionForm compact endpoint="/api/review" action="decide" submitLabel="Reject candidate" hidden={{id: submission.id, kind: 'cash_submission', decision: 'REJECTED'}} fields={[{name: 'reason', label: 'Reason', required: true}]} />

@@ -3,10 +3,11 @@ import {
   approveInstruction, createAccount, createInstruction, createLedgerEntry, decideCashSubmission,
   incomeExpense, listAccounts, listInstructions, listLedger, postInstruction, rejectInstruction, submitCash,
   closeReconciliation, createReconciliation, getInstructionDetail, listReconciliations, reversePosting, setInstructionAccount,
+  correctBusinessPaidEvent, reverseBusinessPaidEvent, getBusinessPaidEventDetail,
 } from '@/lib/standalone/finance';
 import {assertCapability} from '@/lib/standalone/authz';
 import {rows, takaToMinor} from '@/lib/standalone/db';
-import {cashDashboardSummary, listCashPayments} from '@/lib/standalone/cash-dashboard';
+import {cashDashboardSummary, listCashPayments, listBusinessPaidEvents} from '@/lib/standalone/cash-dashboard';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,34 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const resource = url.searchParams.get('resource') ?? 'instructions';
     if (resource === 'summary') return ok(await cashDashboardSummary());
+    if (resource === 'business-paid') {
+      const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
+      const pageSize = Math.min(Math.max(Number(url.searchParams.get('pageSize')) || 25, 1), 100);
+      const result = await listBusinessPaidEvents({
+        date: url.searchParams.get('date'),
+        from: url.searchParams.get('from'),
+        to: url.searchParams.get('to'),
+        employee: url.searchParams.get('employee'),
+        employeeMobile: url.searchParams.get('employeeMobile'),
+        source: url.searchParams.get('source'),
+        q: url.searchParams.get('q'),
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+      });
+      return ok({
+        rows: result.rows,
+        count: result.count,
+        totalMinor: result.totalMinor,
+        page,
+        pageSize,
+        filters: result.filters,
+      });
+    }
+    if (resource === 'business-paid-event') {
+      const id = url.searchParams.get('id');
+      if (!id) return ok({error: 'ID_REQUIRED'}, 400);
+      return ok(await getBusinessPaidEventDetail(id));
+    }
     if (resource === 'payments') {
       const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
       const pageSize = Math.min(Math.max(Number(url.searchParams.get('pageSize')) || 25, 1), 100);
@@ -93,6 +122,17 @@ export async function POST(request: Request) {
     if (action === 'instruction.account') return ok(await setInstructionAccount(actor, String(body.id), String(body.accountId ?? '')));
     if (action === 'instruction.post') return ok(await postInstruction(actor, String(body.id)));
     if (action === 'instruction.reverse') return ok(await reversePosting(actor, String(body.id), String(body.reason ?? '')));
+    if (action === 'business-paid.correct') {
+      return ok(await correctBusinessPaidEvent(actor, String(body.eventId ?? ''), {
+        amountMinor: Number(body.amountMinor),
+        employeeName: body.employeeName ? String(body.employeeName) : null,
+        method: body.method ? String(body.method) : null,
+        reason: String(body.reason ?? ''),
+      }));
+    }
+    if (action === 'business-paid.reverse') {
+      return ok(await reverseBusinessPaidEvent(actor, String(body.eventId ?? ''), String(body.reason ?? '')));
+    }
     if (action === 'ledger.create') return ok(await createLedgerEntry(actor, body as never), 201);
     if (action === 'account.create') return ok(await createAccount(actor, body as never), 201);
     if (action === 'submission.submit') return ok(await submitCash(actor, body as never), 201);

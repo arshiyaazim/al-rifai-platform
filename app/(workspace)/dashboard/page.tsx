@@ -11,6 +11,8 @@ export default async function DashboardPage() {
     row<{
       employees: string; programs: string; reviews: string; cash_pending: string;
       payable: string; unresolved: string; attendance_today: string; instructions: string;
+      draft: string; confirmed: string; released: string; new_today: string; new_week: string;
+      awaiting_confirmation: string; confirmed_open: string; review_required: string;
     }>(`SELECT
         (SELECT count(*)::text FROM employees WHERE state = 'ACTIVE') AS employees,
         (SELECT count(*)::text FROM programs WHERE state NOT IN ('VOIDED','COMPLETED')) AS programs,
@@ -19,7 +21,15 @@ export default async function DashboardPage() {
         (SELECT coalesce(sum(total_minor),0)::text FROM program_pay WHERE state = 'CALCULATED') AS payable,
         (SELECT count(*)::text FROM program_pay WHERE state = 'UNRESOLVED') AS unresolved,
         (SELECT count(*)::text FROM attendance WHERE duty_date = current_date AND state = 'PRESENT') AS attendance_today,
-        (SELECT count(*)::text FROM cash_instructions) AS instructions`),
+        (SELECT count(*)::text FROM cash_instructions) AS instructions,
+        (SELECT count(*)::text FROM programs WHERE state = 'DRAFT') AS draft,
+        (SELECT count(*)::text FROM programs WHERE state = 'CONFIRMED') AS confirmed,
+        (SELECT count(*)::text FROM programs WHERE state = 'RELEASED') AS released,
+        (SELECT count(*)::text FROM programs WHERE (created_at AT TIME ZONE 'Asia/Dhaka')::date = (now() AT TIME ZONE 'Asia/Dhaka')::date) AS new_today,
+        (SELECT count(*)::text FROM programs WHERE (created_at AT TIME ZONE 'Asia/Dhaka') >= date_trunc('week', now() AT TIME ZONE 'Asia/Dhaka')) AS new_week,
+        (SELECT count(*)::text FROM programs WHERE state = 'DRAFT') AS awaiting_confirmation,
+        (SELECT count(*)::text FROM programs WHERE state IN ('CONFIRMED','ASSIGNED','IN_DUTY')) AS confirmed_open,
+        (SELECT count(*)::text FROM review_items WHERE state = 'PENDING') AS review_required`),
     rows<{at: string; actor: string; action: string; entity: string; entity_id: string | null}>(
       'SELECT at, actor, action, entity, entity_id FROM audit_events ORDER BY at DESC, id DESC LIMIT 12',
     ),
@@ -44,6 +54,22 @@ export default async function DashboardPage() {
         <div className="stat"><div className="label">Pending reviews</div><div className="value">{stats?.reviews ?? 0}</div></div>
         <div className="stat"><div className="label">Present today</div><div className="value">{stats?.attendance_today ?? 0}</div></div>
       </div>
+
+      <section className="card" style={{marginBottom: 18}}>
+        <div className="page-head" style={{marginBottom: 8}}>
+          <div><h3>Vessel pipeline</h3></div>
+          <Link href="/vessel">Open Vessel Register →</Link>
+        </div>
+        <div className="grid-cards">
+          <div className="stat"><div className="label">DRAFT</div><div className="value">{stats?.draft ?? 0}</div><div className="muted">awaiting Admin assignment/confirmation</div></div>
+          <div className="stat"><div className="label">CONFIRMED</div><div className="value">{stats?.confirmed ?? 0}</div><div className="muted">confirmed, not yet released</div></div>
+          <div className="stat"><div className="label">RELEASED</div><div className="value">{stats?.released ?? 0}</div><div className="muted">release recorded</div></div>
+          <div className="stat"><div className="label">New orders today</div><div className="value">{stats?.new_today ?? 0}</div><div className="muted">{stats?.new_week ?? 0} this week (Asia/Dhaka)</div></div>
+          <div className="stat"><div className="label">Awaiting confirmation</div><div className="value">{stats?.awaiting_confirmation ?? 0}</div><div className="muted">state DRAFT</div></div>
+          <div className="stat"><div className="label">Confirmed open</div><div className="value">{stats?.confirmed_open ?? 0}</div><div className="muted">CONFIRMED / ASSIGNED / IN_DUTY</div></div>
+          <div className="stat"><div className="label">REVIEW_REQUIRED</div><div className="value">{stats?.review_required ?? 0}</div><div className="muted">pending review items</div></div>
+        </div>
+      </section>
 
       {alerts.length ? (
         <div className="card">

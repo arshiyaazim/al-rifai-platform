@@ -1,8 +1,15 @@
 # Phase 3 File Manifest
 
-**Branch:** `feature/phase3-router-cash-vessel`
-**Baseline:** `e6becfc`
-**Schema:** `1.5.0` (production); migrations are explicit CLI only
+**Branch:** `feature/phase3-010-011-release` (release commit `8a6c2c6`)
+**Baseline:** `a4aabb6` (cash) with merged router tip `4e2e3f4`; `main` `13d660c`
+**Schema:** `1.6.0` deployed (49 tables, migrations 002–011).
+**Migrations:** additive `010_vessel_draft_delivery.sql` and
+`011_cash_payment_events.sql`; both applied in staged production work and verified.
+**`.env` ALRIFAI_TAG:** aligned to deployed `phase3-ai-rc-8a6c2c6`; previous tag backup preserved.
+**Production image (DEPLOYED 2026-11-08):** `local/al-rifai-platform:phase3-ai-rc-8a6c2c6`
+(digest `sha256:8b7ab534838f670c9b6486015650711e266dea4d3f8b2ac4df287d5be1c3e510`)
+**Previous/rollback image:** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
+(digest `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`)
 
 ## New files
 
@@ -39,7 +46,25 @@
 | `lib/ai/llm.ts` | Optional OpenAI-compatible rephrasing layer with numeric guard |
 | `scripts/standalone/wa01-activation.mjs` | Dry-run WA-01 activation applier from the protected artifact |
 | `app/(workspace)/vessel/[id]/page.tsx` | Program detail: edit, assign/replace escort, in-duty, release, complete, void, evidence and events |
-| `lib/release-slip.ts` | Pure escort release-slip parser |
+| `lib/release-slip.ts` | Pure structured Escort Release parser plus `parseUnstructuredRelease()` for cancellation, transfer, replacement, food-bill and empty release-group evidence |
+| `lib/vessel-draft-delivery.ts` | Pure Vessel Draft delivery queue: idempotency key, bounded retry, terminal states, five-block gate, prepared (never executed) outbound request |
+| `lib/standalone/vessel-draft-delivery-store.ts` | Durable Postgres store: SKIP LOCKED claim, retry, DELIVERY_UNKNOWN, restart recovery, audit, Admin status |
+| `db/standalone/010_vessel_draft_delivery.sql` | **PENDING** additive migration (NOT applied in production) |
+| `tests/standalone/vessel-draft-delivery-store.test.mjs` | 8 durable-store integration tests |
+| `docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md` | Approved `.env` tag alignment, backup, verification, rollback |
+| `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md` | Auth pipeline root cause; no defect; credentials preserved |
+| `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` | VERIFIED/PARTIAL/FAILED/NOT TESTED production UI matrix + OWNER-CONFIRMED / AGENT-VERIFIED distinction |
+| `docs/MAIN_RECONCILIATION_PLAN.md` | `main` / feature Git divergence (22/17 commits, merge base `76d5d00`), README conflict list, approved PR/`--no-ff` merge plan; no merge performed |
+| `README.md` | Reconciled release status: Current Production / Historical Release / Built but Not Deployed / Pending Migration & Activation |
+| `scripts/owner-assisted-ui-verify.sh` | Read-only, `bash -n`-clean Owner-assisted verification script; prints no cookie/session body/secret |
+| `lib/action-form-request.ts` | Pure ActionForm HTTP wiring (POST default, PATCH/DELETE) |
+| `tests/standalone/vessel-draft-delivery.test.mjs` | 12 isolated delivery state-machine tests |
+| `tests/standalone/historical-release-review.test.mjs` | Regression tests pinned to all seven exact historical production release texts |
+| `tests/standalone/action-form-request.test.mjs` | ActionForm POST/PATCH/DELETE wiring tests |
+| `docs/PHASE3_PREDEPLOY_BACKUP_20261107.md` | Fresh verified pre-deploy backup: size, checksum, restore test, restoration procedure |
+| `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md` | Bridge architecture, delivery direction, durable-record design, activation gate |
+| `docs/HISTORICAL_RELEASE_REVIEW_20261107.md` | Seven historical item classifications, candidate program matches, proposed (not applied) corrections |
+| `docs/BUSINESS_WORKFLOW_BACKLOG.md` | Resolved items, remaining gaps and priorities |
 | `lib/business-rules.mjs` | Versioned phone/name/vessel normalization rules |
 | `lib/identity-resolution.mjs` | Identity decision levels |
 | `lib/employee-identity.ts` | DB-backed employee identity resolution |
@@ -78,16 +103,38 @@
 | `docs/ADAPTIVE_RULES.md` | Rule/identity/registry operating guide |
 | `scripts/standalone/backfill-cash-coverage.mjs` | Idempotent Cash coverage backfill; REVIEW only |
 | `scripts/standalone/repair-legacy-program-links.mjs` | Idempotent assignment/source/event repair for imported programs |
-| `tests/standalone/release-slip.test.mjs` | Release-slip parser tests |
+| `tests/standalone/release-slip.test.mjs` | Structured release-slip tests + 7 unstructured release-evidence tests (real production samples) |
+| `tests/standalone/message-router.test.mjs` | Router/Vessel/Cash integration tests incl. 3 new unstructured-release review tests |
+| `tests/standalone/domain.test.ts` | Domain lifecycle tests incl. escort directory-name resolution |
 | `lib/order-draft-from-record.ts` | Read-only projection: DRAFT/CONFIRMED program or PROGRAM review payload → exact Owner draft + blocking gaps; `MANUAL_COPY_ONLY` |
 | `components/standalone/owner-draft-panel.tsx` | Server-rendered Owner draft block with gap warnings and delivery note |
 | `components/standalone/copy-draft-button.tsx` | Clipboard-only copy button (no API, no send) |
 | `app/(workspace)/vessel/drafts/page.tsx` | Vessel Order Drafts workspace for Admin copy/assignment |
 | `tests/standalone/order-draft-record.test.mjs` | 7 pure tests: exact layout, dates/shifts, missing-field blocking, review mapping |
-| `docs/PROJECT_KNOWLEDGE.md` | Permanent project map: layout, feature-to-file, APIs, workflows, DB, env, issue queue |
-| `docs/VESSEL_ORDER_DRAFT.md` | Order-draft root cause, implemented stage, transport options and rollback |
-| `NEXT-HANDOFF.md` | Session handoff: versions, tests, blockers, exact next task |
+| `docs/PROJECT_KNOWLEDGE.md` | Permanent project map: layout, feature-to-file, APIs, workflows, DB, env, issue queue, resolved history |
+| `docs/VESSEL_ORDER_DRAFT.md` | Order-draft root cause, live production evidence, implemented stage, transport options and rollback |
+| `NEXT-HANDOFF.md` | Session handoff: image digests, clone/production/live evidence, tests, blockers, GO/NO-GO deployment command |
+| `docs/PHASE3_GO_NO_GO_7da17f1.md` | GO/NO-GO decision record: evidence, compatibility, risks, deploy/rollback commands, post-deploy checks, sign-off request |
 | `tests/standalone/history-extraction.test.mjs` | Cash payment-block parser tests |
+| `db/standalone/010_vessel_draft_delivery.sql` | Inert WA-01 vessel draft-delivery queue (recovered from `3e0dd01`; not activated) |
+| `db/standalone/011_cash_payment_events.sql` | Append-only Business Paid Events, corrections/reversals and financial posting link |
+| `lib/standalone/finance.ts` (`insertBusinessPaidEvent`, `correctBusinessPaidEvent`, `reverseBusinessPaidEvent`) | Business Paid write/correction/reversal services; never writes the ledger |
+| `tests/standalone/cash-paid-events.test.mjs` | 12 tests: single-mobile, WhatsApp automatic Paid, Office Paid, replay/concurrency, flag, reporting, append-only, no ledger |
+| `tests/standalone/migration-integrity.test.mjs` | 5 tests: 010→011 order/checksums, schema, indexes, constraints, idempotent re-apply |
+| `AGENTS.md` | Non-negotiable Cash/WhatsApp/Paid-vs-POSTED/migration invariants |
+| `app/(workspace)/cash/paid/page.tsx` | Business Paid list route |
+| `app/(workspace)/cash/paid/[id]/page.tsx` | Business Paid detail, evidence, posting status, correction/reversal history, audit |
+| `components/standalone/business-paid-view.tsx` | Server-rendered Paid list with filters, totals, source/evidence/detail links |
+| `tests/standalone/business-paid-api.test.mjs` | List/detail filters, event_id, totals, posting link, RBAC/flag gate |
+| `docs/PHASE3_PRODUCTION_RELEASE_AUDIT_20261108.md` | Read-only production baseline, verified backup, production-copy rehearsal, auth/UI evidence, historical impact, cutover and rollback runbook |
+| `docs/PHASE3_GIT_COMPLETENESS_AUDIT.md` | Branch/worktree/commit completeness audit, canonical dirty-file assessment, file-level matrix |
+| `docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md` | Migration 010 SQL, draft workflow, exact template, delivery status and completion matrix |
+| `docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md` | Migration 011 SQL, Business Paid pipeline, API/UI, historical coverage and activation readiness |
+| `lib/vessel-draft-delivery-worker.ts` | Default-disabled queue worker: gate check, claim, prepare, send, persist outcome, health/status |
+| `lib/vessel-draft-transport.ts` | Narrow WA-01 MCP `send_message` adapter; mock-tested, production gate OFF |
+| `tests/standalone/vessel-draft-delivery-worker.test.mjs` | 5 worker/transport tests: send, retry/backoff, terminal unknown, disabled gate, adapter mapping |
+| `phase3-implementation-plan.md` | Corrected implementation record (was a proposal) |
+| `phase3-technical-decision-report.md` | Corrected final design and evidence |
 | `app/api/assistant/route.ts` | Admin assistant/draft/applicant/order API |
 | `compose.phase3.yaml` | Production override for `alrifai_v2_phase3` and flags off |
 
@@ -95,23 +142,47 @@
 
 | Path | Change |
 |---|---|
-| `lib/standalone/finance.ts` | Full lifecycle, reversal, reconciliation, candidate→instruction, audit atomicity |
+| `lib/standalone/finance.ts` | Full lifecycle, reversal, reconciliation, candidate→instruction, audit atomicity; Phase 3 Business Paid Events, single-mobile payout, strict method/identity, posting link, Business Paid detail service |
+| `lib/history-extraction.mjs` | Cash parser: single-mobile rule, hyphenated numbers, multi-line blocks, `(C)/(R)/BANK`, amount variants, no fabricated method |
+| `lib/message-router.ts` | Processes all clean Cash blocks; WhatsApp automatic Business Paid at the authorized routing point |
+| `lib/standalone/cash-dashboard.ts` | Flag-gated Business Paid reporting union with legacy POSTED; business detail list with event/posting/employee fields; Dhaka timestamp helper; lazy timezone binding |
+| `app/api/finance/route.ts` | Business Paid list/detail resources and correction/reversal actions |
+| `scripts/standalone/install.mjs` | Fresh install includes 010/011 and verifies the new tables |
+| `scripts/standalone/grants.mjs` | Append-only grants for Business Paid tables; read-write grant for the inert vessel queue |
 | `lib/standalone/review.ts` | Client-aware review application, transaction-aware audit |
-| `lib/standalone/programs.ts`, `employees.ts`, `attendance.ts` | Client-aware writers + capability enforcement; `getProgram()` returns `start_date`/`end_date` as ISO text (fixes `[object Date]` 500) |
+| `lib/standalone/programs.ts`, `employees.ts`, `attendance.ts` | Client-aware writers + capability enforcement; `getProgram()` returns `start_date`/`end_date` as ISO text (fixes `[object Date]` 500); `assignEscort` resolves the directory `preferred_name`; `updateEmployee` patch verified |
 | `lib/standalone/audit.ts` | Transaction-aware `recordAudit` |
 | `lib/standalone/whatsapp.ts` | Correct conflict target, type narrowing, capability checks |
-| `lib/message-router.ts` | System actor for automated writes; capability-safe routing |
+| `lib/message-router.ts` | System actor for automated writes; capability-safe routing; `matchUnstructuredReleaseCandidates()` read-only program matching; enriched pending release-evidence payloads; TRANSFER review category |
+| `lib/review-ui.ts` | Review field labels incl. cancel date/shift, total days, food bill (paisa); merges `payload.extractedFields` into the detail view |
 | `lib/unified-auth-policy.ts` | Explicit full-lifecycle capability matrix |
 | `app/api/*` | Capability enforcement, user admin, cash reversal/reconciliation |
-| `app/(workspace)/cash/page.tsx` | Candidate decisions, reversal, reconciliation, audit links |
-| `app/(workspace)/settings/page.tsx` | Super Admin user administration |
-| `scripts/standalone/install.mjs` | Additive `--force`, migration 008, shared grants |
+| `components/standalone/action-form.tsx` | Optional `method` prop; uses pure `buildActionFormRequest()` |
+| `app/(workspace)/cash/page.tsx` | Candidate decisions, reversal, reconciliation, audit links; all privileged forms capability-gated |
+| `app/(workspace)/settings/page.tsx` | Super Admin user administration; account/relay forms capability-gated |
+| `app/(workspace)/vessel/page.tsx` | Program register; assign/release/void forms capability-gated |
+| `app/(workspace)/employees/[mobile]/page.tsx` | Update employee form uses `method="PATCH"` (previously POST, never applied) |
+| `app/(workspace)/payroll/page.tsx` | Configure-rate form capability-gated with `payroll.manage` |
+| `app/(workspace)/vessel/drafts/page.tsx` | Admin-visible draft delivery status panel (graceful when migration 010 absent) |
+| `scripts/standalone/install.mjs` | Additive `--force`, migrations 008/009/**010**, shared grants |
+| `scripts/standalone/grants.mjs` | Runtime grant for `vessel_draft_deliveries` |
+| `.github/workflows/ci.yml` | Base-table expectation 46 → 47 (additive layer 010) |
+| `tests/standalone/reset.mjs`, `message-router.test.mjs`, `router-cutover.test.mjs` | TRUNCATE lists include `vessel_draft_deliveries` (FK to `programs`) |
 | `.github/workflows/ci.yml` | Full suite, Cash/users job, schema `1.4.0` validation |
 | `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml` | Test commands, patched dependencies, audit overrides |
 | `README.md`, `DEVELOPER_START_HERE.md`, release/rollback docs | Current-state and release documentation |
 
 ## Delivery boundary
 
-- Code and integration tests complete on the feature branch.
-- Production deployment, migration and live financial posting NOT executed.
-- Owner approval required before merge/deploy.
+- `feature/phase3-integration` contains both router/vessel and cash/Paid work;
+  code, migrations, API/UI, tests and documentation remain isolated.
+- Production **runs `phase3-ai-rc-7da17f1`**; no production container, data,
+  permission or feature flag was changed by this integration branch.- `.env` `ALRIFAI_TAG` remains aligned to `7da17f1`; previous tag backup intact.
+- Authentication pipeline diagnosed as **healthy**; authenticated production UI
+  remains NOT TESTED because the Agent has no plaintext password/session cookie.
+- **NO MIGRATION APPLIED to production.** Additive `010` and `011` are tested on
+  disposable databases only.
+- Outbound WhatsApp delivery stays `MANUAL_COPY_ONLY`; no `messages.send` was
+  enabled, no message sent, `applyConfirmation()` untouched.
+- Owner approval is required before any merge to `main`, deploy, migration or
+  outbound activation.

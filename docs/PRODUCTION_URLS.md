@@ -2,10 +2,16 @@
 
 **Verified:** 2026-11-07, from outside the origin (public HTTPS).
 **Canonical hostname:** `https://app.al-rifai.iamazim.com`
-**Runtime image (production):** `local/al-rifai-platform:phase3-ai-rc-86d659a`
-**Runtime digest:** `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
-**Candidate (built, tested, NOT deployed):** `local/al-rifai-platform:phase3-ai-rc-9e85e49`
-**Candidate digest:** `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0`
+**Runtime image (production, DEPLOYED 2026-11-07):** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
+**Runtime digest:** `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`
+**Rollback image:** `local/al-rifai-platform:phase3-ai-rc-86d659a` (`sha256:932ef856…`)
+**Superseded candidate (not deployed):** `local/al-rifai-platform:phase3-ai-rc-9e85e49`
+**Verification image (built, NOT deployed):** `local/al-rifai-platform:phase3-ai-rc-675a3ef`
+**Migration status:** **NO MIGRATION APPLIED to production**; schema `1.5.0`,
+`schema_migrations` max `009`. Pending additive `010_vessel_draft_delivery.sql`
+(clone-tested, NOT applied).
+**`.env` ALRIFAI_TAG:** aligned to `phase3-ai-rc-7da17f1` with Owner approval
+(`docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`).
 
 ---
 
@@ -15,7 +21,7 @@
 |---|---|---|---|---|
 | `app.al-rifai.iamazim.com` | A `5.189.131.48` | 307 → `/dashboard`; `/login` 200 | valid; SAN app + alrifai | **CANONICAL — VERIFIED** |
 | `alrifai.iamazim.com` | A `5.189.131.48` | 307 → `/dashboard`; `/login` 200; login API accepts origin | valid; SAN app + alrifai | **LEGACY ALIAS — VERIFIED** |
-| `al-rifai.iamazim.com` | CNAME `custom-domains.chatgpt.site` → Cloudflare 104.18.x | **Cloudflare 1014** | Cloudflare edge | **BROKEN — DNS REPAIR REQUIRED** |
+| `al-rifai.iamazim.com` | CNAME `custom-domains.chatgpt.site` → Cloudflare 104.18.x | **Cloudflare 1014** (observed HTTP 403, body `error code: 1014`) | Cloudflare edge | **BROKEN — DNS REPAIR REQUIRED** |
 
 The origin is this VPS at `5.189.131.48`. The Phase 3 container publishes
 `0.0.0.0:443` and `127.0.0.1:3001`.
@@ -43,7 +49,7 @@ redirected to `/login` or receive 401 depending on the request type.
 | `/cash` | Cash instructions, review, ledger, submissions | auth required |
 | `/cash/[id]` | Instruction detail | auth required |
 | `/vessel` | Vessel Register | auth required |
-| `/vessel/drafts` | Vessel Order Drafts — exact Owner draft, copy-only (candidate `9e85e49`) | auth required |
+| `/vessel/drafts` | Vessel Order Drafts — exact Owner draft, copy-only (**deployed** on `7da17f1`) | auth required |
 | `/vessel/[id]` | Program detail/lifecycle, includes the Owner draft block | auth required |
 | `/employees` | Employee directory | auth required |
 | `/employees/[mobile]` | Employee profile | auth required |
@@ -113,3 +119,16 @@ No API endpoint is redirected. No state-changing route is redirected.
 
 Admin provisioning and user provisioning are documented in
 `docs/ADMIN_AUTH.md` and the README.
+
+**Authenticated verification status (2026-11-07):** unauthenticated surfaces
+were live-verified on both working hosts (health 200, `/login` 200, 41 protected
+pages 307→`/login` or 401, `/api/*` 401; auth origin/validation branches
+checked). **OWNER-CONFIRMED:** all three existing accounts log in with their
+current passwords (8 `LOGIN` events, 4 live sessions) — authentication is
+operational, not broken; no credential change. **AGENT-VERIFIED authenticated
+UI is still NOT TESTED** because the Agent has no production session cookie.
+Minimum secure access selected: root-only session cookie jar; a read-only
+Owner-assisted script is provided. The earlier `400 CREDENTIALS_REQUIRED` came
+from an empty password, not a defect. See
+`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md` and
+`docs/PRODUCTION_UI_VERIFICATION_MATRIX.md` for the per-feature matrix.

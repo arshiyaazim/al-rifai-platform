@@ -29,7 +29,8 @@ export async function register() {
   } catch (error) {
     const code = error instanceof Error && /^[A-Z][A-Z0-9_]{3,80}$/.test(error.message) ? error.message : 'PHASE3_ROUTER_WORKER_FAILED';
     console.error(`Phase 3 router worker bootstrap failed (${code}).`);
-  }  try {
+  }
+  try {
     const {startAiWa02Worker} = await import('./lib/ai/worker.ts');
     const worker = startAiWa02Worker();
     if (worker.started) {
@@ -40,6 +41,18 @@ export async function register() {
   } catch (error) {
     const code = error instanceof Error && /^[A-Z][A-Z0-9_]{3,80}$/.test(error.message) ? error.message : 'AI_WA02_WORKER_FAILED';
     console.error(`WA-02 AI worker bootstrap failed (${code}).`);
+  }
+  try {
+    const {startVesselDraftDeliveryWorker} = await import('./lib/vessel-draft-delivery-worker.ts');
+    const worker = startVesselDraftDeliveryWorker();
+    if (worker.started) {
+      console.error(`Vessel draft delivery worker started (interval=${worker.intervalMs}ms, limit=${worker.limit}).`);
+    } else {
+      console.error(`Vessel draft delivery worker not started (${worker.reason ?? 'UNKNOWN'}).`);
+    }
+  } catch (error) {
+    const code = error instanceof Error && /^[A-Z][A-Z0-9_]{3,80}$/.test(error.message) ? error.message : 'VESSEL_DRAFT_WORKER_FAILED';
+    console.error(`Vessel draft delivery worker bootstrap failed (${code}).`);
   }
 
 }

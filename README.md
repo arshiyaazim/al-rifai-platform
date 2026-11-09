@@ -1,6 +1,25 @@
 # AL-RIFA'I — Standalone Business Management Application
 
-## 🚀 Current Release: v1.4.0-phase3-rc2
+## Release status (verified 2026-11-08)
+
+| Category | Value |
+|---|---|
+| **Current Production** | Image `local/al-rifai-platform:phase3-ai-rc-vd-b379dd2` (digest `sha256:aec08d34…602a`), database `alrifai_v2_phase3`, schema **1.6.0**, migrations **002–011** applied, 49 tables. Router `PHASE3_ROUTER_WORKER_ENABLED=1`, Vessel `ALRIFAI_VESSEL_PROCESSING_ENABLED=1`, `ALRIFAI_LIVE_CASH_SYNC=0`; 8 live WA-01 DRAFT programs exist. WA-01 outbound gate is enabled and the bridge identity is verified; the delivery worker is **disabled pending the first exact Owner-approved send**. `PHASE3_PAID_EVENTS_ENABLED` remains **OFF**; 0 Business Paid Events and 0 posting links. All `AI_*` flags `0`. |
+| **Historical Release** | `v1.4.0-phase3-rc2` / `phase3-rc-final5` / schema 1.4.0 (2026-11-06 cutover); prior image `phase3-ai-rc-8a6c2c6` / schema 1.6.0 is the immediate rollback. Tags and rollback instructions are retained. |
+| **Deployed, activation pending** | `feature/phase3-010-011-activation` (image `phase3-ai-rc-vd-b379dd2`, digest `sha256:aec08d34…602a`): original-conversation recipient resolution, pre-send source revalidation, WA-01 bridge identity verification, and the read-only preflight / controlled enqueue-tick CLI. The outbound gate is enabled; the worker is disabled until the first exact Owner-approved send. See `docs/VESSEL_DRAFT_ACTIVATION_APPROVAL_PACKAGE.md`. |
+| **Pending Migration / Activation** | No new migration. Outbound draft delivery remains `MANUAL_COPY_ONLY`: WA-01 has **no `messages.send` capability**, the app container has no WA-01 socket/token mount, and no sender/recipient is configured. Business Paid activation (`PHASE3_PAID_EVENTS_ENABLED=1`) is also pending explicit Owner approval. |
+
+**Active goal: Authenticated Production UI Verification.** Login is
+**OWNER-CONFIRMED** for `Admin`, `officeassistant` and `officeazzistant2` with
+their current passwords (authentication is operational, not broken).
+**AGENT-VERIFIED authenticated UI remains NOT TESTED / BLOCKED** pending the
+minimum secure access: root-only session cookie jar, or the read-only
+`scripts/owner-assisted-ui-verify.sh` run by the Owner. This goal is **not
+complete**; a README correction alone does not complete it. See
+`docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`, `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`
+and `NEXT-HANDOFF.md`.
+
+### Historical Release — v1.4.0-phase3-rc2 (2026-11-06 cutover, superseded)
 
 - **Schema version:** 1.4.0
 - **Docker image:** `al-rifai-platform:phase3-rc-final5`
@@ -8,18 +27,23 @@
 - **Release branch merged:** `feature/phase3-router-cash-vessel` → `main`
 - **Merge commit:** `8cd9436` (cutover-safety fix)
 - **Cutover executed:** 2026-11-06 18:14 UTC
-- **Live database:** `alrifai_v2_phase3` (production schema 1.4.0)
-- **AI development:** migration 009 / schema 1.5.0 — not deployed; see [`docs/PHASE3_AI_ASSISTANT.md`](./docs/PHASE3_AI_ASSISTANT.md)
-- **Rollback database:** `alrifai_v2` (schema 1.2.0, preserved)
+- **Live database then:** `alrifai_v2_phase3` (production schema 1.4.0)
+- **AI development then:** migration 009 / schema 1.5.0 — not deployed at the time; see [`docs/PHASE3_AI_ASSISTANT.md`](./docs/PHASE3_AI_ASSISTANT.md). **Migration 009 / schema 1.5.0 is now applied in production.**
+- **Rollback database:** `alrifai_v2` (schema 1.2.0, preserved as a cold path)
 - **Release tag:** `v1.4.0-phase3-rc2` (the earlier `v1.4.0-phase3-rc` is retained)
-- **Cutover runbook:** See [`docs/PHASE3_CUTOVER_RUNBOOK.md`](./docs/PHASE3_CUTOVER_RUNBOOK.md)
-- **Deployment guide:** See [`DEVELOPER_START_HERE.md`](./DEVELOPER_START_HERE.md)
-- **Rollback:** See [`PHASE3_ROLLBACK_INSTRUCTIONS.md`](./PHASE3_ROLLBACK_INSTRUCTIONS.md)
+- **Cutover runbook:** [`docs/PHASE3_CUTOVER_RUNBOOK.md`](./docs/PHASE3_CUTOVER_RUNBOOK.md)
+- **Deployment guide:** [`DEVELOPER_START_HERE.md`](./DEVELOPER_START_HERE.md)
+- **Rollback:** [`PHASE3_ROLLBACK_INSTRUCTIONS.md`](./PHASE3_ROLLBACK_INSTRUCTIONS.md)
 
-**Production status:** **LIVE on Phase 3** since 2026-11-06 18:14 UTC.
-`alrifai_v2_phase3` is the live database at schema 1.4.0. The old Phase 2
-containers and `alrifai_v2` are preserved as a cold rollback path. Feature flags
-remain OFF; no business routing or financial posting is active.
+At that cutover the system went **LIVE on Phase 3** on 2026-11-06 18:14 UTC,
+feature flags were OFF and no business routing or financial posting was active.
+**Those flag/routing statements are historical only** — the current deployment
+runs the router and Vessel intake (see the status table above). Historical
+release tags, rollback instructions and prior cutover history are deliberately
+preserved. **Note:** the historical "branch merged → main" line refers only to
+that 2026-11-06 cutover; `main` (`0861e05`) has **not** been merged with the
+current feature branch (see `git log` for its head) — see
+`docs/MAIN_RECONCILIATION_PLAN.md`.
 
 ---
 
@@ -38,7 +62,7 @@ its own administrator, accounts, rates, relay and authorized chats.
 | Package manager | pnpm 11.25.0 (or npm/npx) |
 | Database | PostgreSQL 16 (≥ 13 supported by the SQL used) |
 | Framework | Next.js 16.4.1 |
-| Schema | fresh baseline, `db/standalone/schema.sql` + additive migrations 002–008 (version 1.4.0) |
+| Schema | fresh baseline `db/standalone/schema.sql` + additive migrations 002–011 (version **1.6.0**, 49 tables); no new migration is required by this branch |
 
 ---
 
@@ -193,9 +217,11 @@ pnpm db:install --admin-user owner --admin-password '…' --admin-name 'Owner'
 The password is hashed (PBKDF2-SHA256, 600 000 iterations) before it is stored;
 only the hash is written. Remove the plaintext from `.env` afterwards. The
 installer is transactional: it applies `db/standalone/schema.sql` plus the
-additive layers `002`–`008`, grants the runtime role, seeds the administrator
-and verifies 34 tables / 5 functions / 15 triggers at schema `1.4.0`. It prints
-the administrator id — put it in `ALRIFAI_CASH_SUPER_ADMIN_IDS`.
+additive layers `002`–`009` (and `010` once that pending migration is approved),
+grants the runtime role, seeds the administrator and reports the resulting
+table/function/trigger counts at schema `1.5.0`. Production currently has 46
+base tables; a fresh install including `010` has 47. It prints the administrator
+id — put it in `ALRIFAI_CASH_SUPER_ADMIN_IDS`.
 
 Re-running against an installed schema stops unless `--force` is passed. `--force`
 now means "apply the additive layers and grants again"; it never re-runs the
@@ -313,12 +339,14 @@ directly — no MCP grant, no per-chat profile entry, and no session material:
   tails both accounts continuously; the checkpoint lives in `whatsapp_sync_state`
   and restarts never duplicate a row (`(account_id, chat_jid, message_id)`);
 * **router** — an optional in-process worker (`lib/phase3-router-worker.ts`) routes new
-  rows through the same shared router used by the manual API. It is
-  default-disabled by `PHASE3_ROUTER_WORKER_ENABLED=0` **and** by the database
+  rows through the same shared router used by the manual API. Its **code default**
+  is disabled (`PHASE3_ROUTER_WORKER_ENABLED=0`) **and** guarded by the database
   gate (`phase3_router_enabled`, per-account watermark and business-chat
-  allowlist). Vessel intake has its own gate,
-  `ALRIFAI_VESSEL_PROCESSING_ENABLED`; while disabled, Vessel messages stay
-  `PENDING` and are processed after activation, never silently consumed;
+  allowlist). **Current production overrides this to `1`**, with
+  `ALRIFAI_VESSEL_PROCESSING_ENABLED=1` and `ALRIFAI_LIVE_CASH_SYNC=0`, so live
+  WA-01 messages above the cutover watermark are routed and 8 `DRAFT` programs
+  exist. When Vessel intake is disabled, Vessel messages stay `PENDING` and are
+  processed after activation, never silently consumed;
 * **identity** — `identity_aliases` records the account, chat and participant
   JIDs plus the PN/LID links the bridge itself resolved. A name comes from the
   bridge's chat label; an unresolved LID stays explicitly unresolved and is never
@@ -347,23 +375,110 @@ sha256sum /var/backups/alrifai-*.dump > /var/backups/alrifai-$(date +%Y%m%d-%H%M
 Restore into a new database first, then switch `PGDATABASE`. Updates: back up,
 replace the source, `pnpm install --frozen-lockfile && pnpm build`, run
 `pnpm db:migrate` (additive, checksum-tracked), restart, verify `/api/health`.
-The current schema is `1.4.0` (migrations 002–008).
+The current production schema is `1.6.0` (migrations 002–011 applied, 49
+tables). No new migration is required by the activation branch.
 
 ---
 
 ## 7. Tests
 
 ```bash
-pnpm test:unit        # pure functions (83 assertions)
+pnpm test:unit        # pure functions (149 assertions)
 pnpm test:standalone  # all DB suites: domain, WhatsApp adapter, router,
-                      # cutover, Review Queue, Cash lifecycle, users and AI
-                      # (112 integration tests)
+                      # cutover, Review Queue, Cash lifecycle, users, AI,
+                      # Vessel Draft recipient/store/worker, message mirror, Message Intelligence, Escort workflow (231 integration tests)
 ```
 
 The integration tests are destructive to their schema: run them against a
 disposable database (or a dedicated schema) prepared with `pnpm db:install`, and
 always with `--test-concurrency=1`. They reset business tables between files;
 never point them at production.
+
+---
+
+## 7.1 WhatsApp message mirror
+
+Both bridge SQLite stores are synchronized into the Main Database by
+`scripts/sync-worker.mjs` (the only process that reads the bridge stores). The
+parser and router read `whatsapp_messages`, never the bridge files.
+
+- Stable identity: `(account_id, chat_jid, message_id)`.
+- `--mode=tail` continuously imports new messages; `--mode=import` is the
+  historical catch-up; `--mode=reconcile` applies late edits/revocations and
+  inserts missing rows; `--mode=media-status` records explicit
+  `STORED`/`FAILED`/`SKIPPED` media rows.
+- Read-only verification: `node scripts/verify-message-mirror.mjs` (add
+  `--strict --strict-media` for non-zero on a message or media-status gap).
+- Current audit: both bridges are **message-complete** (0 missing, 0 extra,
+  0 duplicate; WA-01 has three late-edit timestamp mismatches pending the new
+  reconcile). Historical media files are **partial**: 5,405 source media
+  messages have metadata but no `whatsapp_media` row; most retain a source
+  URL/key. Production reconcile/media backfill/redeploy require Owner approval.
+- Mirrored messages from both bridges are retained. Vessel/Cash business
+  processing is currently WA-01-only; enabling WA-02 is the separate Bridge 2 →
+  Bridge 1 workflow.
+
+See `docs/WHATSAPP_MESSAGE_MIRROR.md`.
+
+## 7.2 WhatsApp Message Intelligence
+
+The existing `/messages` page is the Message Data Table. It now exposes the
+mandatory message identity, event-time, contact/identity, conversation, media,
+call-trace, role/domain, processing and review columns. All required columns are
+available through the table's **Columns** control; the default view prioritises
+Message Time, Account, Sender Name, Owner Contact Name, Mobile Number, Group Name,
+Identity Role, Business Domain, Direction, Message Content and Media Status.
+
+- `source_timestamp` is the authoritative WhatsApp event time; `created_at` is
+  first ingestion; `mirrored_at` is the last synchronization. The UI displays
+  event time in Asia/Dhaka.
+- Contact names distinguish saved contact name, Owner contact name and WhatsApp
+  push name. Missing values are `NOT_AVAILABLE`, never fabricated.
+- Media status distinguishes `STORED`, `MISSING`, `FAILED`, `SKIPPED` and
+  `NOT_APPLICABLE`; every media message remains visible.
+- Actual bridge calls are mirrored into `whatsapp_calls` and shown in the
+  conversation Call trace panel. Calls are not fabricated into message rows.
+- Identity role/business domain are reviewable through `POST /api/messages`
+  (`whatsapp.manage`) and audited; they never grant permissions.
+- Migration `012_whatsapp_message_intelligence.sql` is additive (schema 1.7.0,
+  51 tables). Apply it to a disposable database first; production application is
+  pending Owner approval.
+
+See `docs/WHATSAPP_MESSAGE_INTELLIGENCE.md`.
+
+## 7.3 Escort Order → Admin Confirmation → Vessel Register → Release
+
+The live WhatsApp workflow now enforces distinct source roles instead of treating
+all allowlisted chats as interchangeable:
+
+- **Order intake**: WA-01 only, DIRECT conversations only, `source_role =
+  ORDER_INTAKE`, INCOMING only, and a sender/conversation that resolves to the
+  same EXACT canonical PN in `identity_aliases` (or an active `ESCORT_CLIENT`
+  registry entry). A group never creates an Order Draft.
+- **Support / Office group**: support-only context. Order-shaped text is not a
+  Draft. **Release group**: release-only. The remaining approved vessel group is
+  context-only. Unclassified groups are `REVIEW_REQUIRED` and blocked.
+- **Order fields**: Mother Vessel, Lighter Vessel and Master Mobile are
+  mandatory; one Lighter produces one Draft. Missing fields go to review.
+  A bounded merge joins complementary fragments only inside the same authorized
+  client conversation.
+- **Confirmation**: a verified Admin OUTGOING WA-01 reply in the SAME original
+  client chat. It is matched to exactly one Draft by normalized vessel names,
+  Master Mobile, shift and chronology, and persists
+  `confirmation_message_id`, `confirmation_chat_jid`,
+  `confirmation_sender_jid`, `confirmation_account_id` and
+  `confirmation_timestamp`. Groups, other clients, WA-02, incoming messages and
+  unverified senders are rejected.
+- **Release**: only the approved Release Information group. The exact existing
+  program is updated with `end_date`, `end_shift` and full `release_*`
+  provenance; `start_date`/`start_shift` are preserved. Release never creates a
+  program. Replays are idempotent; ambiguity/conflict/completed duty goes to
+  review.
+- Migration `013_escort_workflow_authorization.sql` is additive (schema 1.8.0,
+  51 tables) and follows 012. Production migration/deployment is pending Owner
+  approval.
+
+Full rules and evidence: `docs/ESCORT_ORDER_RELEASE_WORKFLOW.md`.
 
 ---
 
@@ -389,6 +504,13 @@ never point them at production.
 
 ## 9. Known limitations
 
+> These notes describe the **historical 2026-11-06 rc2 cutover validation**.
+> Current production status is in the "Release status" table and the
+> "Production deployment — verified 2026-11-07" section below: authenticated UI
+> login is **OWNER-CONFIRMED** but **AGENT-VERIFIED UI is NOT TESTED / BLOCKED**.
+> Do not read the historical validation notes as a claim about the current
+> release.
+
 * The deployed ingestion path is the **direct bridge SQLite store**, verified
   live on both accounts (historical import plus continuous tail). The optional
   MCP relay described in §5 is not used by this deployment and was validated only
@@ -397,13 +519,17 @@ never point them at production.
   release onward; a live document or sticker sample has not yet been observed.
   Media rows the bridge stored without a URL or key are recorded as
   `MEDIA_METADATA_INCOMPLETE` and are not backfilled.
-* No graphical browser was available during validation: the end-to-end run used
-  authenticated HTTP against the real server (sessions, CSRF, server-rendered
-  pages) and asserted the database state directly.
+* No graphical browser was available during the **historical rc2 validation**:
+  that end-to-end run used authenticated HTTP against the real server (sessions,
+  CSRF, server-rendered pages) and asserted the database state directly. It does
+  **not** constitute current authenticated UI verification (see the status
+  table and `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`).
 * The session endpoint rotates the CSRF token on each read (the UI fetches it
   immediately before acting); third-party clients must do the same.
-* The first administrator must change the password before any write is allowed
-  (`PASSWORD_CHANGE_REQUIRED`), by design.
+* Fresh-install policy: the first administrator must change the password before
+  any write is allowed (`PASSWORD_CHANGE_REQUIRED`), by design. The three
+  current production accounts have `must_change_password=false` and log in
+  normally with their existing credentials (no reset required).
 * Payroll covers duty-based program pay and monthly salary allocation. Monthly
   salary uses the stored `program_pay` calculation, so a later rate change does
   not rewrite released pay. Conveyance is reported per program and not allocated
@@ -425,13 +551,17 @@ never point them at production.
   vessel writes; a future edit-reconciliation workflow is a separate design.
 * Vessel order drafts are **copy-only** (`MANUAL_COPY_ONLY`). The platform
   renders the exact Owner layout on `/vessel/drafts`, program detail and review
-  detail, but does not send it to WhatsApp: neither bridge has a `messages.send`
-  capability and no outbound sender is enabled. Automatic delivery requires an
-  explicit Owner decision. See `docs/VESSEL_ORDER_DRAFT.md`.
-* Unstructured release/cancel/food-bill messages are not parsed. They remain in
-  the Review Queue as `PROGRAM` / `EXTRACTION_FAILED` with
-  `payload.releaseCategory = RELEASE_UNSTRUCTURED` until a parser extension is
-  approved; no program is changed from them.
+  detail. The activation branch adds recipient resolution (explicit pin or the
+  original order-giving conversation (direct client chat or approved group;
+  Admin JIDs are never a fallback) and pre-send source/bridge identity
+  verification. At the time of writing the outbound token/mount and switches
+  are being activated; the first live send still requires exact Owner approval. See `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`.
+* Unstructured release/cancel/food-bill/transfer messages **are now parsed**
+  (`7da17f1`) into enriched, **pending** review evidence with read-only
+  candidate-program matching; no program, release date, payment or Cash posting
+  is changed from them. The seven **historical** `RELEASE_UNSTRUCTURED` items are
+  preserved for manual review and are not retroactively rewritten
+  (`docs/HISTORICAL_RELEASE_REVIEW_20261107.md`).
 
 See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 `docs/STANDALONE-VERIFICATION.md` for the verification record.
@@ -446,10 +576,44 @@ See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 - **Compose project:** `al-rifai-phase3`
 - **Compose files:** `compose.yaml`, `compose.phase3.yaml`
 - **Database:** `alrifai_v2_phase3` (schema 1.5.0)
-- **Runtime image:** `local/al-rifai-platform:phase3-ai-rc-86d659a`
-- **Digest:** `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
-- **GitHub:** `arshiyaazim/al-rifai-platform`, `main` includes docs merge `9fcc2e7`; runtime release `86d659a`
-- **Candidate (built, tested, NOT deployed):** `phase3-ai-rc-9e85e49`, digest `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0`
+- **Runtime image (DEPLOYED 2026-11-07):** `local/al-rifai-platform:phase3-ai-rc-7da17f1`
+- **Digest:** `sha256:5f3de875870f013c741d545a7342bb1fc2625e723838401e5f27baebf61301fa`
+- **Rollback image:** `local/al-rifai-platform:phase3-ai-rc-86d659a`, digest `sha256:932ef85621a0f99c2b15b1eaa615bad6e2dc87320f149787092c7c0f5a4079a5`
+- **GitHub:** `arshiyaazim/al-rifai-platform`, `main` `0861e05`; deployed release `7da17f1`; feature branch `feature/phase3-router-cash-vessel` pushed (head advances with documentation commits — see `git log`; not merged into `main`)
+- **Superseded candidate (Built but Not Deployed):** `phase3-ai-rc-9e85e49`, digest `sha256:cb8de252663fc04462eacf23a8eb1bbd39fe3af6a2a81230cdf3fa43a26075a0`
+- **Verification image (Built but Not Deployed):** `phase3-ai-rc-675a3ef` — post-deployment workflow fixes
+
+`7da17f1` was deployed after explicit Owner approval and a fresh verified
+backup (`docs/PHASE3_PREDEPLOY_BACKUP_20261107.md`). It adds capability-gated
+Cash/Settings/Vessel forms, escort directory-name resolution, and unstructured
+release/cancel/food-bill evidence extraction with read-only candidate matching.
+It contains **no schema change**; schema remains `1.5.0`. Business counts were
+identical before/after deployment and WhatsApp checkpoints were preserved.
+See `docs/PHASE3_GO_NO_GO_7da17f1.md` and `NEXT-HANDOFF.md`.
+
+The `feature/phase3-010-011-release` branch is deployed as
+`phase3-ai-rc-8a6c2c6` with migrations 010/011. The follow-up
+`feature/phase3-010-011-activation` branch adds the missing operational wiring
+for Vessel Draft delivery: recipient resolution from the original order
+conversation (explicit Owner pin wins; group and non-admin senders are refused),
+pre-send verification that the bridge socket/token is really the approved WA-01
+sender, and `scripts/standalone/vessel-draft-activation.mjs` (read-only
+preflight by default; `--enqueue` and `--tick` require explicit confirmation).
+It is implemented, typechecked, linted, built and tested (**Built but Not
+Deployed**). WA-01 still has **no `messages.send` capability** and the container
+has no WA-01 socket/token mount, so outbound delivery remains
+`MANUAL_COPY_ONLY`. Deploying this branch, granting `messages.send`, mounting the
+bridge and enabling the two kill switches each require separate explicit Owner
+approval (`docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`).
+
+The production `.env` `ALRIFAI_TAG` was aligned to `phase3-ai-rc-7da17f1` with
+explicit Owner approval (one line, no restart, owner/mode preserved;
+`docs/PRODUCTION_ENV_TAG_ALIGNMENT_20261107.md`). Authentication was diagnosed
+as healthy — the 0-byte bootstrap files are provisioning-only and the three DB
+accounts have valid hashes with historical successful logins; no credential was
+changed (`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`). Additive migration
+`010_vessel_draft_delivery.sql` is written and clone-tested but **NOT applied to
+production**; it needs 8 explicit Owner approvals before activation.
 
 ### Verified public URLs
 
@@ -459,11 +623,25 @@ See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 | `https://alrifai.iamazim.com` | **LEGACY ALIAS — VERIFIED** |
 | `https://al-rifai.iamazim.com` | **BROKEN — Cloudflare 1014** (cross-account CNAME) |
 
-Login: `/login`. Health: `/api/health`. Admin Assistant: `/assistant`
-(deployed on candidate `9e85e49`, deployment pending). Cash: `/cash`.
-Vessel: `/vessel`. Vessel Order Drafts: `/vessel/drafts` (candidate only).
-Employees: `/employees`. Attendance: `/attendance`. Reports: `/reports`.
-Review: `/review`. Messages: `/messages`.
+Login: `/login`. Health: `/api/health`. Admin Assistant: `/assistant`.
+Cash: `/cash`. Vessel: `/vessel`. Vessel Order Drafts: `/vessel/drafts`
+(**deployed** on `7da17f1`). Employees: `/employees`. Attendance:
+`/attendance`. Reports: `/reports`. Review: `/review`. Messages: `/messages`.
+
+**OWNER-CONFIRMED login:** the Owner confirms `Admin`, `officeassistant` and
+`officeazzistant2` all log in with their current passwords — authentication is
+operational, not broken (8 `LOGIN` events, 3 live sessions); no reset,
+replacement account, hash, role or capability change was made.
+**AGENT-VERIFIED authenticated UI is NOT TESTED / BLOCKED:** no production
+session cookie is available to the Agent. **Specific Owner action required:**
+write one valid `__Host-alrifai_cash` cookie into the root-only
+`/etc/vps/apps/al-rifai/verification-session.cookies` (`root:root`, `400`), or
+run the read-only `scripts/owner-assisted-ui-verify.sh` and share only its
+non-secret output. Unauthenticated health, login page, 41 route protections and
+auth origin/validation were verified on both hosts. Until that access exists the
+active goal is **BLOCKED, not COMPLETE**. See
+`docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md` and
+`docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`.
 
 See `docs/PRODUCTION_URLS.md` for the full route and legacy compatibility
 matrix, `docs/PROJECT_KNOWLEDGE.md` for the permanent project map,
@@ -473,23 +651,41 @@ comparison, and `docs/DNS_CLOUDFLARE_1014.md` for the DNS correction proposal.
 
 ### Authentication and user provisioning
 
-Admin and two USER accounts are provisioned only through explicit CLIs; a
-restart never resets a password. The production `.env` references root-only
-password files that are intentionally empty until the Owner enters the intended
-credentials interactively. See `docs/ADMIN_AUTH.md`.
+Three production accounts exist (`Admin` ADMIN, `officeassistant` USER,
+`officeazzistant2` USER) with valid stored PBKDF2 hashes; **all three log in
+with their current passwords (OWNER-CONFIRMED)**. No reset, replacement account,
+hash, role or capability change is needed or was made. Admin/USER provisioning
+happens only through explicit CLIs; a restart never resets a password. The
+0-byte root-only bootstrap password files are **provisioning inputs only** —
+they are not required for normal login and do not invalidate the stored hashes.
+See `docs/ADMIN_AUTH.md` and `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`.
 
 ### Configuration
 
 `/opt/vps/al-rifai-standalone/apps/al-rifai/.env` is the central configuration
 source. Keys are copied into app/sync containers via Compose `env_file`;
 metadata keys (`ALRIFAI_APP_NAME`, `ALRIFAI_PUBLIC_BASE_URL`, etc.) are
-informational and do not alter DNS or proxy routing. AI keys (`AI_LLM_*`) are
-disabled/unconfigured; WA-02 outbound and automatic replies remain off.
+informational and do not alter DNS or proxy routing. Current production flags:
+`PHASE3_ROUTER_WORKER_ENABLED=1`, `ALRIFAI_VESSEL_PROCESSING_ENABLED=1`,
+`ALRIFAI_LIVE_CASH_SYNC=0`, `ALRIFAI_UNIFIED_AUTH_MODE=on`. All AI flags
+(`AI_WA02_ENABLED`, `AI_OUTBOUND_ENABLED`, `AI_AUTO_REPLY_ENABLED`,
+`AI_LLM_ENABLED`) are `0` — the AI Assistant page is deployed, but the WA-02
+worker, outbound messaging and automatic replies are **off**. Migration 009 /
+schema 1.5.0 **is applied**, and 010/011 are now applied too (schema 1.6.0, 49
+tables). `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED`,
+`ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED` and `PHASE3_PAID_EVENTS_ENABLED` are
+absent/OFF.
 
 ### Backup and rollback
 
-Pre-import backup:
-`/var/lib/vps/al-rifai/backups/phase3-pre-import-20261106T224024Z.dump`
-(SHA-256 verified). Rollback image `phase3-ai-rc-e3b56c4` and
-`phase3-rc-final5` are present. Use the `--env-file` Compose command for the
-`al-rifai-phase3` project; never create a parallel stack.
+Fresh pre-deploy backup (verified by a full restore test):
+`/var/lib/vps/al-rifai/backups/phase3-predeploy-7da17f1-20261107T124612Z.dump`,
+SHA-256 `61c73a1a29e0f96b30dc62a0f45d778a19471a87f6d185984b3c4ca68ebb48aa`
+(`docs/PHASE3_PREDEPLOY_BACKUP_20261107.md`). Older pre-import backup
+`phase3-pre-import-20261106T224024Z.dump` is preserved. The verified runtime
+rollback target for the current deployment is `phase3-ai-rc-86d659a`
+(`sha256:932ef856…`); the older images `phase3-ai-rc-e3b56c4` and
+`phase3-rc-final5` are **historical, preserved only** (not current). Use the
+`--env-file` Compose command for the `al-rifai-phase3` project; never create a
+parallel stack. **Do not restore a database backup merely to roll back
+application code.**

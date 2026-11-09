@@ -27,6 +27,7 @@ class McpClient {
   private nextId = 1;
   private pending = new Map<number, {resolve: (v: JsonObject) => void; reject: (e: Error) => void; timer: NodeJS.Timeout}>();
   private ready: Promise<void>;
+  private initialized: Promise<void> | null = null;
 
   constructor(socketPath: string, tokenFile: string) {
     const token = readFileSync(tokenFile, 'utf8').trim();
@@ -100,7 +101,26 @@ class McpClient {
     }));
   }
 
+  /**
+   * The secured bridge broker speaks the MCP lifecycle: authenticate, then
+   * `initialize`, then `notifications/initialized`, then tool calls. Sending a
+   * tool call before initialization is rejected with -32602.
+   */
+  private ensureInitialized(): Promise<void> {
+    if (!this.initialized) {
+      this.initialized = this.request('initialize', {
+        protocolVersion: '2025-11-25',
+        capabilities: {},
+        clientInfo: {name: 'al-rifai', version: '1'},
+      }).then(() => {
+        this.socket.write(`${JSON.stringify({jsonrpc: '2.0', method: 'notifications/initialized'})}\n`);
+      });
+    }
+    return this.initialized;
+  }
+
   async callTool(name: string, args: JsonObject): Promise<JsonObject> {
+    await this.ensureInitialized();
     const result = await this.request('tools/call', {name, arguments: args});
     const structured = result.structuredContent;
     if (structured && typeof structured === 'object') return structured as JsonObject;
@@ -335,15 +355,32 @@ export async function processPending(actor: Actor, limit = 100) {
 
 /**
  * A verified administrator's outgoing reply that completes an existing draft is
- * the confirmation. It must match exactly one draft in the same chat; anything
- * else stays unresolved.
+ * the confirmation. It must match exactly one WhatsApp DRAFT in the SAME direct
+ * client conversation. Matching reuses the Owner-approved, alias- and
+ * variant-tolerant matcher in `lib/vessel-match.ts` (vessel spelling variants,
+ * Master Mobile digits, shift corroboration, bounded chronology, unique
+ * candidate only). Anything else stays unresolved or goes to review.
+ *
  * Exported for use by the shared message router.
  */
-export async function applyConfirmation(actor: Actor, message: {message_id: string; chat_jid: string}, text: string) {
+export async function applyConfirmation(
+  actor: Actor,
+  message: {
+    message_id: string;
+    chat_jid: string;
+    account_id: string;
+    sender_jid: string | null;
+    source_timestamp: string;
+  },
+  text: string,
+) {
   const {parseEscortOrder} = await import('../escort-intake-candidate.mjs');
-  const blocks = parseEscortOrder(text, {messageDate: new Date().toISOString().slice(0, 10)}) as Array<{
+  const {matchConfirmation, isConfirmable} = await import('../vessel-match.ts');
+  const blocks = parseEscortOrder(text, {
+    messageDate: new Date(message.source_timestamp).toISOString().slice(0, 10),
+  }) as Array<{
     motherVessel?: string; lighterVessel?: string; fields?: Record<string, string>;
-    assignmentDate?: string | null; shift?: string | null;
+    masterMobile?: string | null; assignmentDate?: string | null; shift?: string | null;
   } & Record<string, unknown>>;
   const found = (blocks ?? []).find((candidate) => candidate.fields?.escortName || candidate.fields?.escortMobile);
   // parseEscortOrder() keeps the vessel names inside `fields`; accept either
@@ -352,37 +389,117 @@ export async function applyConfirmation(actor: Actor, message: {message_id: stri
   const lighterVessel = found?.fields?.lighterVessel ?? found?.lighterVessel;
   if (!found || !motherVessel || !lighterVessel) return 'CONFIRMATION_NO_ASSIGNMENT';
   const block = found;
-  const candidates = await rows<{id: string; state: string; confirmation_message_id: string | null}>(
-    `SELECT id, state, confirmation_message_id FROM programs
-      WHERE source_chat_jid = $1 AND lower(btrim(mother_vessel)) = lower(btrim($2))
-        AND lower(btrim(lighter_vessel)) = lower(btrim($3)) AND state IN ('DRAFT','CONFIRMED')
-      ORDER BY created_at DESC LIMIT 2`,
-    [message.chat_jid, motherVessel, lighterVessel],
+
+  // Only a WhatsApp Draft created from an original order in this exact
+  // conversation is confirmable. Manual/WEB programs are never confirmed from
+  // a WhatsApp reply.
+  const candidates = await rows<{
+    id: string; state: string; confirmation_message_id: string | null;
+    mother_vessel: string; lighter_vessel: string; master_mobile: string | null;
+    source_message_id: string; source_chat_jid: string; start_date: string; start_shift: string;
+    source_time: string;
+  }>(
+    `SELECT p.id, p.state, p.confirmation_message_id, p.mother_vessel, p.lighter_vessel,
+            p.master_mobile, p.source_message_id, p.source_chat_jid,
+            p.start_date::text AS start_date, p.start_shift,
+            coalesce(m.source_timestamp::text, p.created_at::text) AS source_time
+       FROM programs p
+       LEFT JOIN whatsapp_messages m
+              ON m.account_id = $1 AND m.chat_jid = p.source_chat_jid AND m.message_id = p.source_message_id
+      WHERE p.source_chat_jid = $2
+        AND p.source_channel = 'WHATSAPP'
+        AND p.source_message_id IS NOT NULL
+        AND p.state IN ('DRAFT','CONFIRMED')
+      ORDER BY p.created_at DESC
+      LIMIT 20`,
+    [message.account_id, message.chat_jid],
   );
-  if (candidates.length !== 1) return candidates.length ? 'CONFIRMATION_AMBIGUOUS' : 'CONFIRMATION_UNMATCHED';
+  if (!candidates.length) return 'CONFIRMATION_UNMATCHED';
+
+  const match = matchConfirmation(
+    candidates.map((candidate) => ({
+      id: candidate.id,
+      messageId: candidate.source_message_id,
+      chatJid: candidate.source_chat_jid,
+      mother: candidate.mother_vessel,
+      lighter: candidate.lighter_vessel,
+      masterRaw: candidate.master_mobile ?? '',
+      sourceTime: candidate.source_time,
+      dutyDate: candidate.start_date,
+      shift: candidate.start_shift,
+    })),
+    {
+      messageId: message.message_id,
+      chatJid: message.chat_jid,
+      mother: motherVessel,
+      lighter: lighterVessel,
+      masterRaw: found.fields?.masterMobile ?? String(found.masterMobile ?? ''),
+      sourceTime: message.source_timestamp,
+      shift: found.shift ?? null,
+    },
+    {windowDays: 30},
+  );
+  if (match.state === 'AMBIGUOUS') return 'CONFIRMATION_AMBIGUOUS';
+  if (match.state === 'WEAK_EVIDENCE') return 'CONFIRMATION_WEAK_EVIDENCE';
+  if (!match.orderId || !isConfirmable(match.state)) return 'CONFIRMATION_UNMATCHED';
+
+  const target = candidates.find((candidate) => candidate.id === match.orderId);
+  if (!target) return 'CONFIRMATION_UNMATCHED';
+
   // Replaying the exact Admin confirmation is a no-op: it must not create a
   // second assignment/event or rewrite the stored confirmation message id.
-  if (
-    candidates[0].state === 'CONFIRMED' &&
-    candidates[0].confirmation_message_id === message.message_id
-  ) {
-    return 'CONFIRMED';
+  if (target.state === 'CONFIRMED') {
+    return target.confirmation_message_id === message.message_id
+      ? 'CONFIRMED'
+      : 'CONFIRMATION_ALREADY_CONFIRMED';
   }
+
   const fields = block.fields ?? {};
   const employee = fields.escortMobile ?? fields.employeeMobile;
   if (!employee) return 'CONFIRMATION_NO_EMPLOYEE';
-  await assignEscort(actor, candidates[0].id, {
+  await assignEscort(actor, target.id, {
     employeeMobile: employee,
     employeeName: fields.escortName ?? employee,
     startDate: block.assignmentDate ?? undefined,
     startShift: block.shift ?? undefined,
   });
   await row(
-    `UPDATE programs SET confirmation_message_id = $2, state = 'CONFIRMED' WHERE id = $1`,
-    [candidates[0].id, message.message_id],
+    `UPDATE programs
+        SET confirmation_message_id = $2,
+            confirmation_chat_jid = $3,
+            confirmation_sender_jid = $4,
+            confirmation_account_id = $5,
+            confirmation_timestamp = $6,
+            state = 'CONFIRMED'
+      WHERE id = $1`,
+    [
+      target.id,
+      message.message_id,
+      message.chat_jid,
+      message.sender_jid,
+      message.account_id,
+      message.source_timestamp,
+    ],
   );
-  await recordAudit({actor, action: 'PROGRAM_CONFIRMED', entity: 'program', entityId: candidates[0].id,
-    source: 'WHATSAPP', sourceRef: message.message_id});
+  await recordAudit({
+    actor,
+    action: 'PROGRAM_CONFIRMED',
+    entity: 'program',
+    entityId: target.id,
+    detail: {
+      matchState: match.state,
+      mobileEvidence: match.mobileEvidence,
+      shiftEvidence: match.shiftEvidence,
+      reasons: match.reasons,
+      confirmationMessageId: message.message_id,
+      confirmationChatJid: message.chat_jid,
+      confirmationSenderJid: message.sender_jid,
+      confirmationAccountId: message.account_id,
+      originalOrderMessageId: target.source_message_id,
+    },
+    source: 'WHATSAPP',
+    sourceRef: message.message_id,
+  });
   return 'CONFIRMED';
 }
 

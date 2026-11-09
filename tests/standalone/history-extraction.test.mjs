@@ -19,7 +19,36 @@ test('names with MD: are accepted and duplicate ID prefixes are normalized', () 
   assert.equal(block.fields.amountMinor, '120000');
 });
 
-test('a single phone is not silently treated as both identities', () => {
+test('a single phone is both employee identity and payout destination', () => {
   const [block] = parsePaymentBlocks('ID: 01712345678 Rahim Uddin (B) 500/-');
-  assert.ok(block.reasons.includes('PAYOUT_DESTINATION_UNRESOLVED'));
+  assert.deepEqual(block.reasons, []);
+  assert.equal(block.fields.employeeMobile, '+8801712345678');
+  assert.equal(block.fields.payoutMobile, '+8801712345678');
+  assert.equal(block.fields.employeeName, 'Rahim Uddin');
+});
+
+test('single-number form with the name before the number is accepted', () => {
+  const [block] = parsePaymentBlocks('ID: Rahim Uddin 01712345678 (N) 500/-');
+  assert.deepEqual(block.reasons, []);
+  assert.equal(block.fields.employeeMobile, block.fields.payoutMobile);
+  assert.equal(block.fields.employeeName, 'Rahim Uddin');
+});
+
+test('hyphenated numbers, extra separators and cash marker (C) are accepted', () => {
+  const [block] = parsePaymentBlocks('ID: 01712-345678 Md.Noyon Khan 01712-345678(C)---20,500/-');
+  assert.deepEqual(block.reasons, []);
+  assert.equal(block.fields.method, 'cash');
+  assert.equal(block.fields.amountMinor, '2050000');
+});
+
+test('missing method is never fabricated as cash', () => {
+  const [block] = parsePaymentBlocks('ID: 01712345678 Rahim Uddin 01812345678 500/-');
+  assert.ok(block.reasons.includes('PAYMENT_METHOD_UNRESOLVED'));
+  assert.equal(block.fields.method, undefined);
+});
+
+test('three identifiable numbers are ambiguous and never guessed', () => {
+  const [block] = parsePaymentBlocks('ID: 01712345678 Rahim Uddin 01812345678 Karim 01912345678 (B) 500/-');
+  assert.ok(block.reasons.includes('AMBIGUOUS_MOBILE_NUMBERS'));
+  assert.equal(block.reasons.length > 0, true, 'the block must go to review');
 });

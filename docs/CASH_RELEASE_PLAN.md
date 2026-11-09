@@ -273,3 +273,111 @@ automatic eligibility and Office approval integration remain future work.
   WhatsApp-sourced.
 - Deployment, production verification and any WA/Office classification work
   remain outside this phase.
+
+---
+
+# Phase 3 — Business Paid Events (2026-11-07, isolated implementation)
+
+Status: source implementation + isolated verification complete. Not merged, not
+deployed and not applied to production.
+
+## Owner rules encoded
+
+- WA-01 verified Admin OUTGOING to the single authorized Accountant direct chat
+  is the only Cash source. WA-02 remains identity-only.
+- One identifiable mobile = `employee_mobile` = `payout_mobile`. Two numbers
+  keep ID + payout. Three or more are ambiguous and go to review.
+- A missing method is never fabricated as `cash`.
+- Business Paid (`cash_payment_events`) is separate from Financial POSTED
+  (`cash_postings`/`ledger_entries`). WhatsApp automatic Paid never calls
+  `postInstruction()`.
+- `PHASE3_PAID_EVENTS_ENABLED` defaults to `0` and guards both WhatsApp and
+  Office event creation.
+
+## Reporting
+
+- Flag OFF: unchanged Phase 2 POSTED reporting.
+- Flag ON: Business Paid Events plus historical POSTED rows with no event.
+  Reversed events and their postings are excluded; corrections use the latest
+  correction amount. Dates use `Asia/Dhaka`.
+
+## Migrations
+
+| Migration | Purpose | SHA-256 |
+|---|---|---|
+| `010_vessel_draft_delivery.sql` | inert vessel draft-delivery queue | `fa299768329105611153b977a6f6c1400372d5651d77f7125bc1c5c69817e7c7` |
+| `011_cash_payment_events.sql` | append-only Business Paid Events + posting link | `4203fdbeff6eede80cc44799b6cdad4112b37e621ef44cf09d22d0ac58964165` |
+
+011 must follow 010. Both are recorded in `schema_migrations`; schema version
+becomes `1.6.0`.
+
+## Deployment instructions (separate Owner approval required)
+
+1. Take a verified production backup.
+2. Rehearse 010/011 on a restored production copy.
+3. Run `scripts/standalone/migrate.mjs` against the approved database. Confirm
+   the ledger checksums above and schema `1.6.0`.
+4. Deploy the image with `PHASE3_PAID_EVENTS_ENABLED=0`.
+5. Verify flag-OFF parity: dashboard totals, posting permissions, no new events.
+6. Only after approval set the flag to `1`. No restart of an outbound WhatsApp
+   sender is required; this work does not send messages.
+
+Rollback: set the flag to `0`. Do not drop or mutate existing
+`cash_payment_events` rows; they are append-only audit records.
+
+## Remaining limitations
+
+- No production migration or deployment was performed.
+- The real-message inspection was a bounded read-only sample, not a complete
+  archive audit.
+- 11 sampled blocks remain incomplete by design and go to review.
+
+---
+
+# Phase 3 Integration — Admin Business Paid API/UI (2026-11-07, isolated)
+
+Status: `feature/phase3-integration` combines the router/vessel and cash/Paid
+branches and adds the missing Admin Paid API/UI. Not merged to `main`, not
+deployed and not applied to production.
+
+## Delivered routes
+
+| Route | Purpose |
+|---|---|
+| `GET /api/finance?resource=business-paid` | Filtered/paginated Business Paid list with totals |
+| `GET /api/finance?resource=business-paid-event&id=...` | Root event, employee, evidence, posting link, corrections, reversal, audit |
+| `POST /api/finance` `business-paid.correct` | Append a CORRECTION event; ADMIN + `cash.review`; reason required |
+| `POST /api/finance` `business-paid.reverse` | Append a REVERSAL event; ADMIN + `cash.review`; reason required |
+| `/cash/paid` | Business Paid list, filters, totals, evidence/detail links |
+| `/cash/paid/[id]` | Business Paid detail, employee/payout, WhatsApp/Office evidence, financial status, timeline, audit |
+
+## Reporting basis
+
+- Dashboard summary is both-basis: flag OFF → historical POSTED; flag ON →
+  Business Paid events + historical POSTED rows with no event.
+- `/cash/transactions` is explicitly labelled **Financial POSTED** and links to
+  `/cash/paid`; `/cash/paid` is explicitly labelled **Business Paid**.
+- Correction/reversal never writes `cash_postings`, `ledger_entries` or
+  `cash_reversals`.
+
+## Verification
+
+- Unit 147/147; integration 163/163; typecheck/lint/build pass.
+- Fresh install and incremental migration: schema `1.6.0`, 49 tables.
+- Runtime grants: vessel READ_WRITE; Paid tables append-only.
+- Production unchanged.
+
+Technical references:
+`docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md`,
+`docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md`,
+`docs/PHASE3_GIT_COMPLETENESS_AUDIT.md`.
+
+## 2026-11-08 staged production migration
+
+- Migration 010 applied first: 47 tables, schema `1.5.0`; verified.
+- Migration 011 applied after the 010 gate: 49 tables, schema `1.6.0`; verified.
+- Fresh backup SHA-256 `d88b0f0f...22ae77`; critical row counts preserved.
+- `PHASE3_PAID_EVENTS_ENABLED` remains OFF; `cash_payment_events` and posting
+  links are empty. No financial posting or historical backfill occurred.
+- Release image `phase3-ai-rc-8a6c2c6`
+  (`sha256:8b7ab534…c3e510`) deployed; app/sync healthy; schema `1.6.0`.

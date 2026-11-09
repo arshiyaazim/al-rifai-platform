@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import {pageUser, when} from '@/lib/standalone/session';
-import {listChats, listMessages, messageStats} from '@/lib/standalone/messages';
+import {listCalls, listChats, listMessages, messageStats} from '@/lib/standalone/messages';
+import {MessageIntelligenceTable} from '@/components/standalone/message-intelligence-table';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +11,14 @@ type SearchParams = Promise<{
   direction?: string;
   kind?: string;
   q?: string;
+  role?: string;
+  domain?: string;
+  identity?: string;
+  mediaStatus?: string;
+  messageType?: string;
+  reviewStatus?: string;
+  sourceRole?: string;
+  sort?: string;
   page?: string;
 }>;
 
@@ -25,38 +34,65 @@ function bytes(value: number) {
   return `${amount >= 10 || unit === 0 ? Math.round(amount) : amount.toFixed(1)} ${units[unit]}`;
 }
 
-function mediaHref(account: string, chat: string, message: string) {
-  const search = new URLSearchParams({account, chat, message});
-  return `/api/media?${search.toString()}`;
-}
+const ROLES = ['OWNER', 'ADMIN', 'ACCOUNTANT', 'ESCORT_CLIENT', 'ESCORT', 'EMPLOYEE', 'SUPPLIER', 'CUSTOMER', 'UNKNOWN'];
+const DOMAINS = ['CASH', 'VESSEL', 'SECURITY', 'HR', 'PAYROLL', 'OPERATIONS', 'PERSONAL', 'GENERAL', 'UNKNOWN'];
+const IDENTITIES = ['EXACT', 'VARIANT', 'AMBIGUOUS', 'UNRESOLVED'];
+const MEDIA = ['NOT_APPLICABLE', 'MISSING', 'STORED', 'FAILED', 'SKIPPED'];
+const TYPES = ['text', 'image', 'audio', 'video', 'document', 'sticker', 'reaction'];
+const SOURCE_ROLES = ['ORDER_INTAKE', 'CASH_ONLY', 'SUPPORT_ONLY', 'RELEASE_ONLY', 'OTHER_APPROVED', 'REVIEW_REQUIRED'];
+const REVIEWS = ['PENDING', 'PROCESSING', 'PROCESSED', 'REVIEW_REQUIRED', 'UNREVIEWED', 'CONFIRMED', 'CORRECTED', 'REJECTED'];
+const SORTS = [
+  ['time_desc', 'Newest event first'],
+  ['time_asc', 'Oldest event first'],
+  ['sender', 'Sender name'],
+  ['domain', 'Business domain'],
+  ['role', 'Identity role'],
+] as const;
 
 export default async function MessagesPage({searchParams}: {searchParams: SearchParams}) {
   await pageUser();
   const params = await searchParams;
   const page = Math.max(Number(params.page ?? 1), 1);
   const limit = 50;
-  const [stats, conversations, listing] = await Promise.all([
+  const [stats, conversations, listing, calls] = await Promise.all([
     messageStats(),
     listChats(params.account, params.kind),
     listMessages({
       account: params.account,
       chat: params.chat,
       direction: params.direction,
+      kind: params.kind,
       q: params.q,
+      role: params.role,
+      domain: params.domain,
+      identity: params.identity,
+      mediaStatus: params.mediaStatus,
+      messageType: params.messageType,
+      reviewStatus: params.reviewStatus,
+      sourceRole: params.sourceRole,
+      sort: params.sort,
       limit,
       offset: (page - 1) * limit,
     }),
+    listCalls(params.account, params.chat, 100),
   ]);
 
-  const account = params.account ?? '';
   const query = (extra: Record<string, string | undefined>) => {
     const search = new URLSearchParams();
     for (const [key, value] of Object.entries({
-      account: account || undefined,
+      account: params.account,
       chat: params.chat,
       direction: params.direction,
       kind: params.kind,
       q: params.q,
+      role: params.role,
+      domain: params.domain,
+      identity: params.identity,
+      mediaStatus: params.mediaStatus,
+      messageType: params.messageType,
+      reviewStatus: params.reviewStatus,
+      sourceRole: params.sourceRole,
+      sort: params.sort,
       ...extra,
     })) {
       if (value) search.set(key, value);
@@ -71,10 +107,10 @@ export default async function MessagesPage({searchParams}: {searchParams: Search
     <>
       <div className="page-head">
         <div>
-          <h1>WhatsApp Inbox</h1>
+          <h1>WhatsApp Message Intelligence</h1>
           <p className="muted">
-            Every message captured from both bridge stores, with resolved identities and new-media capture.
-            Read-only; nothing here authorizes a business action.
+            Every message captured from both bridge stores, with original event time, identity, contact,
+            conversation, media, call trace and business classification. Read-only; nothing here authorizes a business action.
           </p>
         </div>
       </div>
@@ -85,7 +121,7 @@ export default async function MessagesPage({searchParams}: {searchParams: Search
           <thead>
             <tr>
               <th>Account</th><th>Messages</th><th>Chats</th><th>In / Out</th><th>Group</th>
-              <th>Checkpoint</th><th>Identities</th><th>Media</th><th>Latest</th><th>Last sync</th><th>Error</th>
+              <th>Checkpoint</th><th>Identities</th><th>Media</th><th>Calls</th><th>Latest</th><th>Last sync</th><th>Error</th>
             </tr>
           </thead>
           <tbody>
@@ -104,12 +140,13 @@ export default async function MessagesPage({searchParams}: {searchParams: Search
                   {item.mediaStored.toLocaleString()} stored / {bytes(item.mediaBytes)}
                   {item.mediaFailed ? <span className="pill bad" style={{marginLeft: 6}}>{item.mediaFailed} failed</span> : null}
                 </td>
+                <td>{item.calls.toLocaleString()} / {item.missedCalls.toLocaleString()} missed</td>
                 <td>{when(item.lastAt)}</td>
                 <td>{when(item.lastSyncedAt)}</td>
                 <td>{item.lastError ? <span className="pill bad">{item.lastError}</span> : <span className="pill ok">clean</span>}</td>
               </tr>
             ))}
-            {!stats.length ? <tr><td colSpan={11} className="muted">No messages ingested yet.</td></tr> : null}
+            {!stats.length ? <tr><td colSpan={12} className="muted">No messages ingested yet.</td></tr> : null}
           </tbody>
         </table>
       </section>
@@ -156,85 +193,83 @@ export default async function MessagesPage({searchParams}: {searchParams: Search
         ) : null}
       </section>
 
-      <section className="card">
-        <form method="get" className="row">
-          <input type="hidden" name="account" value={account} />
-          <input type="hidden" name="kind" value={params.kind ?? ''} />
-          <input name="q" defaultValue={params.q ?? ''} placeholder="Search text, chat, sender or name" />
-          <select name="direction" defaultValue={params.direction ?? ''}>
-            <option value="">Both directions</option>
-            <option value="INCOMING">Incoming</option>
-            <option value="OUTGOING">Outgoing</option>
-          </select>
-          <button type="submit">Filter</button>
-          <Link href="/messages">Reset</Link>
-        </form>
-
-        <table>
-          <thead><tr><th>When</th><th>Account</th><th>Chat</th><th>Dir</th><th>Sender</th><th>Message</th></tr></thead>
-          <tbody>
-            {listing.items.map((item) => {
-              const sender = item.sender_name
-                ?? item.group_participant_jid
-                ?? item.sender_jid
-                ?? '—';
-              const senderId = item.group_participant_jid ?? item.sender_jid;
-              const chatName = item.chat_name ?? item.chat_label ?? item.chat_jid;
-              return (
-                <tr key={item.id}>
-                  <td style={{whiteSpace: 'nowrap'}}>{when(item.source_timestamp)}</td>
-                  <td>{item.account_id}</td>
-                  <td>
-                    <Link href={query({chat: item.chat_jid, page: undefined})}>{chatName}</Link>
-                    <div className="muted" style={{fontSize: 11}}>{item.chat_kind ?? ''}</div>
-                  </td>
-                  <td><span className={`pill ${item.direction === 'INCOMING' ? '' : 'ok'}`}>{item.direction === 'INCOMING' ? 'IN' : 'OUT'}</span></td>
-                  <td style={{maxWidth: 200}}>
-                    <div>{sender}</div>
-                    {item.sender_name && senderId ? (
-                      <div className="muted" style={{fontFamily: 'ui-monospace, monospace', fontSize: 10}}>{senderId}</div>
-                    ) : null}
-                    {item.sender_confidence === 'UNRESOLVED' ? (
-                      <div className="muted" style={{fontSize: 10}}>unresolved identity</div>
-                    ) : null}
-                  </td>
-                  <td style={{maxWidth: 520}}>
-                    <div style={{whiteSpace: 'pre-wrap', wordBreak: 'break-word'}}>
-                      {item.text_content ?? <span className="muted">[{item.media_type ?? 'no text'}]</span>}
-                    </div>
-                    {item.media_type && item.media_type !== 'reaction' ? (
-                      <div className="muted" style={{fontSize: 11, marginTop: 2}}>
-                        {item.media_status === 'STORED' ? (
-                          <>
-                            <a href={mediaHref(item.account_id, item.chat_jid, item.message_id)} target="_blank" rel="noreferrer">
-                              {item.media_type}{item.media_filename ? ` · ${item.media_filename}` : ''}
-                            </a>
-                            {item.media_byte_length ? ` · ${bytes(Number(item.media_byte_length))}` : ''}
-                          </>
-                        ) : item.media_status === 'FAILED' ? (
-                          <span className="pill bad">media capture failed</span>
-                        ) : (
-                          <span>media not captured</span>
-                        )}
-                      </div>
-                    ) : null}
-                    {item.deleted_at ? <div className="muted">deleted {when(item.deleted_at)}</div> : null}
-                  </td>
-                </tr>
-              );
-            })}
-            {!listing.items.length ? <tr><td colSpan={6} className="muted">No messages match.</td></tr> : null}
-          </tbody>
-        </table>
-
-        <div className="row" style={{justifyContent: 'space-between'}}>
-          <span className="muted">{listing.total.toLocaleString()} messages · page {page} of {pages}</span>
-          <span className="row">
-            {page > 1 ? <Link href={query({page: String(page - 1)})}>Newer</Link> : null}
-            {page < pages ? <Link href={query({page: String(page + 1)})}>Older</Link> : null}
-          </span>
+      <form method="get" className="card form compact">
+        {params.chat ? <input type="hidden" name="chat" value={params.chat} /> : null}
+        <div className="grid">
+          <label><span>Search</span><input name="q" defaultValue={params.q ?? ''} placeholder="Text, message ID, chat, JID or name" /></label>
+          <label><span>Account</span>
+            <select name="account" defaultValue={params.account ?? ''}>
+              <option value="">Both bridges</option>
+              <option value="wa-01">WA-01</option>
+              <option value="wa-02">WA-02</option>
+            </select>
+          </label>
+          <label><span>Chat type</span>
+            <select name="kind" defaultValue={params.kind ?? ''}>
+              <option value="">All</option><option value="DIRECT">Direct</option><option value="GROUP">Group</option>
+            </select>
+          </label>
+          <label><span>Direction</span>
+            <select name="direction" defaultValue={params.direction ?? ''}>
+              <option value="">Both</option><option value="INCOMING">Incoming</option><option value="OUTGOING">Outgoing</option>
+            </select>
+          </label>
+          <label><span>Identity role</span>
+            <select name="role" defaultValue={params.role ?? ''}>
+              <option value="">All roles</option>{ROLES.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label><span>Business domain</span>
+            <select name="domain" defaultValue={params.domain ?? ''}>
+              <option value="">All domains</option>{DOMAINS.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label><span>Identity confidence</span>
+            <select name="identity" defaultValue={params.identity ?? ''}>
+              <option value="">All</option>{IDENTITIES.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label><span>Media status</span>
+            <select name="mediaStatus" defaultValue={params.mediaStatus ?? ''}>
+              <option value="">All</option>{MEDIA.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label><span>Message type</span>
+            <select name="messageType" defaultValue={params.messageType ?? ''}>
+              <option value="">All</option>{TYPES.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label><span>Source role</span>
+            <select name="sourceRole" defaultValue={params.sourceRole ?? ''}>
+              <option value="">All source roles</option>
+              {SOURCE_ROLES.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label><span>Review status</span>
+            <select name="reviewStatus" defaultValue={params.reviewStatus ?? ''}>
+              <option value="">All</option>{REVIEWS.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label><span>Sort</span>
+            <select name="sort" defaultValue={params.sort ?? 'time_desc'}>
+              {SORTS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
         </div>
-      </section>
+        <div className="row">
+          <button type="submit">Apply filters</button>
+          <Link href="/messages">Reset</Link>
+        </div>
+      </form>
+
+      <MessageIntelligenceTable
+        rows={listing.items}
+        calls={calls}
+        total={listing.total}
+        page={page}
+        pages={pages}
+        params={params}
+      />
     </>
   );
 }
