@@ -12,14 +12,13 @@ import {
 } from '../../lib/order-draft-from-record.ts';
 
 const EXPECTED = [
-  'Mother Vessel: M.V. Union-Odyssey',
-  'Importer',
-  'Lighter Vessel:M.V. Fardin-7',
-  'Master mobile:-01911-428354',
+  'Mother Vessel: MV Union-Odyssey',
+  'Lighter Vessel: MV Fardin-7',
+  'Master Mobile: 01911428354',
   'Destination:',
   'Escort Name:',
-  'Escort mobile:',
-  '03/11/26 ((D))',
+  'Escort Mobile:',
+  '03.11.2026 (D)',
   '',
   "Al-Rifa'i Integrated Services",
 ].join('\n');
@@ -48,14 +47,14 @@ test('destination is rendered only when parsed; escort fields are never invented
   });
   assert.match(plain.text ?? '', /^Destination:$/m);
   assert.match(plain.text ?? '', /^Escort Name:$/m);
-  assert.match(plain.text ?? '', /^Escort mobile:$/m);
+  assert.match(plain.text ?? '', /^Escort Mobile:$/m);
 
   const withDestination = ownerDraftFromProgram({
     mother_vessel: 'Union-Odyssey', lighter_vessel: 'Fardin-7', master_mobile: '01911428354',
     destination: 'Landing Ghat Kanchpur', start_date: '2026-11-03', start_shift: 'N',
   });
   assert.match(withDestination.text ?? '', /^Destination: Landing Ghat Kanchpur$/m);
-  assert.match(withDestination.text ?? '', /^03\/11\/26 \(\(N\)\)$/m);
+  assert.match(withDestination.text ?? '', /^03\.11\.2026 \(N\)$/m);
 });
 
 test('a missing required field blocks the draft instead of inventing a value', () => {

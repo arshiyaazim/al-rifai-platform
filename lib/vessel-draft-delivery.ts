@@ -104,8 +104,8 @@ export function isOwnerDraftShape(text: string): boolean {
   if (!/^Lighter Vessel: MV .+/.test(lines[1])) return false;
   if (!/^Master Mobile: 01[3-9]\d{8}$/.test(lines[2])) return false;
   if (!/^Destination:/.test(lines[3])) return false;
-  if (!/^Escort Name:/.test(lines[4])) return false;
-  if (!/^Escort Mobile:/.test(lines[5])) return false;
+  if (!/^Escort Name:\s*$/.test(lines[4])) return false;
+  if (!/^Escort Mobile:\s*$/.test(lines[5])) return false;
   if (!/^\d{2}\.\d{2}\.\d{4} \([DN]\)$/.test(lines[6].trim())) return false;
   return lines.includes("Al-Rifa'i Integrated Services");
 }
@@ -365,6 +365,6 @@ export function deliveryViewModel(record: DraftDeliveryRecord, gate: DeliveryGat
     sent: record.state === 'SENT',
     notSentReason: gate.enabled ? null : gate.reasons[0] ?? 'OUTBOUND_NOT_APPROVED',
     confirmationRule: CONFIRMATION_RULE,
-    escortFieldsBlank: /^Escort Name:\s*$/m.test(record.text) && /^Escort mobile:\s*$/m.test(record.text),
+    escortFieldsBlank: /^Escort Name:\s*$/m.test(record.text) && /^Escort Mobile:\s*$/m.test(record.text),
   };
 }
