@@ -10,6 +10,7 @@ import {
   withdrawReview,
 } from '@/lib/standalone/review';
 import {decideCashSubmission} from '@/lib/standalone/finance';
+import {listMessageReviewQueue, resolveMessageReviewQueue} from '@/lib/standalone/message-review-queue';
 import {reviewActionsFor, type ReviewActor} from '@/lib/review-ui';
 import {assertCapability} from '@/lib/standalone/authz';
 
@@ -51,14 +52,16 @@ export async function GET(request: Request) {
     const mine = url.searchParams.get('mine') === '1';
     const showCash = domain === 'ALL' || domain === 'CASH';
 
-    const [rows, cashCandidates, counts] = await Promise.all([
+    const [rows, cashCandidates, counts, vesselQueue] = await Promise.all([
       listReviewQueue({state, domain, category, q, mine, actor: actor as never}),
       showCash ? listCashReviewCandidates({state, q, mine, actor: actor as never}) : Promise.resolve([]),
       reviewQueueCounts(),
+      listMessageReviewQueue({state: state === 'PENDING' ? 'PENDING' : state, limit: 100}),
     ]);
 
     return ok({
       rows: rows.map((item) => ({...item, actions: reviewActionsFor(actor as ReviewActor, item as never)})),
+      vesselQueue,
       cashCandidates: cashCandidates.map((item) => ({
         ...item,
         actions: reviewActionsFor(actor as ReviewActor, {
@@ -105,6 +108,24 @@ export async function POST(request: Request) {
 
     if (action === 'withdraw') {
       return ok(await withdrawReview(actor as never, id));
+    }
+
+    if (action === 'vessel_queue_resolve') {
+      assertCapability(actor as never, 'review.decide');
+      const decision = String(body.decision ?? '').toUpperCase();
+      if (!['APPROVED', 'REJECTED', 'IGNORED', 'SENT_BACK'].includes(decision)) {
+        return ok({error: 'INVALID_DECISION'}, 400);
+      }
+      return ok(await resolveMessageReviewQueue(
+        actor as never,
+        id,
+        decision as 'APPROVED' | 'REJECTED' | 'IGNORED' | 'SENT_BACK',
+        {
+          comment: typeof body.comment === 'string' ? body.comment : undefined,
+          workflow: typeof body.workflow === 'string' ? body.workflow : undefined,
+          payload: body.payload && typeof body.payload === 'object' ? body.payload as Record<string, unknown> : undefined,
+        },
+      ));
     }
 
     return ok({error: 'UNKNOWN_ACTION'}, 400);

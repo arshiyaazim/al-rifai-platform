@@ -115,8 +115,21 @@ function parseBlock(block: string, index: number): ReleaseSlipBlock {
   return {blockKey: `release-block-${index}`, fields, reasons};
 }
 
+const normalizeReleaseText = (text: string): string =>
+  bengali(String(text ?? '')).replace(/\r/g, '')
+    .replace(/\bRelace\b/gi, 'Release')
+    .replace(/\bMasage\b/gi, 'Message')
+    .replace(/\bMahter\s*\.?\s*v\.?\s*s\.?/gi, 'Mother Vessel')
+    .replace(/\bRighter\s*\.?\s*v\.?\s*s\.?/gi, 'Lighter Vessel')
+    .replace(/\bTotsl\b/gi, 'Total')
+    .replace(/\btska\b/gi, 'taka')
+    .replace(/\bFood\s*bil\b/gi, 'Food bill')
+    .replace(/Name\s+off?\s+Mother\s+Vessel/gi, 'Mother Vessel')
+    .replace(/Name\s+off?\s+Lighter\s+Vessel/gi, 'Lighter Vessel')
+    .replace(/Name\s+off?\s+Escort/gi, 'Escort Name');
+
 export function parseReleaseSlips(text: string): ReleaseSlipBlock[] {
-  const normalized = bengali(String(text ?? '')).replace(/\r/g, '');
+  const normalized = normalizeReleaseText(text);
   if (!/(?:^|\n)\s*-*\s*\(?\s*(?:Escort\s*Release|এসকর্ট\s*রিলিজ|রিলিজ)\s*\)?\s*-*(?:\n|$)/im.test(normalized)) {
     // Label-only release messages are accepted only when both an escort mobile
     // and an explicit end/release date are present.
@@ -236,7 +249,7 @@ function foodBill(text: string): number | null {
 }
 
 export function parseUnstructuredRelease(text: string): UnstructuredReleaseEvidence {
-  const normalized = bengali(String(text ?? '')).replace(/\r/g, '');
+  const normalized = normalizeReleaseText(text);
   const trimmed = normalized.trim();
   const inline = inlineIdentity(normalized);
   const motherRaw = grab(normalized, /(?:^|\s)(?:mather|mother)\s*(?:v\.?\s*s\.?|vessel|ভেসেল)?\s*[:\-]\s*([^\n]+)/im);

@@ -33,13 +33,22 @@ import {newId, stableId, recordAudit} from './standalone/audit.ts';
 import {autoPostInstruction} from './standalone/finance.ts';
 import {createProgram, potentialDuplicates, releaseProgram} from './standalone/programs.ts';
 import {submitForReview} from './standalone/review.ts';
-import {classifyDomain, type Domain} from './message-classifier.ts';
+import {classifyDomain, type ClassificationResult, type Domain} from './message-classifier.ts';
 import {jidsMatch} from './whatsapp-identity.mjs';
 import {isAuthorizedCashConversation, isAuthorizedEscortClientConversation} from './authorized-contacts.ts';
 import {RULE_VERSION} from './business-rules.mjs';
 import {vesselKey} from './vessel-match.ts';
 import {approvedGroupRole, resolveSourceRole, type SourceRole} from './source-roles.ts';
+import {featureConfig, isFeatureEnabled} from './feature-flags.ts';
+import {computeConfirmationScore} from './pipelines/vessel/fuzzy-match.ts';
 import type {WhatsAppAccount} from './standalone/whatsapp.ts';
+
+const ORDER_INTAKE_JIDS = new Set([
+  '8801670535255@s.whatsapp.net',
+  '166082241384593@lid',
+  '8801836743754@s.whatsapp.net',
+  '8801757622300@s.whatsapp.net',
+]);
 
 export type RouterResult = {
   processed: number;
@@ -1019,7 +1028,7 @@ async function handleVessel(
   }
 
   const {parseEscortOrder} = await import('./escort-intake-candidate.mjs');
-  const {orderDraftDateAndShift} = await import('./shift-boundary.ts');
+  const {orderIntakeDateAndShift, orderIntakeShift} = await import('./order-intake-shift.ts');
 
   const blocks = parseEscortOrder(text, {
     messageDate: message.source_timestamp.slice(0, 10),
@@ -1051,7 +1060,7 @@ async function handleVessel(
     return {created: false, reviewSubmitted: true, reasons: ['NO_PARSEABLE_ORDER_BLOCK']};
   }
 
-  const derived = orderDraftDateAndShift(message.source_timestamp);
+  const derived = orderIntakeDateAndShift(message.source_timestamp, text);
   let created = 0;
   let reviewSubmitted = false;
   const allReasons: string[] = [];
@@ -1172,7 +1181,7 @@ async function handleVessel(
     }
 
     // Duplicate check: same Mother + Lighter + Start Date ±1 day
-    const startDate = block.assignmentDate ?? derived?.date ?? '';
+    const startDate = derived?.date ?? block.assignmentDate ?? '';
     const dups = await potentialDuplicates({
       motherVessel,
       lighterVessel,
@@ -1226,7 +1235,7 @@ async function handleVessel(
         masterMobile,
         destination: fields.destination ?? null,
         startDate,
-        startShift: (block.shift as 'D' | 'N' | null) ?? derived?.shift ?? 'D',
+        startShift: orderIntakeShift(message.source_timestamp, text),
         notes: noteParts.length ? noteParts.join('; ') : null,
       }, {channel: 'WHATSAPP', messageId: message.message_id, chatJid: message.chat_jid});
 
@@ -1322,6 +1331,48 @@ async function handleConfirmation(
   const isAdmin = accountAdminJids.some((jid) => jidsMatch(jid, message.sender_jid));
   if (!isAdmin) {
     return {confirmed: false, classification: 'OUTGOING_NON_ADMIN'};
+  }
+
+  // Weighted Owner score (Step 14). The legacy matcher remains the state
+  // transition authority; this gate chooses confirm / review / skip.
+  const candidates = await rows<Record<string, unknown>>(
+    `SELECT * FROM programs
+      WHERE source_chat_jid = $1
+        AND state IN ('DRAFT','CONFIRMED')
+        AND event_at <= $2::timestamptz
+      ORDER BY event_at DESC
+      LIMIT 50`,
+    [message.chat_jid, message.source_timestamp],
+  ).catch(() => []);
+  let best: {program: Record<string, unknown>; score: number} | null = null;
+  for (const program of candidates) {
+    const score = computeConfirmationScore(text, program as never, message.source_timestamp.slice(0, 10));
+    if (!best || score > best.score) best = {program, score};
+  }
+  const score = best?.score ?? 0;
+  const confirmConfig = await featureConfig('vessel.auto_confirm', {fuzzy_threshold: 0.90});
+  const rawThreshold = Number(confirmConfig.fuzzy_threshold ?? 0.90);
+  const threshold = rawThreshold <= 1 ? Math.round(rawThreshold * 100) : Math.round(rawThreshold);
+  const shadow = await isFeatureEnabled('vessel.auto_confirm.shadow', false);
+  if (shadow) {
+    await row(
+      `INSERT INTO audit_events(actor,actor_role,action,entity,entity_id,detail,source)
+       VALUES($1,'SYSTEM','VESSEL:CONFIRMATION_SHADOW','program',$2,$3::jsonb,'SYSTEM')`,
+      [actor.id, best?.program.id ?? null, JSON.stringify({score, threshold, decision: score >= threshold ? 'CONFIRM' : score >= 75 ? 'REVIEW' : 'SKIP', messageId: message.message_id})],
+    );
+    return {confirmed: false, classification: 'CONFIRMATION_SHADOW'};
+  }
+  if (score < 75) {
+    return {confirmed: false, classification: 'CONFIRMATION_SCORE_BELOW_THRESHOLD'};
+  }
+  if (score < threshold) {
+    await row(
+      `INSERT INTO message_review_queue(source_account_id,source_chat_jid,source_message_id,source_timestamp,sender_jid,message_text,confusion_reason,suggested_workflow)
+       VALUES($1,$2,$3,$4,$5,$6,$7,'vessel')
+       ON CONFLICT (source_account_id,source_chat_jid,source_message_id) DO NOTHING`,
+      [message.account_id, message.chat_jid, message.message_id, message.source_timestamp, message.sender_jid, text, `CONFIRMATION_SCORE_${score}`],
+    ).catch(() => null);
+    return {confirmed: false, classification: `CONFIRMATION_SCORE_${score}`};
   }
 
   const {applyConfirmation} = await import('./standalone/whatsapp.ts');
@@ -1435,7 +1486,27 @@ export async function routePendingMessages(
         action = 'ignored';
         result.ignored += 1;
       } else {
-        const cls = classifyDomain(text, chatAuth.purpose);
+        // Parser-backed gate: direct ORDER_INTAKE incoming messages bypass the
+        // keyword classifier. If the parser finds at least one block, it is an
+        // order even when the old looksLikeVessel() would miss it.
+        let cls: ClassificationResult;
+        if (message.direction === 'INCOMING'
+          && sourceRole === 'ORDER_INTAKE'
+          && !message.chat_jid.endsWith('@g.us')
+          && ORDER_INTAKE_JIDS.has(message.chat_jid)) {
+          const {parseEscortOrder} = await import('./escort-intake-candidate.mjs');
+          let parsed = 0;
+          try {
+            parsed = parseEscortOrder(text, {messageDate: message.source_timestamp.slice(0, 10)}).length;
+          } catch {
+            parsed = 0;
+          }
+          cls = parsed > 0
+            ? {domain: 'VESSEL', confidence: 'HIGH', reasons: ['PARSER_BACKED_ORDER_GATE']}
+            : classifyDomain(text, chatAuth.purpose);
+        } else {
+          cls = classifyDomain(text, chatAuth.purpose);
+        }
         domain = cls.domain;
 
         // WA-02 is identity-only. Vessel-domain text is rejected before any

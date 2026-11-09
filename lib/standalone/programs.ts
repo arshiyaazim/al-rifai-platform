@@ -53,6 +53,7 @@ export type ProgramRow = {
   created_by?: string;
   created_at: string;
   updated_at?: string;
+  event_at?: string | null;
 };
 
 export type ProgramListRow = ProgramRow & {
@@ -187,6 +188,13 @@ export async function createProgram(actor: Actor, input: ProgramInput, source: P
   if (client) return createProgramOn(client, actor, input, source);
   const result = await tx((txClient) => createProgramOn(txClient, actor, input, source));
   await enqueueDraftIfApproved(result.program);
+  try {
+    const {enqueueDraftDeliveries} = await import('../pipelines/vessel/draft-delivery.ts');
+    await enqueueDraftDeliveries(result.program as never);
+  } catch (error) {
+    const code = error instanceof Error ? error.message.slice(0, 120) : 'DRAFT_DELIVERY_HOOK_FAILED';
+    console.error(`Vessel draft delivery hook failed (${code}).`);
+  }
   emitDomainEvent('VESSEL', 'PROGRAM_CREATED', result.program.id);
   return result;
 }
@@ -607,7 +615,7 @@ export async function getProgram(programIdValue: string) {
             confirmation_chat_jid, confirmation_sender_jid, confirmation_account_id,
             confirmation_timestamp, release_message_id, release_chat_jid,
             release_sender_jid, release_account_id, release_timestamp, notes,
-            created_by, created_at, updated_at
+            created_by, created_at, updated_at, event_at
        FROM programs WHERE id = $1`,
     [programIdValue],
   );
