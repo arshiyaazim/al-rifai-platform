@@ -1,10 +1,17 @@
 # DEVELOPER_START_HERE.md — AL-RIFA'I Platform
 
 **Last Updated**: 2026-11-09
-**Current Version**: v1.11.0 (15-task roadmap)
-**Schema Version**: 1.11.0 (52 tables, 15 migrations)
-**Main Release HEAD**: pending push/tag for the 15-task roadmap; previous release `bc5b17f` (v1.10.0)
-**Status**: Production v1.10.0 healthy; v1.11.0 verified locally and prepared for deployment
+**Current Version**: v1.12.0 Cash final (`cash-final-eb70d91`); Vessel Phase 2 in progress
+**Schema Version**: 1.13.0 (56 tables, 17 migrations)
+**Main Release HEAD**: `bd0519d` (Cash final); Vessel overhaul branch `feat/15-task-roadmap`
+**Status**: Production healthy; Cash live (2,361 POSTED). Vessel pipeline **FROZEN** for Phase 2 backfill.
+
+> **Vessel Phase 2 freeze (2026-11-09):** Migration 018 is applied (schema
+> 1.13.0). `ALRIFAI_VESSEL_PROCESSING_ENABLED=0`,
+> `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED=0`,
+> `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=0`. Order processing and draft
+> delivery are disabled until the backfill and Owner gates complete. See
+> `PHASE2_HANDOFF.md` and `/opt/al-rifai-backups/phase2/step-*.json`.
 
 ### v1.11.0 delivered (15-task roadmap)
 
@@ -215,8 +222,10 @@ returned by `GET /api/auth/session`.
 
 ## 5. Database
 
-**Current schema: 1.11.0 — 52 base tables — 15 migrations.** Production was
-last verified at 1.10.0/14 migrations before the v1.11.0 deployment.
+**Current schema: 1.13.0 — 56 base tables — 17 migrations.** Migration 018
+(vessel overhaul schema) was applied on 2026-11-09 through the checksum-tracked
+runner. Production Cash remains on the v1.12.0 baseline (2,361 POSTED,
+121,195,500 minor, 218 employees).
 
 ### 5.1 Tables by domain
 
@@ -231,6 +240,10 @@ last verified at 1.10.0/14 migrations before the v1.11.0 deployment.
 **Vessel programs (6)**
 `programs`, `program_assignments`, `program_events`, `program_source_messages`,
 `program_pay`, `vessel_draft_deliveries`
+
+**Vessel overhaul, review and pipeline state (4)**
+`system_feature_flags`, `message_review_queue`, `message_pipeline_state`,
+`vessel_backlog_progress`
 
 **Cash and ledger (11)**
 `cash_accounts`, `cash_instructions`, `cash_postings`,
@@ -274,6 +287,8 @@ last verified at 1.10.0/14 migrations before the v1.11.0 deployment.
 | `014_manual_programs.sql` | 1.9.0 | `programs.master_name`, `programs.source_type` |
 | `015_cash_corrections.sql` | 1.10.0 | Append-only Cash adjustments, `REVERSED` state, `reversal_of` |
 | `016_audit_indexes.sql` | 1.11.0 | Audit Trail timestamp/action indexes and program-event index |
+| `017_cash_event_at.sql` | 1.12.0 | Cash `event_at` + index (WhatsApp event time, not insert time) |
+| `018_vessel_overhaul.sql` | 1.13.0 | Vessel `event_at`, source block/order keys, draft text, escort-change link; feature flags, review queue, pipeline state, backlog progress |
 
 Canonical message identity is `(account_id, chat_jid, message_id)`.
 Event time (`source_timestamp`), ingestion time (`created_at`) and mirror time
@@ -292,6 +307,41 @@ Event time (`source_timestamp`), ingestion time (`created_at`) and mirror time
   POSTED. Corrections/reversals there are append-only event chains.
 - Every correction/reversal is written to `audit_events`:
   `CASH:CORRECTION` and `CASH:REVERSAL`.
+
+### 5.4 Feature flags (hot toggle — no restart)
+
+`system_feature_flags` is the runtime control table seeded by migration 018.
+Application code reads `enabled` plus `config`; changes take effect without an
+app recreate.
+
+| Key | Default | Config |
+|---|---|---|
+| `vessel.processing` | true | `{}` |
+| `vessel.auto_confirm` | true | `{"fuzzy_threshold": 0.90}` |
+| `vessel.duplicate_days` | true | `{"days": 5}` |
+| `vessel.shift_cutoff` | true | `{"cutoff": "15:30", "tz": "Asia/Dhaka"}` |
+| `vessel.mv_prefix` | true | `{"prefix": "MV "}` |
+| `vessel.draft_to_admin` | false | `{}` |
+| `vessel.draft_to_office` | false | `{}` |
+| `vessel.office_forward` | false | `{}` |
+| `release.food_divisor` | true | `{"divisor": 150, "tolerance_days": 2}` |
+| `release.match_mode` | true | `{"mode": "fuzzy"}` |
+| `wa02.ai_agent` | false | `{}` |
+
+Env flags remain reserved for freeze/unfreeze because they require an app
+recreate. DB flags are for thresholds and staged feature switches.
+
+### 5.5 Migration rollback convention
+
+- Forward migrations live at the **top level** of `db/standalone/`:
+  `NNN_name.sql`. The runner only reads this directory.
+- Rollback scripts live in the **subdirectory**
+  `db/standalone/rollback/NNN_name.rollback.sql`.
+- Never put a rollback at the top level with a `.sql` suffix: the runner regex
+  `^\d{3}_.+\.sql$` would treat it as a forward migration and apply it.
+
+Rollback 018:
+`db/standalone/rollback/018_vessel_overhaul.rollback.sql`.
 
 ---
 
@@ -587,6 +637,13 @@ never posts money or sends WhatsApp.
 
 ## 10. Vessel Workflow
 
+> **Phase 2 freeze (2026-11-09):** live vessel processing and draft delivery
+> are disabled (`ALRIFAI_VESSEL_PROCESSING_ENABLED=0`,
+> `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED=0`,
+> `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=0`). The workflow below is the
+> pre-overhaul contract; the Phase 2 rewrite is tracked in
+> `PHASE2_HANDOFF.md`.
+
 ```
 Verified client WhatsApp order (WA-01, direct ORDER_INTAKE, INCOMING)
   → parser: Mother + Lighter + Master Mobile required
@@ -615,15 +672,18 @@ Rules:
 - Release updates only the exact existing program; never creates one; Start
   Date/Shift are preserved; End Date/Release Shift are separate; replays are
   idempotent.
-- Duplicate rule: same Mother + Lighter + Start Date ±1 day warns; exact same
-  start date is a hard duplicate; different Lighter is separate.
+- Duplicate rule (Phase 2 target): same Mother + Lighter within 5 days is a
+  duplicate; a different Master Mobile inside that window is a correction, not
+  a new order. The pre-overhaul code still uses the ±1-day heuristic until the
+  Step 10 code change lands.
 - Manual programs: `POST /api/vessel` or `+ New Program`; `source_type=MANUAL`,
   `master_name` optional, initial state DRAFT (optional escort assignment makes
   it ASSIGNED), duplicate check applies, audit
   `VESSEL:MANUAL_PROGRAM_CREATED`.
 
-`vessel_draft_deliveries` / Bridge-2 delivery remains deliberately disabled
-and is not part of the active workflow.
+`vessel_draft_deliveries` / Bridge-2 delivery is disabled during the freeze and
+is not part of the active workflow. The 4 existing queue rows are preserved for
+the Phase 2 reattachment step.
 
 ---
 
