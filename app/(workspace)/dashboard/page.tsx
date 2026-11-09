@@ -3,6 +3,7 @@ import {row, rows} from '@/lib/standalone/db';
 import {reviewQueueCounts} from '@/lib/standalone/review';
 import {money, when} from '@/lib/standalone/session';
 import {reviewCategoryLabel} from '@/lib/review-ui';
+import {RealtimeRefresher} from '@/components/standalone/realtime-refresher';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +45,7 @@ export default async function DashboardPage() {
     <>
       <div className="page-head">
         <div><h1>Dashboard</h1><p className="muted">Business overview and pending work.</p></div>
+        <RealtimeRefresher domain="ANY" label="Live dashboard" />
       </div>
 
       <div className="grid-cards">

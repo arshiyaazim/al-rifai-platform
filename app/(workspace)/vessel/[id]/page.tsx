@@ -11,6 +11,8 @@ import {ActionForm} from '@/components/standalone/action-form';
 import {OwnerDraftPanel} from '@/components/standalone/owner-draft-panel';
 import {getMessageEvidence} from '@/lib/standalone/messages';
 import {ownerDraftFromProgram} from '@/lib/order-draft-from-record';
+import {ProgramStickySummary} from '@/components/standalone/program-sticky-summary';
+import {RealtimeRefresher} from '@/components/standalone/realtime-refresher';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,8 +72,23 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
             {program.end_date ? ` · release ${program.end_date} · ${program.end_shift}` : ''}
           </p>
         </div>
-        <div className="row-actions"><Link href="/vessel">← Vessel Register</Link><Link href="/vessel/drafts">Order drafts →</Link></div>
+        <div className="row-actions"><Link href="/vessel">← Vessel Register</Link><Link href="/vessel/drafts">Order drafts →</Link><RealtimeRefresher domain="VESSEL" /></div>
       </div>
+
+      <ProgramStickySummary
+        programId={program.id}
+        motherVessel={program.mother_vessel}
+        lighterVessel={program.lighter_vessel}
+        masterName={program.master_name}
+        masterMobile={program.master_mobile}
+        escortName={program.escort_name}
+        escortMobile={program.escort_mobile}
+        startDate={program.start_date}
+        startShift={program.start_shift}
+        endDate={program.end_date}
+        endShift={program.end_shift}
+        state={program.state}
+      />
 
       <VesselRegisterClient
         initial={{
@@ -226,7 +243,7 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
       </section>
 
       {editable ? (
-        <div className="split">
+        <div className="split" id="program-edit">
           <ActionForm
             title="Edit program"
             endpoint="/api/programs"

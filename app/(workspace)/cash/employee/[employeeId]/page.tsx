@@ -32,5 +32,5 @@ export default async function CashEmployeePage({params}: {params: Promise<{emplo
     limit,
     totalPages: Math.max(1, Math.ceil(total / limit)),
   };
-  return <CashEmployeeHistory employeeId={id} initial={initial} canManage={user.role === 'ADMIN' && user.capabilities.includes('cash.review')} />;
+  return <CashEmployeeHistory employeeId={id} initial={initial} canManage={user.role === 'ADMIN' && user.capabilities.includes('cash.review')} generatedBy={user.displayName} />;
 }

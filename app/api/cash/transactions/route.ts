@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     assertCapability(actor as never, 'cash.read');
     const url = new URL(request.url);
     const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
-    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 20, 1), 100);
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 20, 1), 10000);
     const search = (url.searchParams.get('search') ?? url.searchParams.get('q') ?? '').trim();
     const state = (url.searchParams.get('state') ?? '').trim() || undefined;
     const from = (url.searchParams.get('from') ?? '').trim() || undefined;

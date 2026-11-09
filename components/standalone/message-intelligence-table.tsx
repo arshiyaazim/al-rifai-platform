@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import {useMemo, useState, type ReactNode} from 'react';
+import {useEffect, useMemo, useState, type ReactNode} from 'react';
 import {ActionForm} from '@/components/standalone/action-form';
 import type {CallRow, MessageRow} from '@/lib/standalone/messages';
 import {sourceRoleTone} from '@/lib/source-roles';
@@ -114,6 +114,41 @@ const columns: Column[] = [
 
 const defaultVisible = new Set(columns.filter((column) => column.defaultVisible).map((column) => column.key));
 const pinned = new Set(['dhaka_time', 'account_id', 'sender_display_name']);
+const columnKeys = new Set(columns.map((column) => column.key));
+const REQUIRED = new Set(['dhaka_time', 'source_role', 'text_content']);
+const COLUMNS_KEY = 'alrifai_message_columns_active';
+const PRESETS_KEY = 'alrifai_message_column_presets';
+
+type SavedPreset = {name: string; columns: string[]; created: string};
+type BuiltinPreset = {name: string; columns: string[]};
+
+const BUILTIN_PRESETS: BuiltinPreset[] = [
+  {name: 'All Columns', columns: columns.map((column) => column.key)},
+  {name: 'Compact', columns: ['dhaka_time', 'source_role', 'sender_display_name', 'text_content']},
+  // The message projection has no cash amount/state column; business domain
+  // and review status are the closest cash-focus signals it does expose.
+  {name: 'Cash Focus', columns: ['dhaka_time', 'source_role', 'sender_display_name', 'business_domain', 'review_status', 'text_content']},
+  {name: 'Vessel Focus', columns: ['dhaka_time', 'source_role', 'sender_display_name', 'group_name', 'text_content']},
+];
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as T : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(key: string, value: unknown) {
+  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage unavailable */ }
+}
+
+function normalizedSelection(selection: Iterable<string>): Set<string> {
+  const next = new Set(Array.from(selection).filter((key) => columnKeys.has(key)));
+  for (const key of REQUIRED) next.add(key);
+  return next;
+}
 
 export function MessageIntelligenceTable({
   rows, calls, total, page, pages, params,
@@ -134,13 +169,51 @@ export function MessageIntelligenceTable({
     return text ? `?${text}` : '';
   };
   const [visible, setVisible] = useState<Set<string>>(new Set(defaultVisible));
+  const [presets, setPresets] = useState<SavedPreset[]>([]);
+  const [hydrated, setHydrated] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const shown = useMemo(() => columns.filter((column) => visible.has(column.key)), [visible]);
-  const toggle = (key: string) => setVisible((current) => {
-    const next = new Set(current);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    return next;
-  });
+
+  useEffect(() => {
+    const savedColumns = readJson<string[]>(COLUMNS_KEY, []);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (savedColumns.length) setVisible(normalizedSelection(savedColumns));
+    setPresets(readJson<SavedPreset[]>(PRESETS_KEY, []));
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    writeJson(COLUMNS_KEY, Array.from(visible));
+  }, [visible, hydrated]);
+
+  const toggle = (key: string) => {
+    if (REQUIRED.has(key)) return;
+    setVisible((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return normalizedSelection(next);
+    });
+  };
+
+  const applyPreset = (selection: string[]) => setVisible(normalizedSelection(selection));
+
+  const savePreset = () => {
+    const name = window.prompt('Preset name:');
+    if (!name?.trim()) return;
+    const next = [
+      ...presets.filter((preset) => preset.name.toLowerCase() !== name.trim().toLowerCase()),
+      {name: name.trim().slice(0, 40), columns: Array.from(visible), created: new Date().toISOString()},
+    ];
+    setPresets(next);
+    writeJson(PRESETS_KEY, next);
+  };
+
+  const deletePreset = (name: string) => {
+    const next = presets.filter((preset) => preset.name !== name);
+    setPresets(next);
+    writeJson(PRESETS_KEY, next);
+  };
   const stickyOffsets = new Map<string, number>();
   let offset = 0;
   for (const column of columns) {
@@ -155,19 +228,45 @@ export function MessageIntelligenceTable({
       <section className="card">
         <div className="row" style={{justifyContent: 'space-between', alignItems: 'center'}}>
           <h3>Message Intelligence ({total.toLocaleString()})</h3>
-          <details>
+          <details className="column-presets">
             <summary>Columns ({shown.length}/{columns.length})</summary>
-            <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 4, maxHeight: 320, overflow: 'auto', padding: 8}}>
-              {columns.map((column) => (
-                <label key={column.key} style={{fontSize: 12}}>
-                  <input type="checkbox" checked={visible.has(column.key)} onChange={() => toggle(column.key)} />{' '}
-                  {column.label} <span className="muted">({column.group})</span>
-                </label>
-              ))}
-            </div>
-            <div className="row" style={{marginTop: 6}}>
-              <button type="button" onClick={() => setVisible(new Set(columns.map((column) => column.key)))}>Show all</button>
-              <button type="button" onClick={() => setVisible(new Set(defaultVisible))}>Default</button>
+            <div className="column-presets__panel">
+              <div className="column-presets__toolbar">
+                <button type="button" onClick={() => applyPreset(columns.map((column) => column.key))}>Show all</button>
+                <button type="button" onClick={savePreset}>Save current…</button>
+                <button type="button" onClick={() => setVisible(new Set(defaultVisible))}>Reset to default</button>
+              </div>
+              <div className="column-presets__list">
+                {columns.map((column) => (
+                  <label key={column.key} style={{fontSize: 12}}>
+                    <input
+                      type="checkbox"
+                      checked={visible.has(column.key)}
+                      disabled={REQUIRED.has(column.key)}
+                      onChange={() => toggle(column.key)}
+                    />{' '}
+                    {column.label} <span className="muted">({column.group})</span>
+                    {REQUIRED.has(column.key) ? <span className="muted"> · required</span> : null}
+                  </label>
+                ))}
+              </div>
+              <div className="column-presets__saved">
+                <strong>Load preset</strong>
+                <div className="row-actions">
+                  {BUILTIN_PRESETS.map((preset) => (
+                    <button type="button" key={preset.name} className="pill" onClick={() => applyPreset(preset.columns)}>
+                      {preset.name}
+                    </button>
+                  ))}
+                  {presets.map((preset) => (
+                    <span key={preset.name} className="column-presets__custom">
+                      <button type="button" className="pill" onClick={() => applyPreset(preset.columns)}>{preset.name}</button>
+                      <button type="button" className="link-button" aria-label={`Delete preset ${preset.name}`} onClick={() => deletePreset(preset.name)}>✕</button>
+                    </span>
+                  ))}
+                </div>
+                <p className="muted">Date, Source Role and Message are always visible. Presets are stored in this browser only.</p>
+              </div>
             </div>
           </details>
         </div>

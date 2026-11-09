@@ -1,9 +1,9 @@
 import Link from 'next/link';
-import {countPrograms, listPrograms} from '@/lib/standalone/programs';
+import {countPrograms, listPrograms, motherFacets} from '@/lib/standalone/programs';
 import {listEmployees} from '@/lib/standalone/employees';
 import {rows} from '@/lib/standalone/db';
 import {listProgramSourcesForPrograms, listReviewQueue} from '@/lib/standalone/review';
-import {money, pageUser, when} from '@/lib/standalone/session';
+import {pageUser} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
 import {VesselRegisterClient} from '@/components/standalone/vessel-register-client';
@@ -19,37 +19,23 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-export default async function VesselPage({searchParams}: {searchParams: Promise<{q?: string; state?: string; page?: string}>}) {
+export default async function VesselPage({searchParams}: {searchParams: Promise<{q?: string; state?: string; page?: string; mother?: string}>}) {
   const filters = await searchParams;
   const user = await pageUser();
   const canCommand = can(user as never, 'vessel.command');
   const canRelease = can(user as never, 'vessel.release');
   const q = (filters.q ?? '').trim();
   const state = filters.state ?? '';
-  const page = Math.max(Number(filters.page ?? 1), 1);
-  const pageSize = 25;
-  const [initialPrograms, tableTotal, programs, totalPrograms, vesselReviews, escorts, motherRows] = await Promise.all([
-    listPrograms({limit: 20, offset: 0}),
-    countPrograms(),
-    listPrograms({q, state: state || undefined, limit: 200, offset: 0}),
-    countPrograms({q, state: state || undefined}),
+  const mother = filters.mother ?? '';
+  const [initialPrograms, tableTotal, programs, vesselReviews, escorts, motherRows, motherCounts] = await Promise.all([
+    listPrograms({q, state: state || undefined, mother: mother || undefined, limit: 20, offset: 0}),
+    countPrograms({q, state: state || undefined, mother: mother || undefined}),
+    listPrograms({q, state: state || undefined, mother: mother || undefined, limit: 200, offset: 0}),
     listReviewQueue({domain: 'PROGRAM', state: 'PENDING', limit: 100}),
     listEmployees({state: 'ACTIVE', limit: 500}),
     rows<{mother_vessel: string}>('SELECT DISTINCT mother_vessel FROM programs WHERE state <> \'VOIDED\' ORDER BY mother_vessel'),
+    motherFacets({q, state: state || undefined}),
   ]);
-  const pages = Math.max(Math.ceil(totalPrograms / pageSize), 1);
-  const pageHref = (next: number) => {
-    const params = new URLSearchParams();
-    if (q) params.set('q', q);
-    if (state) params.set('state', state);
-    if (next > 1) params.set('page', String(next));
-    const text = params.toString();
-    return text ? `/vessel?${text}` : '/vessel';
-  };
-  const stateTone = (value: string) => value === 'RELEASED' || value === 'COMPLETED' ? 'ok'
-    : value === 'CONFIRMED' || value === 'ASSIGNED' || value === 'IN_DUTY' ? 'info'
-      : value === 'VOIDED' ? 'bad' : '';
-  const active = programs.filter((program) => !['VOIDED', 'COMPLETED'].includes(program.state));
   const programSources = await listProgramSourcesForPrograms(programs.map((program) => program.id));
   const sourcesByProgram = new Map<string, typeof programSources>();
   for (const source of programSources) {
@@ -72,21 +58,6 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
         </div>
       </div>
 
-      <form method="get" className="card form compact" style={{marginBottom: 18}}>
-        <div className="grid">
-          <label><span>Search</span><input name="q" defaultValue={q} placeholder="Mother, lighter or escort" /></label>
-          <label><span>State</span>
-            <select name="state" defaultValue={state}>
-              <option value="">All states</option>
-              {['DRAFT','CONFIRMED','ASSIGNED','IN_DUTY','RELEASED','COMPLETED','VOIDED'].map((value) => (
-                <option key={value} value={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <button type="submit">Filter programs</button>
-      </form>
-
       <VesselRegisterClient
         initial={{
           rows: initialPrograms,
@@ -94,9 +65,13 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
           page: 1,
           limit: 20,
           totalPages: Math.max(1, Math.ceil(tableTotal / 20)),
+          mothers: motherCounts,
         }}
         escorts={escorts.map((employee) => ({mobile: employee.employee_mobile, name: employee.preferred_name}))}
         mothers={motherRows.map((row) => row.mother_vessel)}
+        initialQ={q}
+        initialState={state}
+        initialMother={mother}
         canCommand={canCommand}
         canRelease={canRelease}
       />

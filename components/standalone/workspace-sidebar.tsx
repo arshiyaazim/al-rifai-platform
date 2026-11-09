@@ -4,6 +4,7 @@ import Link from 'next/link';
 import {usePathname} from 'next/navigation';
 import {useEffect, useRef, useState, type ReactNode} from 'react';
 import {LogoutButton} from '@/components/standalone/logout-button';
+import {ThemeToggle} from '@/components/standalone/theme-toggle';
 
 export type WorkspaceNavItem = {
   href: string;
@@ -146,6 +147,7 @@ export function WorkspaceSidebar({navItems, pendingReviews, user, children}: Pro
         </nav>
 
         <div className="wx-workspace__who">
+          <ThemeToggle />
           <span className="wx-workspace__user" title={userLabel}>{userLabel}</span>
           <LogoutButton />
         </div>

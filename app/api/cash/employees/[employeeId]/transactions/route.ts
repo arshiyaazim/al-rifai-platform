@@ -19,7 +19,7 @@ export async function GET(request: Request, context: {params: Promise<{employeeI
     const id = decodeURIComponent(employeeId);
     const url = new URL(request.url);
     const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
-    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 20, 1), 100);
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 20, 1), 10000);
     const from = (url.searchParams.get('from') ?? '').trim() || undefined;
     const to = (url.searchParams.get('to') ?? '').trim() || undefined;
     const amountMin = url.searchParams.get('amountMin');

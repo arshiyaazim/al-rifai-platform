@@ -3,6 +3,7 @@ import {rows, row, tx, text, optionalText, optionalMobile, mobile, isoDate, mone
 import {recordAudit, stableId, newId} from './audit.ts';
 import {assertCapability} from './authz.ts';
 import {cleanEmployeeName} from '../display-name.ts';
+import {emitDomainEvent} from '../realtime/server.ts';
 
 type Tx = Pick<PoolClient, 'query'>;
 
@@ -50,6 +51,9 @@ export async function createAccount(actor: Actor, input: {code: string; name: st
     if (!created.rowCount) throw new DomainError('ACCOUNT_EXISTS', 409);
     await recordAudit({actor, action: 'ACCOUNT_CREATED', entity: 'account', entityId: id, detail: {code}}, client);
     return created.rows[0];
+  }).then((result) => {
+    emitDomainEvent('CASH', 'ACCOUNT_CREATED', id);
+    return result;
   });
 }
 
@@ -168,7 +172,7 @@ export async function createInstruction(actor: Actor, input: InstructionInput, o
   paidAt?: string | null;
 } = {}) {
   assertCapability(actor, 'cash.submit');
-  return tx(async (client) => {
+  const created = await tx(async (client) => {
     const created = await insertInstruction(client, actor, input);
     if (created) {
       await recordAudit({
@@ -206,6 +210,8 @@ export async function createInstruction(actor: Actor, input: InstructionInput, o
     }
     return created;
   });
+  if (created) emitDomainEvent('CASH', 'INSTRUCTION_CREATED', created.id);
+  return created;
 }
 
 /**
@@ -262,6 +268,7 @@ export async function correctCashTransaction(
       source: 'WEB', sourceRef: id,
     }, client);
   });
+  emitDomainEvent('CASH', 'CORRECTION', id);
   return getCashTransaction(id);
 }
 
@@ -346,6 +353,7 @@ export async function reverseCashTransaction(
       source: 'WEB', sourceRef: id,
     }, client);
   });
+  emitDomainEvent('CASH', 'REVERSAL', id);
   return {original: await getCashTransaction(id), replacement: await getCashTransaction(replacementId)};
 }
 
@@ -474,6 +482,7 @@ export async function updateCashTransaction(
       sourceRef: id,
     }, client);
   });
+  emitDomainEvent('CASH', 'UPDATED', id);
   return getCashTransaction(id);
 }
 
@@ -549,7 +558,7 @@ export type CashTransactionRow = {
  * image, OCR or bridge write is involved.
  */
 export async function listCashTransactions(filters: CashTransactionFilters = {}): Promise<CashTransactionRow[]> {
-  const limit = Math.min(Math.max(Number(filters.limit) || 20, 1), 100);
+  const limit = Math.min(Math.max(Number(filters.limit) || 20, 1), 10000);
   const offset = Math.max(Number(filters.offset) || 0, 0);
   const params: unknown[] = [];
   const bind = (value: unknown) => { params.push(value); return `$${params.length}`; };
@@ -563,7 +572,17 @@ export async function listCashTransactions(filters: CashTransactionFilters = {})
       OR right(regexp_replace(coalesce(i.employee_mobile,''), '\\D', '', 'g'), 11)
          = right(regexp_replace(${bind(filters.q)}, '\\D', '', 'g'), 11))`);
   }
-  if (filters.state) where.push(`i.state = ${bind(filters.state)}`);
+  if (filters.state) {
+    const requested = filters.state;
+    if (requested === 'CORRECTION') {
+      where.push('EXISTS (SELECT 1 FROM cash_transaction_adjustments c WHERE c.correction_of = i.id)');
+    } else {
+      // The cash instruction lifecycle has no separate DRAFT/PENDING_REVIEW
+      // state: both UI labels describe the single REVIEW stage.
+      const state = requested === 'DRAFT' || requested === 'PENDING_REVIEW' ? 'REVIEW' : requested;
+      where.push(`i.state = ${bind(state)}`);
+    }
+  }
   const employeeMobile = normalizedMobile(filters.employeeId);
   if (employeeMobile) where.push(`i.employee_mobile = ${bind(employeeMobile)}`);
   if (Number.isFinite(Number(filters.amountMin)) && filters.amountMin !== undefined) where.push(`i.effective_amount_minor >= ${bind(Number(filters.amountMin))}`);
@@ -571,6 +590,9 @@ export async function listCashTransactions(filters: CashTransactionFilters = {})
   if (filters.from) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date >= ${bind(filters.from)}::date`);
   if (filters.to) where.push(`(i.created_at AT TIME ZONE 'Asia/Dhaka')::date <= ${bind(filters.to)}::date`);
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const baseExcluded = filters.state === 'REJECTED'
+    ? `i.state <> 'VOID'`
+    : `i.state NOT IN ('VOID','REJECTED')`;
   params.push(limit, offset);
   return rows<CashTransactionRow>(
     `WITH adjustments AS (
@@ -588,7 +610,7 @@ export async function listCashTransactions(filters: CashTransactionFilters = {})
               a.last_correction_id
          FROM cash_instructions i
          LEFT JOIN adjustments a ON a.correction_of = i.id
-        WHERE i.state NOT IN ('VOID','REJECTED')
+        WHERE ${baseExcluded}
      ), ordered AS (
        SELECT i.*,
               row_number() OVER (
@@ -662,7 +684,7 @@ export function cashTransactionView(row: CashTransactionRow) {
 export async function countCashTransactions(filters: Omit<CashTransactionFilters, 'limit' | 'offset'> = {}) {
   const params: unknown[] = [];
   const bind = (value: unknown) => { params.push(value); return `$${params.length}`; };
-  const where: string[] = [`i.state NOT IN ('VOID','REJECTED')`];
+  const where: string[] = [filters.state === 'REJECTED' ? `i.state <> 'VOID'` : `i.state NOT IN ('VOID','REJECTED')`];
   if (filters.q) {
     const like = bind(`%${filters.q.trim()}%`);
     where.push(`(coalesce(i.employee_mobile,'') ILIKE ${like}
@@ -672,7 +694,17 @@ export async function countCashTransactions(filters: Omit<CashTransactionFilters
       OR right(regexp_replace(coalesce(i.employee_mobile,''), '\\D', '', 'g'), 11)
          = right(regexp_replace(${bind(filters.q)}, '\\D', '', 'g'), 11))`);
   }
-  if (filters.state) where.push(`i.state = ${bind(filters.state)}`);
+  if (filters.state) {
+    const requested = filters.state;
+    if (requested === 'CORRECTION') {
+      where.push('EXISTS (SELECT 1 FROM cash_transaction_adjustments c WHERE c.correction_of = i.id)');
+    } else {
+      // The cash instruction lifecycle has no separate DRAFT/PENDING_REVIEW
+      // state: both UI labels describe the single REVIEW stage.
+      const state = requested === 'DRAFT' || requested === 'PENDING_REVIEW' ? 'REVIEW' : requested;
+      where.push(`i.state = ${bind(state)}`);
+    }
+  }
   const employeeMobile = normalizedMobile(filters.employeeId);
   if (employeeMobile) where.push(`i.employee_mobile = ${bind(employeeMobile)}`);
   if (Number.isFinite(Number(filters.amountMin)) && filters.amountMin !== undefined) where.push(`i.amount_minor + coalesce(a.adjustment_minor,0) >= ${bind(Number(filters.amountMin))}`);
@@ -727,6 +759,9 @@ export async function approveInstruction(actor: Actor, id: string) {
     await recordAudit({actor, action: 'INSTRUCTION_APPROVED', entity: 'instruction', entityId: id,
       detail: selfApproval ? {selfApproval: true, role: actor.role} : {selfApproval: false}}, client);
     return {id, state: 'APPROVED'};
+  }).then((result) => {
+    emitDomainEvent('CASH', 'INSTRUCTION_APPROVED', id);
+    return result;
   });
 }
 
@@ -747,6 +782,9 @@ export async function rejectInstruction(actor: Actor, id: string, reason: string
     );
     await recordAudit({actor, action: 'INSTRUCTION_REJECTED', entity: 'instruction', entityId: id, detail: {reason: why}}, client);
     return {id, state: 'REJECTED'};
+  }).then((result) => {
+    emitDomainEvent('CASH', 'INSTRUCTION_REJECTED', id);
+    return result;
   });
 }
 
@@ -805,6 +843,9 @@ export async function postInstruction(actor: Actor, id: string) {
     await recordAudit({actor, action: 'INSTRUCTION_POSTED', entity: 'instruction', entityId: id,
       detail: {postingId, amountMinor: instruction.amount_minor}}, client);
     return {id, state: 'POSTED', postingId};
+  }).then((result) => {
+    emitDomainEvent('CASH', 'INSTRUCTION_POSTED', id);
+    return result;
   });
 }
 
@@ -835,6 +876,9 @@ export async function setInstructionAccount(actor: Actor, id: string, accountId:
     await recordAudit({actor, action: 'INSTRUCTION_ACCOUNT_ASSIGNED', entity: 'instruction', entityId: id,
       detail: {accountId: account}}, client);
     return {id, state: 'REVIEW', accountId: account};
+  }).then((result) => {
+    emitDomainEvent('CASH', 'INSTRUCTION_ACCOUNT_ASSIGNED', id);
+    return result;
   });
 }
 
@@ -887,6 +931,9 @@ export async function reversePosting(actor: Actor, id: string, reason: string) {
     await recordAudit({actor, action: 'INSTRUCTION_REVERSED', entity: 'instruction', entityId: id,
       detail: {reversalId, amountMinor: instruction.amount_minor, reason: why}}, client);
     return {id, state: 'VOID', reversalId, ledgerEntryId: entry.rows[0].id};
+  }).then((result) => {
+    emitDomainEvent('CASH', 'INSTRUCTION_REVERSED', id);
+    return result;
   });
 }
 
@@ -1034,6 +1081,9 @@ export async function createLedgerEntry(actor: Actor, input: LedgerInput) {
     await recordAudit({actor, action: 'LEDGER_ENTRY_CREATED', entity: 'ledger', entityId: String(created.rows[0]?.id),
       detail: {direction: input.direction, amountMinor: input.amountMinor}}, client);
     return created.rows[0];
+  }).then((result) => {
+    emitDomainEvent('CASH', 'LEDGER_ENTRY_CREATED', String(result?.id ?? ''));
+    return result;
   });
 }
 
@@ -1116,6 +1166,9 @@ export async function submitCash(actor: Actor, payload: InstructionInput) {
     );
     await recordAudit({actor, action: 'CASH_SUBMITTED', entity: 'cash_submission', entityId: id}, client);
     return {id: created.rows[0]?.id, duplicate: false, state: 'PENDING_REVIEW'};
+  }).then((result) => {
+    emitDomainEvent('CASH', 'CASH_SUBMITTED', result?.id ?? '');
+    return result;
   });
 }
 
@@ -1232,6 +1285,10 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
     await recordAudit({actor, action: `CASH_SUBMISSION_${decision}`, entity: 'cash_submission', entityId: id,
       detail: {instructionId, reason: why}}, client);
     return {id, state: decision, instructionId, instructionState: instructionId ? 'REVIEW' : null, paidEventId};
+  }).then((result) => {
+    emitDomainEvent('CASH', `CASH_SUBMISSION_${decision}`, id);
+    emitDomainEvent('REVIEW', `CASH_SUBMISSION_${decision}`, id);
+    return result;
   });
 }
 
@@ -1292,6 +1349,9 @@ export async function correctBusinessPaidEvent(actor: Actor, eventId: string, in
     await recordAudit({actor, action: 'CASH_PAYMENT_EVENT_CORRECTED', entity: 'cash_payment_events',
       entityId: id, detail: {correctsEventId: eventId, amountMinor, reason}}, client);
     return {id, eventType: 'CORRECTION', correctsEventId: eventId, amountMinor};
+  }).then((result) => {
+    emitDomainEvent('CASH', 'PAYMENT_EVENT_CORRECTED', result.id);
+    return result;
   });
 }
 
@@ -1326,6 +1386,9 @@ export async function reverseBusinessPaidEvent(actor: Actor, eventId: string, re
     await recordAudit({actor, action: 'CASH_PAYMENT_EVENT_REVERSED', entity: 'cash_payment_events',
       entityId: id, detail: {reversesEventId: eventId, reason: why}}, client);
     return {id, eventType: 'REVERSAL', reversesEventId: eventId};
+  }).then((result) => {
+    emitDomainEvent('CASH', 'PAYMENT_EVENT_REVERSED', result.id);
+    return result;
   });
 }
 
@@ -1385,6 +1448,9 @@ export async function createReconciliation(actor: Actor, input: ReconciliationIn
       detail: {accountId: input.accountId, periodStart: start, periodEnd: end,
         expected, counted, variance}}, client);
     return {id, state: 'OPEN', opening, movement, expected, counted, variance};
+  }).then((result) => {
+    emitDomainEvent('CASH', 'RECONCILIATION_CREATED', result.id);
+    return result;
   });
 }
 
@@ -1410,6 +1476,9 @@ export async function closeReconciliation(actor: Actor, id: string, note?: strin
     await recordAudit({actor, action: 'RECONCILIATION_CLOSED', entity: 'reconciliation', entityId: id,
       detail: {varianceMinor: Number(found.rows[0].variance_minor), note: supplied}}, client);
     return {id, state: 'CLOSED'};
+  }).then((result) => {
+    emitDomainEvent('CASH', 'RECONCILIATION_CLOSED', id);
+    return result;
   });
 }
 

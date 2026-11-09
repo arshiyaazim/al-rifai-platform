@@ -1,17 +1,9 @@
-import Link from 'next/link';
 import {pageUser} from '@/lib/standalone/session';
 import {listCashReviewCandidates, listReviewQueue, reviewQueueCounts} from '@/lib/standalone/review';
 import {ReviewFilters} from '@/components/standalone/review-filters';
 import {ActionForm} from '@/components/standalone/action-form';
-import {
-  formatReviewAmount,
-  formatReviewTimestamp,
-  reviewCategoryLabel,
-  reviewCategoryTone,
-  reviewDomainLabel,
-  reviewStateLabel,
-  reviewStateTone,
-} from '@/lib/review-ui';
+import {ReviewQueueTables} from '@/components/standalone/review-queue-tables';
+import {RealtimeRefresher} from '@/components/standalone/realtime-refresher';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,6 +45,7 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
         <div className="row-actions">
           <span className="pill warn">{counts.pending} review item(s) pending</span>
           <span className="pill warn">{counts.cashPending} cash candidate(s) pending</span>
+          <RealtimeRefresher domain="REVIEW" label="Live queue" />
         </div>
       </div>
 
@@ -74,71 +67,29 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
         </div>
       ) : null}
 
-      <section className="card" style={{marginBottom: 18}}>
-        <div className="page-head" style={{marginBottom: 8}}>
-          <div><h3>Cash review candidates ({cashCandidates.length})</h3></div>
-          <span className="muted">Approving a candidate does not post or settle funds.</span>
-        </div>
-        {cashCandidates.length ? (
-          <table>
-            <thead>
-              <tr><th>Candidate</th><th>Category</th><th>State</th><th>Submitter</th><th>Created</th><th>Source message</th><th>Parsed</th><th>Review</th></tr>
-            </thead>
-            <tbody>
-              {cashCandidates.map((candidate) => {
-                const payload = (candidate.payload ?? {}) as Record<string, unknown>;
-                return (
-                  <tr key={candidate.id}>
-                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{candidate.id}</td>
-                    <td><span className={`pill ${reviewCategoryTone(candidate.category)}`}>{reviewCategoryLabel(candidate.category)}</span></td>
-                    <td><span className={`pill ${reviewStateTone(candidate.state)}`}>{reviewStateLabel(candidate.state)}</span></td>
-                    <td>{candidate.submitter_name ?? candidate.submitted_by.slice(0, 12)}</td>
-                    <td style={{whiteSpace: 'nowrap'}}>{formatReviewTimestamp(candidate.created_at)}</td>
-                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>
-                      {candidate.source_message_id ? (
-                        <Link href={`/messages?q=${encodeURIComponent(candidate.source_message_id)}`}>{candidate.source_message_id}</Link>
-                      ) : <span className="muted">—</span>}
-                    </td>
-                    <td style={{maxWidth: 320}}>
-                      <div>{String(payload.employeeName ?? payload.employee_name ?? '—')}</div>
-                      <div className="muted">{formatReviewAmount(payload.amountMinor as string | number | null)} · {String(payload.method ?? '—')}</div>
-                    </td>
-                    <td><Link href={`/review/${candidate.id}`}>Inspect →</Link></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        ) : <p className="muted">No cash review candidates match the current filters.</p>}
-      </section>
-
-      <section className="card">
-        <div className="page-head" style={{marginBottom: 8}}>
-          <div><h3>Review items ({rows.length})</h3></div>
-          <span className="muted">Program, employee and attendance reviews.</span>
-        </div>
-        {rows.length ? (
-          <table>
-            <thead>
-              <tr><th>Item</th><th>Domain</th><th>Category</th><th>State</th><th>Target</th><th>Submitter</th><th>Created</th><th>Review</th></tr>
-            </thead>
-            <tbody>
-              {rows.map((item) => (
-                <tr key={item.id}>
-                  <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.id}</td>
-                  <td>{reviewDomainLabel(item.domain)}</td>
-                  <td><span className={`pill ${reviewCategoryTone(item.category)}`}>{reviewCategoryLabel(item.category)}</span></td>
-                  <td><span className={`pill ${reviewStateTone(item.state)}`}>{reviewStateLabel(item.state)}</span></td>
-                  <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.target_ref ?? '—'}</td>
-                  <td>{item.submitter_name ?? item.submitted_by.slice(0, 12)}</td>
-                  <td style={{whiteSpace: 'nowrap'}}>{formatReviewTimestamp(item.created_at)}</td>
-                  <td><Link href={`/review/${item.id}`}>Inspect →</Link></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : <p className="muted">No review items match the current filters.</p>}
-      </section>
+      <ReviewQueueTables
+        canBulkReject={user.role === 'ADMIN'}
+        rows={rows.map((item) => ({
+          id: item.id,
+          domain: item.domain,
+          category: item.category,
+          state: item.state,
+          target_ref: item.target_ref,
+          submitter_name: item.submitter_name,
+          submitted_by: item.submitted_by,
+          created_at: item.created_at,
+        }))}
+        cashCandidates={cashCandidates.map((candidate) => ({
+          id: candidate.id,
+          category: candidate.category,
+          state: candidate.state,
+          submitter_name: candidate.submitter_name,
+          submitted_by: candidate.submitted_by,
+          created_at: candidate.created_at,
+          source_message_id: candidate.source_message_id,
+          payload: candidate.payload,
+        }))}
+      />
 
       <section className="card">
         <h3>How this queue works</h3>
