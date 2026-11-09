@@ -3,7 +3,7 @@
 **Last Updated**: 2026-11-09
 **Current Version**: v1.10.0
 **Schema Version**: 1.10.0 (52 tables, 14 migrations)
-**Main HEAD**: `bc5b17f62f8e04bb3a25684ef535ae920ff91780`
+**Main Release HEAD**: `bc5b17f62f8e04bb3a25684ef535ae920ff91780` (v1.10.0 merge; documentation follow-up is on `main`)
 **Status**: Production deployed, healthy
 
 This document describes the **current** application. It supersedes the older
