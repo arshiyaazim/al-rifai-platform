@@ -1,10 +1,20 @@
 # DEVELOPER_START_HERE.md — AL-RIFA'I Platform
 
 **Last Updated**: 2026-11-09
-**Current Version**: v1.11.0 (15-task roadmap)
-**Schema Version**: 1.11.0 (52 tables, 15 migrations)
-**Main Release HEAD**: `v1.11.0` (release merge `510f105`; release tag points to the final documentation commit)
+**Current Version**: v1.12.0 (Cash pipeline overhaul)
+**Schema Version**: 1.12.0 (52 tables; 16 applied additive migrations + baseline `schema.sql`)
+**Main Release HEAD**: `v1.12.0` (release merge `3e12fc5`; release tag points to the final documentation commit)
 **Status**: Production deployed, healthy
+
+### v1.12.0 delivered (Cash pipeline overhaul)
+
+- **WhatsApp source of truth:** `whatsapp_messages.source_timestamp` is the real event time; `created_at`/`mirrored_at` are ingestion/mirror times.
+- **Migration 017:** added `cash_instructions.event_at` (NOT NULL, indexed). `event_at` is the display/order date; `created_at` remains DB insertion time.
+- **Historical backfill:** 2,359 POSTED instructions, 2,359 postings, 2,359 ledger entries, 8 PENDING_REVIEW submissions; 222 employees; **1,211,555.00 BDT**; event range 2026-07-12 → 2026-11-09.
+- **Auto-post exception:** verified Admin (WA-01) OUTGOING payment instructions in the Accountant direct chat create POSTED + posting + ledger automatically. No approval step for this Cash path.
+- **Read model:** Cash rows display and order by `event_at` in Asia/Dhaka; payout number and total paid are computed in event-time order.
+- **UI:** `/cash` now has exactly nine columns: Date, Employee ID, Name, Designation, Date of Join, Payouts, Amount, Total Paid, Actions. Date shows DD-MM-YYYY + HH:MM AM/PM. Name is clean, single-line, with no REVIEW/WHATSAPP artifact.
+- **Backfill safety:** revoked messages excluded; 8 incomplete blocks remain review candidates; legacy IMPORT rows replaced by WhatsApp-linked rows.
 
 ### v1.11.0 delivered (15-task roadmap)
 
@@ -113,7 +123,7 @@ Two processes, one image:
 | `sync` | `al-rifai-phase3-sync-1` | `node scripts/sync-worker.mjs --mode=tail` |
 
 One image, no separate worker image:
-`local/al-rifai-platform:phase3-roadmap-prod-109446c`.
+`local/al-rifai-platform:cash-overhaul-a334212`.
 
 ---
 
@@ -123,15 +133,15 @@ One image, no separate worker image:
 
 | Item | Value |
 |---|---|
-| Branch merged | `feat/15-task-roadmap` → `release/v1.11.0` → `origin/main` |
-| Merge commit / main HEAD | `c998824` (release merge); docs commit is tagged `v1.11.0` |
+| Branch merged | `feat/15-task-roadmap` (Cash overhaul `a334212`) → `release/v1.11.0` → `origin/main` |
+| Merge commit / main HEAD | `3e12fc5` (Cash overhaul merge); docs commit is tagged `v1.12.0` |
 | Merge strategy | `--no-ff` merge commit, full history preserved |
-| Tag | **`v1.11.0`** (annotated) |
+| Tag | **`v1.12.0`** (annotated) |
 | Feature branch | retained for reference; **not deleted** |
 | Merge status | pushed to `origin/main`; tag pushed |
 
-The production image was built from the code commit `109446c`; the merge
-commit contains the same code. Image tag: `phase3-roadmap-prod-109446c`.
+The production image was built from the code commit `a334212`; the merge
+commit contains the same code. Image tag: `cash-overhaul-a334212`.
 
 ### Last 10 commits on `main`
 
@@ -168,7 +178,7 @@ branches, `origin/arena/e574efa6-al-rifai-platform`, and the historical
 
 The repository uses multiple Git worktrees. The `main` branch is checked out at
 `/opt/al-rifai-platform`; that worktree contains unrelated uncommitted
-deployment files and must not be reset. The v1.11.0 merge was performed in a
+deployment files and must not be reset. The v1.12.0 merge was performed in a
 clean temporary worktree (`release/v1.11.0`) and pushed to `origin/main`.
 `origin/main` is the authoritative main branch; do not force-update or delete
 the dirty deployment worktree.
@@ -215,8 +225,7 @@ returned by `GET /api/auth/session`.
 
 ## 5. Database
 
-**Current schema: 1.11.0 — 52 base tables — 15 migrations.** Production was
-verified at 1.11.0/15 migrations after the v1.11.0 deployment.
+**Current schema: 1.12.0 — 52 base tables — 16 applied additive migrations + baseline `schema.sql`.** Production was verified at 1.12.0 after the Cash pipeline overhaul.
 
 ### 5.1 Tables by domain
 
@@ -274,6 +283,7 @@ verified at 1.11.0/15 migrations after the v1.11.0 deployment.
 | `014_manual_programs.sql` | 1.9.0 | `programs.master_name`, `programs.source_type` |
 | `015_cash_corrections.sql` | 1.10.0 | Append-only Cash adjustments, `REVERSED` state, `reversal_of` |
 | `016_audit_indexes.sql` | 1.11.0 | Audit Trail timestamp/action indexes and program-event index |
+| `017_cash_event_at.sql` | 1.12.0 | `cash_instructions.event_at`, event-time index, WhatsApp event-time semantics |
 
 Canonical message identity is `(account_id, chat_jid, message_id)`.
 Event time (`source_timestamp`), ingestion time (`created_at`) and mirror time
@@ -362,7 +372,10 @@ public, they require a valid session. Mutation routes require
 `id, employeeId, nameOfEmployee, designation, dateOfJoin, payoutNumber, amount,
 originalAmount, originalAmountMinor, adjustment, adjustmentMinor,
 correctionCount, lastCorrectionId, reversalOf, totalPaid, amountMinor,
-totalPaidMinor, method, state, source, sourceMessageId, notes, createdAt`
+totalPaidMinor, method, state, source, sourceMessageId, notes, createdAt, eventAt`
+
+`eventAt` is the real WhatsApp event time (`whatsapp_messages.source_timestamp`);
+`createdAt` remains the database insertion time.
 
 Amounts are integer minor units (paisa); the UI formats them as BDT. Effective
 amount = `originalAmountMinor + adjustmentMinor`.
@@ -452,11 +465,18 @@ timestamp | Client chat | Duplicates | Open`; separate
 Summary cards: Total Paid Amount, Current Month Paid, Today's Paid Amount,
 Yesterday Paid, Paid Via WA, Paid By Office, Number of Employee, Last Month
 Paid.
-Live Cash table: `Sl | Employee ID | Name of Employee | Designation | Date of
-Join | Payouts | Amount | Total Paid | Actions`.
-Controls: search Employee ID/Name, 10/20/50 rows, Previous/Next, “Updated just
-now”.
-Row action: three-dot → right sidebar.
+Live Cash table: exactly nine columns:
+`Date | Employee ID | Name | Designation | Date of Join | Payouts | Amount |
+Total Paid | Actions`.
+- Date: real event time in Asia/Dhaka, `DD-MM-YYYY` plus `HH:MM AM/PM`.
+- Name: clean single-line name; no REVIEW/WHATSAPP artifact.
+- Amount/Total Paid: BDT, right-aligned.
+- Actions: single Eye view icon; opens the detail sidebar.
+Controls: search Employee ID/Name, state filter, 10/20/50 rows,
+Previous/Next, “Updated just now”.
+The table is 940px wide with `table-layout: fixed`; no horizontal scroll at
+desktop widths.
+Row action: Eye → right sidebar.
 - REVIEW/APPROVED: Edit → Save/Cancel.
 - POSTED: “This transaction is posted and cannot be directly edited. Use
   Correction or Reversal to make changes.” with `Create Correction`
@@ -476,7 +496,7 @@ Summary cards: Employee ID, Name, Designation, Date of Join, Total Payouts,
 Total Paid.
 Filters: From, To, Min amount, Max amount.
 History columns: `Sl | Date | Payouts | Amount | Method | State | Source |
-Actions`; pagination 10/20/50; same three-dot sidebar; 30s polling.
+Actions`; Date uses `event_at`; pagination 10/20/50; same three-dot sidebar; 30s polling.
 
 **`/cash/transactions`**
 Financial POSTED table: `Sl | Employee ID | Name of Employee | Designation |
@@ -632,21 +652,26 @@ and is not part of the active workflow.
 ### Intake
 
 Authorized WA-01 Admin outgoing messages in the Accountant/Cash direct
-conversation are parsed into `cash_instructions` in REVIEW. The parser never
-posts money and never writes the ledger. Incoming Accountant messages do not
+conversation are parsed into `cash_instructions`. **Owner-approved Cash
+exception:** every clean payment block is auto-POSTED immediately, with a
+`cash_postings` row and a DEBIT `ledger_entries` row in the same transaction.
+No approval step exists for this Cash path. Incomplete blocks become
+`cash_submissions` in `PENDING_REVIEW`. Incoming Accountant messages do not
 create instructions.
 
 Each instruction has employee, payout mobile, method, amount, purpose, source
-message/block and state:
+message/block, `event_at` and state.
 
+Manual (non-WhatsApp) instructions still follow:
 `REVIEW → APPROVED → POSTED` (or `REJECTED`, `VOID`, `REVERSED`).
 
 ### Posting
 
-`postInstruction` is a separate explicit admin action; it creates an immutable
-`cash_postings` row and a DEBIT `ledger_entries` row. Business Paid Events are
-a separate business-layer record when `PHASE3_PAID_EVENTS_ENABLED=1` (currently
-not enabled in production).
+`postInstruction` remains the explicit admin action for manual (non-WhatsApp)
+instructions; it creates an immutable `cash_postings` row and a DEBIT
+`ledger_entries` row. The WhatsApp auto-post path performs the same three writes
+inside one transaction. Business Paid Events are a separate business-layer
+record when `PHASE3_PAID_EVENTS_ENABLED=1` (currently not enabled in production).
 
 ### Correction (POSTED)
 
@@ -1166,7 +1191,7 @@ Read from production containers and `compose.phase3.yaml`:
 
 | Flag | Current | Meaning |
 |---|---|---|
-| `ALRIFAI_TAG` | `phase3-roadmap-prod-109446c` | Image tag |
+| `ALRIFAI_TAG` | `cash-overhaul-a334212` | Image tag |
 | `ALRIFAI_VESSEL_PROCESSING_ENABLED` | `1` | Vessel intake/release routing enabled |
 | `PHASE3_ROUTER_WORKER_ENABLED` | `1` | Live Router worker runs every 5s |
 | `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED` | `0` | Draft delivery worker disabled |
@@ -1192,11 +1217,11 @@ approval and one-message verification.
 
 | Service | Image | Digest |
 |---|---|---|
-| app | `local/al-rifai-platform:phase3-roadmap-prod-109446c` | `sha256:1fe5f00f70202be681de7727ad32f998c0479224a1a906d25dd1fe401131a8bf` |
-| sync | `local/al-rifai-platform:phase3-roadmap-prod-109446c` | same |
+| app | `local/al-rifai-platform:cash-overhaul-a334212` | `sha256:ae64cc405cbf40c7340dd7b802b40fcb8a479629b57a5ead0bda86315d7db531` |
+| sync | `local/al-rifai-platform:cash-overhaul-a334212` | same |
 
-Image tags use the pattern `phase3-` plus the feature name plus `-prod-` plus the short commit SHA. Current tag: `phase3-roadmap-prod-109446c` (older releases:
-`phase3-cash-corr-prod-5d780b1`, `phase3-overhaul-prod-54d2ebd`, `phase3-cash-prod-771ea18`, etc.).
+Image tags use the pattern `phase3-` or the feature name plus `-prod-`/release suffix. Current tag: `cash-overhaul-a334212` (older releases:
+`phase3-roadmap-prod-109446c`, `phase3-cash-corr-prod-5d780b1`, `phase3-overhaul-prod-54d2ebd`, etc.).
 
 ### Backup pattern
 
@@ -1216,10 +1241,10 @@ Never commit dumps, `.env` files or media.
 ```bash
 cd /opt/al-rifai-phase3-activation
 git checkout main && git pull
-docker build -t local/al-rifai-platform:phase3-roadmap-prod-109446c .
+docker build -t local/al-rifai-platform:cash-overhaul-a334212 .
 
 cd /opt/al-rifai-platform
-ALRIFAI_TAG=phase3-roadmap-prod-109446c \
+ALRIFAI_TAG=cash-overhaul-a334212 \
 ALRIFAI_VESSEL_PROCESSING_ENABLED=1 \
 PHASE3_ROUTER_WORKER_ENABLED=1 \
   docker compose -p al-rifai-phase3 \
@@ -1286,11 +1311,13 @@ docker logs --since 10m al-rifai-phase3-app-1
 docker logs --since 10m al-rifai-phase3-sync-1
 ```
 
-Current production evidence: health `200`, schema `1.11.0`, image
-`phase3-roadmap-prod-109446c`, app/sync healthy, 0 restarts, 0 error log lines
-after deployment. Backup:
-`/opt/al-rifai-backups/alrifai_v2_phase3_20261109T053432Z.pre-016.sql.gz`.
-Deployment record: `/opt/al-rifai-backups/deployment-109446c.txt`.
+Current production evidence: health `200`, schema `1.12.0`, image
+`cash-overhaul-a334212`, app/sync healthy, 0 restarts, 0 error log lines
+after deployment. Cash backfill: 2,359 POSTED / 2,359 postings / 2,359 ledger
+entries, 8 pending review submissions, 222 employees, 1,211,555.00 BDT.
+Backup: `/opt/al-rifai-backups/alrifai_v2_phase3_20261109T101559Z.pre-cash-overhaul.sql.gz`
+(SHA-256 `fb87581fdef6d3bfb8ac69c9074b1ebeeedccd4be394fbcd5f1badaa81ec8390`).
+Deployment record: `/opt/al-rifai-backups/deployment-cash-overhaul-a334212.txt`.
 
 ---
 
@@ -1328,7 +1355,7 @@ Deployment record: `/opt/al-rifai-backups/deployment-109446c.txt`.
 - Integrate an OCR engine (Tesseract, Google Cloud Vision, AWS Textract or Azure Document Intelligence).
 - Support mixed Bangla + English text.
 - Parse: escort mobile, lighter name, mother vessel, end date, end shift, release point, duty count, salary, conveyance.
-- Add columns: `release_point`, `duty_count`, `release_salary`, `release_conveyance`, `release_notes`, `release_ocr_confidence`, `release_ocr_raw_text`; requires migration 017+.
+- Add columns: `release_point`, `duty_count`, `release_salary`, `release_conveyance`, `release_notes`, `release_ocr_confidence`, `release_ocr_raw_text`; requires migration 018+.
 - Match OCR output to existing programs with `lib/vessel-match.ts`; low confidence goes to `REVIEW_REQUIRED`; never create a program.
 - Preserve the original image reference for audit.
 
@@ -1394,9 +1421,11 @@ confirmation provenance and release provenance. `source_type` is `MANUAL` or
 
 ### Cash transaction
 
-`cash_instructions` is the parsed instruction. `cash_postings` is the immutable
-financial posting. `cash_transaction_adjustments` is the append-only correction
-ledger. `cash_reversals` records reverse-and-repost. Effective amount is
+`cash_instructions` is the parsed instruction. `event_at` is the real WhatsApp
+event time (Asia/Dhaka display/order); `created_at` is the database insertion
+time. `cash_postings` is the immutable financial posting.
+`cash_transaction_adjustments` is the append-only correction ledger.
+`cash_reversals` records reverse-and-repost. Effective amount is
 original + adjustments; reversed originals are retained but excluded from
 effective totals.
 
@@ -1416,6 +1445,7 @@ source and source ref. Critical actions include `PROGRAM_CONFIRMED`,
 |---|---|---|
 | v1.10.0 | `bc5b17f` | Merge: Escort workflow, source roles, Cash/Vessel UI overhaul, manual programs, employee/vessel history, Cash correction/reversal |
 | v1.11.0 | tag `v1.11.0` | 15-task roadmap: form audit, CSV/print, Cash state filter, vessel facets, sticky summary, statement export, inline assign, SSE, column presets, bulk rejection, dark mode, audit viewer |
+| v1.12.0 | tag `v1.12.0` | Cash pipeline overhaul: `event_at`, WhatsApp POSTED backfill, live auto-post, 9-column Cash UI, real event times |
 | pre-merge | `5d780b1` | Cash correction/reversal workflow, schema 1.10.0 |
 | pre-merge | `1df0b4b` | Block amount edits after a paid event |
 | pre-merge | `54d2ebd` | Cash/Vessel table overhaul, shared sidebar, employee history, manual program creation |
