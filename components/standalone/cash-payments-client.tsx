@@ -4,6 +4,8 @@ import {useMemo, useState} from 'react';
 import {Eye} from 'lucide-react';
 import {AppToaster} from '@/components/standalone/app-toaster';
 import {CashTransactionSidebar} from '@/components/standalone/cash-transaction-sidebar';
+import {CsvImportDialog} from '@/components/standalone/csv-import-dialog';
+import {TableExportControls} from '@/components/standalone/export-controls';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {dateDdMmYyyy, dhakaTime12, localMobile} from '@/lib/export-format';
@@ -46,9 +48,10 @@ const money = (minor: unknown) => {
 const dash = (value: unknown) => value === null || value === undefined || value === '' ? '—' : String(value);
 const cleanName = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
 
-export function CashPaymentsClient({initial, initialFilters}: {
+export function CashPaymentsClient({initial, initialFilters, canManage = false}: {
   initial: CashPaymentPage;
   initialFilters: Filters;
+  canManage?: boolean;
 }) {
   const [data, setData] = useState(initial);
   const [filters, setFilters] = useState(initialFilters);
@@ -58,6 +61,11 @@ export function CashPaymentsClient({initial, initialFilters}: {
   const [selected, setSelected] = useState<CashTransaction | null>(null);
 
   const activeFilters = useMemo(() => Object.values(filters).filter(Boolean).length, [filters]);
+  const exportParams = new URLSearchParams();
+  if (filters.employeeMobile) exportParams.set('employee_mobile', filters.employeeMobile);
+  if (filters.from) exportParams.set('date_from', filters.from);
+  if (filters.to) exportParams.set('date_to', filters.to);
+  const exportHref = `/api/cash/export${exportParams.size ? `?${exportParams.toString()}` : ''}`;
 
   async function load(next: Filters, page = 1) {
     setLoading(true);
@@ -143,7 +151,7 @@ export function CashPaymentsClient({initial, initialFilters}: {
           <span className="muted">Filtered total {money(data.totalMinor)}</span>
         </div>
 
-        <form onSubmit={submit} className="row" style={{gap: 8, flexWrap: 'wrap', marginBottom: 10}}>
+        <form onSubmit={submit} className="row print-hidden" style={{gap: 8, flexWrap: 'wrap', marginBottom: 10}}>
           <Input value={draft.q} onChange={(e) => setDraft({...draft, q: e.target.value})} placeholder="Search name or mobile" style={{maxWidth: 230}} />
           <label className="muted" style={{fontSize: 12}}>From <Input type="date" value={draft.from} onChange={(e) => setDraft({...draft, from: e.target.value})} /></label>
           <label className="muted" style={{fontSize: 12}}>To <Input type="date" value={draft.to} onChange={(e) => setDraft({...draft, to: e.target.value})} /></label>
@@ -157,11 +165,34 @@ export function CashPaymentsClient({initial, initialFilters}: {
         </form>
 
         {filters.employeeMobile ? (
-          <div className="vessel-filter-chip" role="status">
+          <div className="vessel-filter-chip print-hidden" role="status">
             <span>Filtering: <strong>{employeeLabel}</strong></span>
             <button type="button" aria-label="Clear employee filter" onClick={clearEmployee}>×</button>
           </div>
         ) : null}
+
+        <div className="print-hidden" style={{display: 'flex', gap: 8, justifyContent: 'flex-end', marginBottom: 8}}>
+          {canManage ? (
+            <CsvImportDialog
+              title="Import Cash CSV"
+              endpoint="/api/cash/import"
+              templateHint="Required: Employee Mobile, Amount. Import posts through the normal approve/post services."
+              onImported={() => void load(filters, 1)}
+            />
+          ) : null}
+          <TableExportControls
+            title="Cash Transactions"
+            filenamePrefix="cash_transactions"
+            columns={[]}
+            rows={[]}
+            exportHref={exportHref}
+            filterSummary={[
+              filters.employeeMobile && `Employee: ${filters.employeeMobile}`,
+              filters.from && `From: ${filters.from}`,
+              filters.to && `To: ${filters.to}`,
+            ].filter(Boolean) as string[]}
+          />
+        </div>
 
         {error ? <p role="alert" style={{color: '#b91c1c'}}>{error}</p> : null}
 

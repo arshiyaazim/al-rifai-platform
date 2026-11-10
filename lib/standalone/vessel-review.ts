@@ -181,8 +181,8 @@ async function decideItem(actor: Actor, id: string, decision: string,
       const escortMobile = digits(fields.escortMobile);
       if (escortMobile) {
         await client.query(
-          `INSERT INTO employees (employee_mobile, preferred_name, duty_type, created_by)
-           VALUES ($1,$2,'escort','system')
+          `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
+           VALUES ($1,$2,'escort','escort','system')
            ON CONFLICT (employee_mobile) DO NOTHING`,
           [`+88${escortMobile}`, fields.escortName || `Unknown-${escortMobile.slice(-4)}`],
         );

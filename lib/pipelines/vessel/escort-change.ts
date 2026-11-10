@@ -59,8 +59,8 @@ export async function handleEscortChangeOn(
 
   // The new escort is a first-class employee identity (mobile is the key).
   await client.query(
-    `INSERT INTO employees (employee_mobile, preferred_name, duty_type, created_by)
-     VALUES ($1,$2,'escort',$3)
+    `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
+     VALUES ($1,$2,'escort','escort',$3)
      ON CONFLICT (employee_mobile) DO NOTHING`,
     [`+88${mobile}`, name, actor.id],
   );

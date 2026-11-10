@@ -44,7 +44,11 @@ export async function POST(request: Request) {
       });
       return ok({pending: true, review}, 202);
     }
-    return ok(await createEmployee(actor as never, body as never), 201);
+    const created = await createEmployee(actor as never, body as never);
+    if (!created.created) {
+      return ok({error: 'EMPLOYEE_EXISTS', employeeMobile: created.employeeMobile}, 409);
+    }
+    return ok(created, 201);
   } catch (error) {
     return errorResponse(error);
   }

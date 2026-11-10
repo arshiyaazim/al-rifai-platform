@@ -200,8 +200,8 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
   if (escortMobile) {
       const name = optionalText(input.escortName, 'escortName', 150) ?? escortMobile;
     await client.query(
-      `INSERT INTO employees (employee_mobile, preferred_name, duty_type, created_by)
-       VALUES ($1,$2,'escort',$3) ON CONFLICT (employee_mobile) DO NOTHING`,
+      `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
+       VALUES ($1,$2,'escort','escort',$3) ON CONFLICT (employee_mobile) DO NOTHING`,
       [escortMobile, name, actor.id],
     );
   }
@@ -309,8 +309,8 @@ async function assignEscortOn(
       return {programId: changed.programId, assignmentId: changed.assignmentId};
     }
     await client.query(
-      `INSERT INTO employees (employee_mobile, preferred_name, duty_type, created_by)
-       VALUES ($1,$2,'escort',$3) ON CONFLICT (employee_mobile) DO NOTHING`,
+      `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
+       VALUES ($1,$2,'escort','escort',$3) ON CONFLICT (employee_mobile) DO NOTHING`,
       [employeeMobile, name, actor.id],
     );
     const open = await client.query<{id: string}>(

@@ -89,11 +89,12 @@ export async function POST(request: Request) {
         );
         const name = entry.employeeName || employee?.preferred_name
           || `Unknown-${entry.employeeMobile.slice(-4)}`;
+        const designation = /client|ক্লায়েন্ট/i.test(String(entry.description ?? '')) ? 'client' : 'other';
         await row(
-          `INSERT INTO employees (employee_mobile, preferred_name, duty_type, created_by)
-           VALUES ($1,$2,'other','import:csv')
+          `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
+           VALUES ($1,$2,'other',$3,'import:csv')
            ON CONFLICT (employee_mobile) DO NOTHING`,
-          [entry.employeeMobile, name],
+          [entry.employeeMobile, name, designation],
         );
         const created = await createInstruction(actor as never, {
           employeeMobile: entry.employeeMobile,

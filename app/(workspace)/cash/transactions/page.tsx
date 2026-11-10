@@ -21,8 +21,10 @@ export default async function CashTransactionsPage({searchParams}: {searchParams
   const source = (params.source ?? '').trim();
   const employeeMobile = (params.employee_mobile ?? params.employeeMobile ?? params.employee ?? '').trim();
   const result = await listCashPayments({q, date, from, to, employeeMobile, source, limit: 20, offset: 0});
+  const canManage = user.role === 'ADMIN';
   return (
     <CashPaymentsClient
+      canManage={canManage}
       initial={{
         rows: result.rows,
         total: result.count,

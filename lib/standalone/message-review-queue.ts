@@ -136,8 +136,8 @@ export async function approveMessageReviewQueue(
         // Owner rule: a new escort mobile is auto-created in the employee
         // directory; the review approval must not fail with a missing FK.
         await client.query(
-          `INSERT INTO employees (employee_mobile, preferred_name, duty_type, created_by)
-           VALUES ($1,$2,'escort','system')
+          `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
+           VALUES ($1,$2,'escort','escort','system')
            ON CONFLICT (employee_mobile) DO NOTHING`,
           [`+88${escortMobile}`, escortName || `Unknown-${escortMobile.slice(-4)}`],
         );
