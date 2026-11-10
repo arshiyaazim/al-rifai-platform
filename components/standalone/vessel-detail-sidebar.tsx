@@ -45,11 +45,12 @@ async function csrfToken(): Promise<string> {
 }
 
 export function VesselDetailSidebar({
-  programId, onClose, onUpdated, canCommand, canRelease,
+  programId, onClose, onUpdated, onFilterEscort, canCommand, canRelease,
 }: {
   programId: string | null;
   onClose: () => void;
   onUpdated?: () => void;
+  onFilterEscort?: (mobile: string, name?: string | null) => void;
   canCommand: boolean;
   canRelease: boolean;
 }) {
@@ -58,7 +59,7 @@ export function VesselDetailSidebar({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [form, setForm] = useState({
-    masterName: '', masterMobile: '', escortMobile: '', escortName: '',
+    masterMobile: '', escortMobile: '', escortName: '',
     startDate: '', startShift: 'D', endDate: '', endShift: '', notes: '',
   });
 
@@ -75,7 +76,7 @@ export function VesselDetailSidebar({
   const startEdit = () => {    if (!detail) return;
     const p = detail.program;
     setForm({
-      masterName: p.master_name ?? '', masterMobile: p.master_mobile ?? '',
+      masterMobile: p.master_mobile ?? '',
       escortMobile: p.escort_mobile ?? '', escortName: p.escort_name ?? '',
       startDate: p.start_date ?? '', startShift: p.start_shift ?? 'D',
       endDate: p.end_date ?? '', endShift: p.end_shift ?? '', notes: p.notes ?? '',
@@ -93,7 +94,6 @@ export function VesselDetailSidebar({
         credentials: 'same-origin',
         headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token},
         body: JSON.stringify({
-          masterName: form.masterName.trim() || null,
           masterMobile: form.masterMobile.trim() || null,
           escortMobile: form.escortMobile.trim() || undefined,
           escortName: form.escortName.trim() || undefined,
@@ -161,9 +161,16 @@ export function VesselDetailSidebar({
           <>
             <Button type="button" size="sm" variant="outline" onClick={() => { setEditing(false); onClose(); }}>Close</Button>
             {canCommand ? <Button type="button" size="sm" onClick={startEdit}>Edit</Button> : null}
-            <Button asChild size="sm" variant="outline">
-              <Link href={program.escort_mobile ? `/vessel?escort_mobile=${encodeURIComponent(program.escort_mobile)}` : '/vessel'}>All Programs</Link>
-            </Button>
+            {program.escort_mobile && onFilterEscort ? (
+              <Button type="button" size="sm" variant="outline"
+                onClick={() => { onFilterEscort(String(program.escort_mobile), program.escort_name); onClose(); }}>
+                All Programs
+              </Button>
+            ) : (
+              <Button asChild size="sm" variant="outline">
+                <Link href={program.escort_mobile ? `/vessel?escort_mobile=${encodeURIComponent(program.escort_mobile)}` : '/vessel'}>All Programs</Link>
+              </Button>
+            )}
             {canCommand && program.state !== 'VOIDED' ? (
               <Button type="button" size="sm" variant="outline" disabled={deleting} onClick={() => void remove()}>
                 {deleting ? 'Deleting…' : 'Delete'}
@@ -182,7 +189,7 @@ export function VesselDetailSidebar({
               <dt className="text-muted-foreground">Mother Vessel</dt><dd>{program.mother_vessel}</dd>
               <dt className="text-muted-foreground">Lighter Name</dt><dd>{program.lighter_vessel}</dd>
               <dt className="text-muted-foreground">Master Name</dt>
-              <dd>{editing ? <Input value={form.masterName} onChange={(e) => setForm({...form, masterName: e.target.value})} /> : dash(program.master_name)}</dd>
+              <dd>{dash(program.master_name)}</dd>
               <dt className="text-muted-foreground">Master Mobile</dt>
               <dd>{editing ? <Input value={form.masterMobile} onChange={(e) => setForm({...form, masterMobile: e.target.value})} /> : dash(program.master_mobile)}</dd>
               <dt className="text-muted-foreground">Escort Name</dt>

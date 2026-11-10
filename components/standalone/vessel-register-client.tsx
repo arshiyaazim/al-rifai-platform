@@ -24,6 +24,8 @@ export type VesselRow = VesselProgram & {
   event_at?: string | null;
   source_chat_jid?: string | null;
   escort_change_from_program_id?: string | null;
+  mother_vessel_normalized?: string | null;
+  lighter_vessel_normalized?: string | null;
   pay_state?: 'CALCULATED' | 'UNRESOLVED' | null;
   shifts?: number | null;
   salary_minor?: string | null;
@@ -155,12 +157,13 @@ export function VesselRegisterClient({
   const [lighterFilter, setLighterFilter] = useState('');
   const [escortNameFilter, setEscortNameFilter] = useState('');
   const [escortMobileFilter, setEscortMobileFilter] = useState(initialEscortMobile);
+  const [escortFilterLabel, setEscortFilterLabel] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [clientFilter, setClientFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [form, setForm] = useState({
-    motherVessel: fixedMother ?? '', lighterName: '', masterName: '', masterMobile: '',
+    motherVessel: fixedMother ?? '', lighterName: '', masterMobile: '',
     startDate: '', startShift: 'D', escortName: '', escortMobile: '', notes: '',
   });
   const request = useRef(0);
@@ -233,6 +236,9 @@ export function VesselRegisterClient({
   const totalCount = allRows.length;
   const lastMonthCount = allRows.filter((row) => inMonth(row.event_at, lastMonth)).length;
   const thisMonthCount = allRows.filter((row) => inMonth(row.event_at, thisMonth)).length;
+  const activeEscortName = escortFilterLabel
+    || allRows.find((row) => String(row.escort_mobile ?? '') === escortMobileFilter)?.escort_name
+    || escortMobileFilter;
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / limit));
   const safePage = Math.min(page, totalPages);
@@ -241,8 +247,8 @@ export function VesselRegisterClient({
   const exportRows: ExportRow[] = pageRows.map((row, index) => ({...row, sl: offset + index + 1}));
   const columns: ExportColumn<ExportRow>[] = [
     {header: 'Date', value: (row) => eventDate(row.event_at)},
-    {header: 'Mother Vessel', value: (row) => withMv(row.mother_vessel)},
-    {header: 'Lighter Vessel', value: (row) => withMv(row.lighter_vessel)},
+    {header: 'Mother Vessel', value: (row) => withMv(row.mother_vessel_normalized ?? row.mother_vessel)},
+    {header: 'Lighter Vessel', value: (row) => withMv(row.lighter_vessel_normalized ?? row.lighter_vessel)},
     {header: 'Escort Name', value: (row) => cleanEmployeeName(row.escort_name)},
     {header: 'Escort Mobile', value: (row) => row.escort_mobile ?? ''},
     {header: 'Start', value: (row) => shift(row.start_date, row.start_shift)},
@@ -272,6 +278,38 @@ export function VesselRegisterClient({
     setClientFilter('');
     setStatusFilter('');
     setPage(1);
+    syncEscortUrl('');
+  }
+
+  function syncEscortUrl(mobile: string) {
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (mobile) url.searchParams.set('escort_mobile', mobile);
+    else url.searchParams.delete('escort_mobile');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}`);
+  }
+
+  /** Employee name / sidebar "All Programs": client-side filter, no navigation. */
+  function applyEscortFilter(mobile: string, name?: string | null) {
+    setEscortMobileFilter(mobile);
+    setEscortNameFilter('');
+    setMotherFilter(fixedMother ?? '');
+    setLighterFilter('');
+    setFromDate('');
+    setToDate('');
+    setClientFilter('');
+    setStatusFilter('');
+    setPage(1);
+    setSelectedId(null);
+    syncEscortUrl(mobile);
+    if (name) setEscortFilterLabel(name);
+  }
+
+  function clearEscortFilter() {
+    setEscortMobileFilter('');
+    setEscortFilterLabel('');
+    setPage(1);
+    syncEscortUrl('');
   }
 
   async function fetchAllForExport(): Promise<ExportRow[]> {
@@ -292,7 +330,7 @@ export function VesselRegisterClient({
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
       toast.success('Program created.');
       setNewOpen(false);
-      setForm({motherVessel: fixedMother ?? '', lighterName: '', masterName: '', masterMobile: '', startDate: '', startShift: 'D', escortName: '', escortMobile: '', notes: ''});
+      setForm({motherVessel: fixedMother ?? '', lighterName: '', masterMobile: '', startDate: '', startShift: 'D', escortName: '', escortMobile: '', notes: ''});
       await loadAll(true);
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'Create failed.', {duration: Infinity});
@@ -379,6 +417,13 @@ export function VesselRegisterClient({
           </div>
         </div>
 
+        {escortMobileFilter ? (
+          <div className="vessel-filter-chip" role="status">
+            <span>Filtering: <strong>{cleanEmployeeName(activeEscortName)}</strong></span>
+            <button type="button" aria-label="Clear escort filter" onClick={clearEscortFilter}>×</button>
+          </div>
+        ) : null}
+
         <div className="table-toolbar print-hidden" style={{justifyContent: 'flex-end'}}>
           <TableExportControls
             title="Vessel Register"
@@ -416,10 +461,17 @@ export function VesselRegisterClient({
                 return (
                   <tr key={program.id}>
                     <td>{eventDate(program.event_at)}</td>
-                    <td className="vessel-ellipsis" title={program.mother_vessel}>{withMv(program.mother_vessel)}</td>
-                    <td className="vessel-ellipsis" title={program.lighter_vessel}>{withMv(program.lighter_vessel)}</td>
+                    <td className="vessel-ellipsis" title={program.mother_vessel}>{withMv(program.mother_vessel_normalized ?? program.mother_vessel)}</td>
+                    <td className="vessel-ellipsis" title={program.lighter_vessel}>{withMv(program.lighter_vessel_normalized ?? program.lighter_vessel)}</td>
                     <td className="vessel-escort-cell">
-                      <strong className="vessel-ellipsis" title={cleanEmployeeName(program.escort_name)}>{cleanEmployeeName(program.escort_name) || '—'}</strong>
+                      {program.escort_mobile ? (
+                        <button type="button" className="vessel-link" title={cleanEmployeeName(program.escort_name)}
+                          onClick={() => applyEscortFilter(String(program.escort_mobile), program.escort_name)}>
+                          {cleanEmployeeName(program.escort_name) || '—'}
+                        </button>
+                      ) : (
+                        <strong className="vessel-ellipsis">{cleanEmployeeName(program.escort_name) || '—'}</strong>
+                      )}
                       <small>{program.escort_mobile ?? '—'}</small>
                     </td>
                     <td>{shift(program.start_date, program.start_shift)}</td>
@@ -461,6 +513,7 @@ export function VesselRegisterClient({
         programId={selectedId}
         onClose={() => setSelectedId(null)}
         onUpdated={() => void loadAll(true)}
+        onFilterEscort={applyEscortFilter}
         canCommand={canCommand}
         canRelease={canRelease}
       />
@@ -486,7 +539,6 @@ export function VesselRegisterClient({
             <Input list="vessel-lighters" value={form.lighterName} onChange={(e) => setForm({...form, lighterName: e.target.value})} required />
             <datalist id="vessel-lighters">{initialLighters.map((name) => <option key={name} value={name} />)}</datalist>
           </label>
-          <label className="text-sm">Master Name<Input value={form.masterName} onChange={(e) => setForm({...form, masterName: e.target.value})} /></label>
           <label className="text-sm">Master Mobile<Input value={form.masterMobile} onChange={(e) => setForm({...form, masterMobile: e.target.value})} inputMode="tel" /></label>
           <div className="flex gap-2">
             <label className="flex-1 text-sm">Start Date *<Input type="date" value={form.startDate} onChange={(e) => setForm({...form, startDate: e.target.value})} required /></label>

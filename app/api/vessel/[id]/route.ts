@@ -68,17 +68,16 @@ export async function PATCH(request: Request, context: {params: Promise<{id: str
     const {id} = await context.params;
     const programId = decodeURIComponent(id);
     const body = await bodyOf<{
-      escortMobile?: string; escortName?: string; masterName?: string | null; masterMobile?: string | null;
+      escortMobile?: string; escortName?: string; masterMobile?: string | null;
       startDate?: string; startShift?: string; endDate?: string | null; endShift?: string | null; notes?: string | null;
     }>(request);
     const current = await getProgram(programId);
     if (current.program.state === 'VOIDED') throw new DomainError('PROGRAM_VOIDED', 409);
 
     const changed: Record<string, unknown> = {};
-    if (body.masterName !== undefined || body.masterMobile !== undefined
+    if (body.masterMobile !== undefined
       || body.startDate !== undefined || body.startShift !== undefined || body.notes !== undefined) {
       await updateProgram(actor as never, programId, {
-        masterName: body.masterName,
         masterMobile: body.masterMobile,
         startDate: body.startDate,
         startShift: body.startShift,

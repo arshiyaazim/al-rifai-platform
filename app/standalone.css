@@ -849,6 +849,21 @@ input, select, textarea, .pill, .vessel-facets button, .button-link,
 .vessel-escort-cell { min-width: 0; }
 .vessel-escort-cell strong { display: block; font-size: .82em; line-height: 1.25; }
 .vessel-escort-cell small { display: block; color: #4b5563; font-size: .8em; line-height: 1.25; }
+.vessel-link {
+  display: block; max-width: 100%; padding: 0; border: 0; background: transparent;
+  color: #2563eb; font: inherit; font-weight: 600; font-size: .82em; line-height: 1.25;
+  text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vessel-link:hover { text-decoration: underline; }
+.vessel-filter-chip {
+  display: inline-flex; align-items: center; gap: 8px; margin: 0 0 10px;
+  padding: 4px 10px; border-radius: 999px; background: #eff6ff; color: #1e3a8a;
+  border: 1px solid #bfdbfe; font-size: 12px;
+}
+.vessel-filter-chip button {
+  border: 0; background: transparent; color: #1e3a8a; cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 0 2px;
+}
 @media (max-width: 1100px) {
   .vessel-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

@@ -38,13 +38,12 @@ export async function POST(request: Request) {
     assertCapability(actor as never, 'vessel.command');
     const body = await bodyOf<{
       motherVessel?: string; lighterName?: string; lighterVessel?: string;
-      masterName?: string; masterMobile?: string; startDate?: string; startShift?: string;
+      masterMobile?: string; startDate?: string; startShift?: string;
       escortMobile?: string; escortName?: string; notes?: string;
     }>(request);
     const result = await createProgram(actor as never, {
       motherVessel: String(body.motherVessel ?? ''),
       lighterVessel: String(body.lighterVessel ?? body.lighterName ?? ''),
-      masterName: body.masterName ?? null,
       masterMobile: body.masterMobile ?? null,
       startDate: String(body.startDate ?? ''),
       startShift: String(body.startShift ?? 'D'),
@@ -66,7 +65,6 @@ export async function POST(request: Request) {
       detail: {
         motherVessel: result.program.mother_vessel,
         lighterVessel: result.program.lighter_vessel,
-        masterName: body.masterName ?? null,
         masterMobile: body.masterMobile ?? null,
         startDate: result.program.start_date,
         startShift: result.program.start_shift,

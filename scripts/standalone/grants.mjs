@@ -68,6 +68,7 @@ export async function grantRuntime(client, {schema, runtimeUser}) {
   await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA "${schema}" TO "${runtimeUser}"`);
   await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".compute_program_pay(text) TO "${runtimeUser}"`);
   await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".normalize_mobile(text) TO "${runtimeUser}"`);
+  await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".normalize_vessel_name(text) TO "${runtimeUser}"`);
 }
 
 export const GRANT_TABLES = {READ_WRITE, APPEND_ONLY, DELETE_ONLY, READ_ONLY_VIEWS};

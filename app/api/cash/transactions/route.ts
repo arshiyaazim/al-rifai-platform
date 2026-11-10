@@ -23,7 +23,11 @@ export async function GET(request: Request) {
     const state = (url.searchParams.get('state') ?? '').trim() || undefined;
     const from = (url.searchParams.get('from') ?? '').trim() || undefined;
     const to = (url.searchParams.get('to') ?? '').trim() || undefined;
-    const filters = {q: search, state, from, to};
+    const employeeId = (url.searchParams.get('employee_mobile')
+      ?? url.searchParams.get('employeeMobile')
+      ?? url.searchParams.get('employeeId')
+      ?? '').trim() || undefined;
+    const filters = {q: search, state, from, to, employeeId};
     const [rows, total] = await Promise.all([
       listCashTransactions({...filters, limit, offset: (page - 1) * limit}),
       countCashTransactions(filters),

@@ -70,6 +70,15 @@ export type ProgramListRow = ProgramRow & {
 const programId = (mother: string, lighter: string, startDate: string, startShift: string) =>
   stableId('prog', ['vessel-program', mother.toLowerCase(), lighter.toLowerCase(), startDate, startShift]);
 
+/** Same rule as public.normalize_vessel_name(): strip MV, collapse spaces, uppercase. */
+export function normalizeVesselName(value: string): string {
+  return String(value ?? '')
+    .replace(/^m\.?\s*v\.?\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
 /**
  * ±1 calendar day potential-duplicate check (never blocks; it warns).
  *
@@ -125,8 +134,8 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
   const commandKey = source.commandKey ?? null;
   const channel = source.channel ?? 'WEB';
   const sourceType = source.sourceType ?? (channel === 'WHATSAPP' ? 'WHATSAPP_ORDER' : 'MANUAL');
-  const motherVessel = text(input.motherVessel, 'motherVessel', {max: 120});
-  const lighterVessel = text(input.lighterVessel, 'lighterVessel', {max: 120});
+  const motherVessel = normalizeVesselName(text(input.motherVessel, 'motherVessel', {max: 120}));
+  const lighterVessel = normalizeVesselName(text(input.lighterVessel, 'lighterVessel', {max: 120}));
   const startDate = isoDate(input.startDate, 'startDate');
   const startShift = shift(input.startShift, 'startShift');
   const endDate = input.endDate ? isoDate(input.endDate, 'endDate') : null;
@@ -516,8 +525,8 @@ export async function updateProgram(actor: Actor, programIdValue: string, input:
     if (current.state === 'VOIDED') throw new DomainError('PROGRAM_VOIDED', 409);
     if (current.state === 'COMPLETED') throw new DomainError('PROGRAM_COMPLETED', 409);
 
-    const motherVessel = input.motherVessel === undefined ? current.mother_vessel : text(input.motherVessel, 'motherVessel', {max: 120});
-    const lighterVessel = input.lighterVessel === undefined ? current.lighter_vessel : text(input.lighterVessel, 'lighterVessel', {max: 120});
+    const motherVessel = input.motherVessel === undefined ? current.mother_vessel : normalizeVesselName(text(input.motherVessel, 'motherVessel', {max: 120}));
+    const lighterVessel = input.lighterVessel === undefined ? current.lighter_vessel : normalizeVesselName(text(input.lighterVessel, 'lighterVessel', {max: 120}));
     const startDate = input.startDate === undefined ? current.start_date : isoDate(input.startDate, 'startDate');
     const startShift = input.startShift === undefined ? current.start_shift : shift(input.startShift, 'startShift');
     const masterName = input.masterName === undefined ? (current.master_name ?? null) : optionalText(input.masterName, 'masterName', 150);
