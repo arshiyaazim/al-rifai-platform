@@ -5,7 +5,7 @@ import {emitDomainEvent} from '../realtime/server.ts';
 import {assertCapability} from './authz.ts';
 import {createEmployee, updateEmployee} from './employees.ts';
 import {createProgram} from './programs.ts';
-import {recordAttendance} from './attendance.ts';
+import {createAttendanceRecord} from './attendance-records.ts';
 
 export type Domain = 'EMPLOYEE' | 'PROGRAM' | 'ATTENDANCE' | 'CASH';
 export type Action = 'CREATE' | 'UPDATE' | 'DELETE';
@@ -577,7 +577,7 @@ async function applyItem(
     return updateEmployee(actor, item.target_ref, item.payload as never, client);
   }
   if (item.domain === 'PROGRAM' && item.action === 'CREATE') return createProgram(actor, item.payload as never, {}, client);
-  if (item.domain === 'ATTENDANCE' && item.action === 'CREATE') return recordAttendance(actor, item.payload as never, client);
+  if (item.domain === 'ATTENDANCE' && item.action === 'CREATE') return createAttendanceRecord(actor, item.payload as never, client);
   throw new DomainError(`DOMAIN_NOT_IMPLEMENTED:${item.domain}:${item.action}`, 501);
 }
 

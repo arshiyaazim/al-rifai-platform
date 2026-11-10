@@ -30,6 +30,17 @@ type Form = {
   passportNumber: string; notes: string;
 };
 
+type AttendanceMini = {
+  source_id: string;
+  attendance_date: string;
+  shift: string;
+  location: string | null;
+  client_name: string | null;
+  source: 'VESSEL' | 'NON_VESSEL';
+};
+
+type AttendanceSummary = {vesselDays: number; nonVesselDays: number; totalDays: number; salaryMinor: number};
+
 const EMPTY: Form = {
   employeeMobile: '', preferredName: '', dutyType: 'other', designation: 'escort',
   state: 'ACTIVE', dateOfJoin: '', altMobile: '', homePhone: '',
@@ -87,6 +98,9 @@ export function EmployeeDetailSidebar({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState<Form>(EMPTY);
+  const [attMonth, setAttMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [attRows, setAttRows] = useState<AttendanceMini[]>([]);
+  const [attSummary, setAttSummary] = useState<AttendanceSummary>({vesselDays: 0, nonVesselDays: 0, totalDays: 0, salaryMinor: 0});
 
   useEffect(() => {
     if (creating || !mobile) return;
@@ -111,6 +125,21 @@ export function EmployeeDetailSidebar({
     setError('');
   }, [creating]);
   /* eslint-enable react-hooks/set-state-in-effect */
+
+  useEffect(() => {
+    if (!mobile || creating) return;
+    const controller = new AbortController();
+    fetch(`/api/attendance/unified?employee_mobile=${encodeURIComponent(mobile)}&month=${attMonth}`,
+      {signal: controller.signal, cache: 'no-store'})
+      .then((response) => response.ok ? response.json() : null)
+      .then((body) => {
+        if (controller.signal.aborted || !body) return;
+        setAttRows((body.rows ?? []) as AttendanceMini[]);
+        setAttSummary(body.summary as AttendanceSummary);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [mobile, creating, attMonth]);
 
   const employee = detail?.employee;
 
@@ -310,10 +339,28 @@ export function EmployeeDetailSidebar({
             </table>
           </section>
           <section>
-            <h4 className="mb-2 text-sm font-semibold">Attendance ({detail?.attendance.length ?? 0})</h4>
-            <p className="muted" style={{fontSize: 12}}>
-              {(detail?.attendance ?? []).slice(0, 8).map((entry) => `${entry.duty_date}(${entry.shift}) ${entry.state}`).join(' · ') || '—'}
-            </p>
+            <h4 className="mb-2 text-sm font-semibold">Attendance History</h4>
+            <div style={{display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6}}>
+              <input type="month" value={attMonth} onChange={(event) => setAttMonth(event.target.value)} />
+              <span className="pill">Total {attSummary.totalDays.toFixed(2)} days</span>
+              <span className="muted" style={{fontSize: 11}}>
+                Vessel {attSummary.vesselDays.toFixed(2)} · Non-Vessel {attSummary.nonVesselDays.toFixed(2)}
+              </span>
+            </div>
+            <table style={{fontSize: 12}}>
+              <thead><tr><th>Date</th><th>Shift</th><th>Location</th><th>Source</th></tr></thead>
+              <tbody>
+                {attRows.slice(0, 20).map((entry) => (
+                  <tr key={`${entry.source}-${entry.source_id}-${entry.shift}`}>
+                    <td>{entry.attendance_date}</td>
+                    <td>{entry.shift}</td>
+                    <td>{entry.location ?? entry.client_name ?? '—'}</td>
+                    <td>{entry.source === 'VESSEL' ? '🚢' : '📋'}</td>
+                  </tr>
+                ))}
+                {!attRows.length ? <tr><td colSpan={4} className="muted">No attendance for this month.</td></tr> : null}
+              </tbody>
+            </table>
           </section>
         </div>
       ) : null}

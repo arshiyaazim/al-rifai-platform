@@ -23,23 +23,35 @@ export async function GET(request: Request) {
                 AND pp.shifts IS NOT NULL
            ) d
           GROUP BY employee_mobile
+       ), non_vessel AS (
+         SELECT employee_mobile,
+                sum(CASE WHEN shift = 'FULL' THEN 1 ELSE 0.5 END) AS days
+           FROM attendance_records
+          WHERE state = 'ACTIVE'
+          GROUP BY employee_mobile
        ), paid AS (
          SELECT i.employee_mobile, sum(p.amount_minor)::bigint AS total_paid
            FROM cash_postings p
            JOIN cash_instructions i ON i.id = p.instruction_id
           WHERE i.state = 'POSTED' AND i.employee_mobile IS NOT NULL
           GROUP BY i.employee_mobile
+       ), days AS (
+         SELECT e.employee_mobile,
+                coalesce(v.days, 0) + coalesce(n.days, 0) AS total_days
+           FROM employees e
+           LEFT JOIN vessel v ON v.employee_mobile = e.employee_mobile
+           LEFT JOIN non_vessel n ON n.employee_mobile = e.employee_mobile
        )
        SELECT e.employee_mobile,
               e.preferred_name,
               coalesce(e.date_of_join, e.joined_on)::text AS date_of_join,
               e.designation,
-              coalesce(v.days, 0)::text AS total_attendance,
-              round(coalesce(v.days, 0) * $1)::bigint AS salary_minor,
+              round(d.total_days, 2)::text AS total_attendance,
+              round(d.total_days * $1)::bigint AS salary_minor,
               coalesce(p.total_paid, 0)::bigint AS cash_paid_minor,
-              (round(coalesce(v.days, 0) * $1) - coalesce(p.total_paid, 0))::bigint AS due_minor
+              (round(d.total_days * $1) - coalesce(p.total_paid, 0))::bigint AS due_minor
          FROM employees e
-         LEFT JOIN vessel v ON v.employee_mobile = e.employee_mobile
+         JOIN days d ON d.employee_mobile = e.employee_mobile
          LEFT JOIN paid p ON p.employee_mobile = e.employee_mobile
         WHERE e.state = 'ACTIVE'
         ORDER BY e.preferred_name`,

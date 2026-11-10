@@ -8,7 +8,7 @@ const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;
 
 const READ_WRITE = [
   'cash_portal_users', 'cash_portal_sessions', 'employees', 'programs',
-  'program_assignments', 'attendance', 'program_pay', 'cash_instructions',
+  'program_assignments', 'attendance', 'attendance_records', 'program_pay', 'cash_instructions',
   'cash_submissions', 'review_items', 'whatsapp_messages', 'whatsapp_cursors',
   'app_settings', 'schema_meta', 'cash_accounts', 'whatsapp_accounts',
   'whatsapp_chats', 'rate_config',
