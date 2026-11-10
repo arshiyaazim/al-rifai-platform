@@ -6,6 +6,7 @@ import {createHash} from 'node:crypto';
 import {row} from '../../standalone/db.ts';
 import {getFeatureFlag} from '../../feature-flags.ts';
 import {renderOwnerDraftFields} from '../../order-draft-template.ts';
+import {sendVesselDraft, vesselDraftTransportPaths} from '../../vessel-draft-transport.ts';
 
 export const ADMIN_DRAFT_RECIPIENT = '8801880446111@s.whatsapp.net';
 export const OFFICE_GROUP_RECIPIENT = '120363426895117693@g.us';
@@ -62,7 +63,7 @@ export async function enqueueDraftDeliveries(program: DraftProgram): Promise<{qu
     const flag = await getFeatureFlag(target.flag, {enabled: false});
     const state = flag.enabled ? 'QUEUED' : 'CANCELLED';
     const id = `vdd_${sha([program.id, contentHash, target.recipient].join('\n'))}`;
-    const inserted = await row(
+    const inserted = await row<{id: string}>(
       `INSERT INTO vessel_draft_deliveries
          (id, program_id, source_message_id, account_id, recipient_jid, content,
           content_hash, state, attempts, next_attempt_at, error)
@@ -74,8 +75,31 @@ export async function enqueueDraftDeliveries(program: DraftProgram): Promise<{qu
         flag.enabled ? null : 'DELIVERY_SUPPRESSED_PHASE2'],
     ).catch(() => null);
     if (!inserted) continue;
-    if (flag.enabled) queued += 1;
-    else suppressed += 1;
+    if (!flag.enabled) { suppressed += 1; continue; }
+    if (process.env.ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED !== '1') {
+      await row(`UPDATE vessel_draft_deliveries SET state='CANCELLED', error='OUTBOUND_DISABLED' WHERE id=$1`, [id]).catch(() => null);
+      suppressed += 1;
+      continue;
+    }
+    const paths = vesselDraftTransportPaths();
+    if (!paths) {
+      await row(`UPDATE vessel_draft_deliveries SET state='FAILED', error='TRANSPORT_NOT_CONFIGURED' WHERE id=$1`, [id]).catch(() => null);
+      continue;
+    }
+    const outcome = await sendVesselDraft({
+      accountId: 'wa-01',
+      recipientJid: target.recipient,
+      text: content,
+      idempotencyKey: id,
+    }, paths);
+    const nextState = outcome.kind === 'sent' ? 'SENT' : outcome.kind === 'unknown' ? 'DELIVERY_UNKNOWN' : 'FAILED';
+    await row(
+      `UPDATE vessel_draft_deliveries
+          SET state=$2, attempts=attempts+1, delivery_ref=$3, error=$4, updated_at=now()
+        WHERE id=$1`,
+      [id, nextState, outcome.kind === 'sent' ? outcome.deliveryRef : null, outcome.kind === 'sent' ? null : outcome.error],
+    ).catch(() => null);
+    if (outcome.kind === 'sent') queued += 1;
   }
   return {queued, suppressed};
 }

@@ -10,7 +10,7 @@ import {
   withdrawReview,
 } from '@/lib/standalone/review';
 import {decideCashSubmission} from '@/lib/standalone/finance';
-import {listMessageReviewQueue, resolveMessageReviewQueue} from '@/lib/standalone/message-review-queue';
+import {approveMessageReviewQueue, listMessageReviewQueue, resolveMessageReviewQueue} from '@/lib/standalone/message-review-queue';
 import {reviewActionsFor, type ReviewActor} from '@/lib/review-ui';
 import {assertCapability} from '@/lib/standalone/authz';
 
@@ -116,15 +116,19 @@ export async function POST(request: Request) {
       if (!['APPROVED', 'REJECTED', 'IGNORED', 'SENT_BACK'].includes(decision)) {
         return ok({error: 'INVALID_DECISION'}, 400);
       }
+      const input = {
+        comment: typeof body.comment === 'string' ? body.comment : undefined,
+        workflow: typeof body.workflow === 'string' ? body.workflow : undefined,
+        payload: body.payload && typeof body.payload === 'object' ? body.payload as Record<string, unknown> : undefined,
+      };
+      if (decision === 'APPROVED') {
+        return ok(await approveMessageReviewQueue(actor as never, id, input));
+      }
       return ok(await resolveMessageReviewQueue(
         actor as never,
         id,
-        decision as 'APPROVED' | 'REJECTED' | 'IGNORED' | 'SENT_BACK',
-        {
-          comment: typeof body.comment === 'string' ? body.comment : undefined,
-          workflow: typeof body.workflow === 'string' ? body.workflow : undefined,
-          payload: body.payload && typeof body.payload === 'object' ? body.payload as Record<string, unknown> : undefined,
-        },
+        decision as 'REJECTED' | 'IGNORED' | 'SENT_BACK',
+        input,
       ));
     }
 

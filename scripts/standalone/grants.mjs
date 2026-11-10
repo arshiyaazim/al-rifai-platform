@@ -29,6 +29,9 @@ const READ_WRITE = [
   'ai_outbound_attempts',
 // Phase 3 WA-01 Vessel Draft delivery queue (migration 010, transport inert).
   'vessel_draft_deliveries',
+  // Phase 2 vessel overhaul (migration 018).
+  'system_feature_flags', 'message_review_queue', 'message_pipeline_state',
+  'vessel_backlog_progress',
 ];
 
 const APPEND_ONLY = [
