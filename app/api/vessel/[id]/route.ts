@@ -1,6 +1,6 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../../_shared';
 import {assertCapability} from '@/lib/standalone/authz';
-import {assignEscort, getProgram, releaseProgram, updateProgram} from '@/lib/standalone/programs';
+import {assignEscort, getProgram, releaseProgram, updateProgram, voidProgram} from '@/lib/standalone/programs';
 import {listProgramSourcesForPrograms} from '@/lib/standalone/review';
 import {getMessageEvidence} from '@/lib/standalone/messages';
 import {recordAudit} from '@/lib/standalone/audit';
@@ -29,6 +29,29 @@ export async function GET(request: Request, context: {params: Promise<{id: strin
     assertCapability(actor as never, 'vessel.read');
     const {id} = await context.params;
     return ok(await detail(decodeURIComponent(id)));
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+/**
+ * Soft-delete: the row and its audit trail stay, state becomes VOIDED.
+ */
+export async function DELETE(request: Request, context: {params: Promise<{id: string}>}) {
+  try {
+    const actor = await actorFor(request);
+    assertCapability(actor as never, 'vessel.command');
+    const {id} = await context.params;
+    const programId = decodeURIComponent(id);
+    let reason = 'Deleted from vessel register';
+    try {
+      const body = await request.clone().json() as {reason?: string};
+      if (body?.reason) reason = String(body.reason).slice(0, 500);
+    } catch {
+      // DELETE without a JSON body is allowed; the default reason is audited.
+    }
+    const result = await voidProgram(actor as never, programId, reason);
+    return ok(result);
   } catch (error) {
     return errorResponse(error);
   }

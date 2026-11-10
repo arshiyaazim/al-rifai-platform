@@ -1,6 +1,8 @@
-import Link from 'next/link';
 import {listEmployees} from '@/lib/standalone/employees';
+import {pageUser} from '@/lib/standalone/session';
+import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
+import {EmployeesTable} from '@/components/standalone/employees-table';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +11,8 @@ export default async function EmployeesPage({searchParams}: {searchParams: Promi
   const q = (filters.q ?? '').trim();
   const state = filters.state ?? '';
   const employees = await listEmployees({q, state: state || undefined, limit: 500});
+  const user = await pageUser();
+  const canManage = can(user as never, 'employee.manage');
   return (
     <>
       <div className="page-head">
@@ -49,23 +53,14 @@ export default async function EmployeesPage({searchParams}: {searchParams: Promi
 
       <section className="card">
         <h3>Directory ({employees.length})</h3>
-        <table>
-          <thead><tr><th>Name</th><th>Mobile</th><th>Type</th><th>Status</th><th>Programs</th><th>Days</th><th /></tr></thead>
-          <tbody>
-            {employees.map((employee) => (
-              <tr key={employee.employee_mobile}>
-                <td><Link href={`/employees/${encodeURIComponent(employee.employee_mobile)}`}>{employee.preferred_name}</Link></td>
-                <td>{employee.employee_mobile}</td>
-                <td>{employee.duty_type ?? '—'}</td>
-                <td><span className={`pill ${employee.state === 'ACTIVE' ? 'ok' : 'warn'}`}>{employee.state}</span></td>
-                <td>{employee.programs}</td>
-                <td>{employee.attendance_days}</td>
-                <td><Link href={`/employees/${encodeURIComponent(employee.employee_mobile)}`}>Open</Link></td>
-              </tr>
-            ))}
-            {!employees.length ? <tr><td colSpan={7} className="muted">No employees yet.</td></tr> : null}
-          </tbody>
-        </table>
+        <EmployeesTable rows={employees.map((employee) => ({
+          employee_mobile: employee.employee_mobile,
+          preferred_name: employee.preferred_name,
+          duty_type: employee.duty_type,
+          state: employee.state,
+          programs: employee.programs,
+          attendance_days: employee.attendance_days,
+        }))} canManage={canManage} />
       </section>
     </>
   );

@@ -1,20 +1,22 @@
 'use client';
 
 import {useEffect, useMemo, useRef, useState} from 'react';
-import {MoreHorizontal, Plus} from 'lucide-react';
+import {Eye, Plus} from 'lucide-react';
 import {toast} from 'sonner';
 import {AppToaster} from '@/components/standalone/app-toaster';
+import {ChatImportDialog} from '@/components/standalone/chat-import-dialog';
 import {DetailSidebar} from '@/components/standalone/detail-sidebar';
 import {TableExportControls} from '@/components/standalone/export-controls';
 import {RealtimeIndicator} from '@/components/standalone/realtime-refresher';
-import {VesselDetailSidebar, stateTone, type VesselProgram} from '@/components/standalone/vessel-detail-sidebar';
+import {VesselDetailSidebar, type VesselProgram} from '@/components/standalone/vessel-detail-sidebar';
 import {Button} from '@/components/ui/button';
 import {Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList} from '@/components/ui/combobox';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 import {useRealtimeUpdates} from '@/hooks/use-realtime-updates';
 import {cleanEmployeeName} from '@/lib/display-name';
-import {dateDdMmYyyy, dhakaDateTime, type ExportColumn} from '@/lib/export-format';
+import {payCells} from '@/lib/vessel-pay';
+import type {ExportColumn} from '@/lib/export-format';
 
 export type VesselRow = VesselProgram & {
   updated_at?: string | null;
@@ -22,6 +24,11 @@ export type VesselRow = VesselProgram & {
   event_at?: string | null;
   source_chat_jid?: string | null;
   escort_change_from_program_id?: string | null;
+  pay_state?: 'CALCULATED' | 'UNRESOLVED' | null;
+  shifts?: number | null;
+  salary_minor?: string | null;
+  conveyance_minor?: string | null;
+  total_minor?: string | null;
 };
 
 export type VesselPage = {
@@ -36,8 +43,15 @@ type ExportRow = VesselRow & {sl: number};
 
 export type VesselClientOption = {jid: string; label: string};
 
-const DEFAULT_STATUS = {running: true, completed: true, cancel: true, escortChange: true, draft: true};
 const RUNNING_STATES = new Set(['CONFIRMED', 'ASSIGNED', 'IN_DUTY']);
+const STATUS_OPTIONS = [
+  ['', 'All'],
+  ['RUNNING', 'Running'],
+  ['COMPLETED', 'Completed'],
+  ['CANCEL', 'Cancel / Withdrawn'],
+  ['ESCORT_CHANGE', 'Escort Change'],
+  ['DRAFT', 'Draft'],
+] as const;
 
 async function csrfToken(): Promise<string> {
   const response = await fetch('/api/auth/session', {credentials: 'same-origin', cache: 'no-store'});
@@ -47,12 +61,20 @@ async function csrfToken(): Promise<string> {
   return body.csrf;
 }
 
-function eventDate(value: string | null | undefined) {
+function dateDmy(value: string | null | undefined) {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleDateString('en-GB', {timeZone: 'Asia/Dhaka'}).replaceAll('/', '-');
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Dhaka', year: '2-digit', month: '2-digit', day: '2-digit',
+  }).formatToParts(date).reduce<Record<string, string>>((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.day}.${parts.month}.${parts.year}`;
 }
+
+const eventDate = dateDmy;
 
 function eventDateIso(value: string | null | undefined) {
   if (!value) return '';
@@ -62,7 +84,14 @@ function eventDateIso(value: string | null | undefined) {
 }
 
 function shift(value: string | null | undefined, shiftValue: string | null | undefined) {
-  return value ? `${value} · ${shiftValue ?? '—'}` : '—';
+  const rendered = dateDmy(value);
+  return rendered === '—' ? '—' : `${rendered}(${shiftValue ?? '—'})`;
+}
+
+function withMv(value: string | null | undefined) {
+  const name = String(value ?? '').trim();
+  if (!name) return '—';
+  return /^m\.?\s*v\.?\s+/i.test(name) ? name : `MV ${name}`;
 }
 
 function matches(value: unknown, filter: string) {
@@ -95,7 +124,7 @@ function LookupFilter({
 export function VesselRegisterClient({
   initial, escorts, mothers: initialMothers, lighters: initialLighters,
   escortNames: initialEscortNames, escortMobiles: initialEscortMobiles,
-  clients, fixedMother, initialMother = '', canCommand, canRelease, showNew = true,
+  clients, fixedMother, initialMother = '', initialEscortMobile = '', canCommand, canRelease, showNew = true,
 }: {
   initial: VesselPage;
   escorts: Array<{mobile: string; name: string}>;
@@ -108,6 +137,7 @@ export function VesselRegisterClient({
   initialQ?: string;
   initialState?: string;
   initialMother?: string;
+  initialEscortMobile?: string;
   canCommand: boolean;
   canRelease: boolean;
   showNew?: boolean;
@@ -124,11 +154,11 @@ export function VesselRegisterClient({
   const [motherFilter, setMotherFilter] = useState(fixedMother ?? initialMother);
   const [lighterFilter, setLighterFilter] = useState('');
   const [escortNameFilter, setEscortNameFilter] = useState('');
-  const [escortMobileFilter, setEscortMobileFilter] = useState('');
+  const [escortMobileFilter, setEscortMobileFilter] = useState(initialEscortMobile);
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [clientFilter, setClientFilter] = useState('');
-  const [statusFilters, setStatusFilters] = useState(DEFAULT_STATUS);
+  const [statusFilter, setStatusFilter] = useState('');
   const [form, setForm] = useState({
     motherVessel: fixedMother ?? '', lighterName: '', masterName: '', masterMobile: '',
     startDate: '', startShift: 'D', escortName: '', escortMobile: '', notes: '',
@@ -155,16 +185,17 @@ export function VesselRegisterClient({
     }
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- the async refresh resets the error flag before awaiting the read.
   useEffect(() => { void loadAll(true); }, []);
   const realtime = useRealtimeUpdates('VESSEL', () => { void loadAll(true); });
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- any filter change must return the table to page 1.
   useEffect(() => { setPage(1); }, [
     motherFilter, lighterFilter, escortNameFilter, escortMobileFilter,
-    fromDate, toDate, clientFilter, statusFilters,
+    fromDate, toDate, clientFilter, statusFilter,
   ]);
 
   const filteredRows = useMemo(() => {
-    const allStatusOn = Object.values(statusFilters).every(Boolean);
     return allRows.filter((row) => {
       if (!matches(row.mother_vessel, motherFilter)) return false;
       if (!matches(row.lighter_vessel, lighterFilter)) return false;
@@ -174,18 +205,34 @@ export function VesselRegisterClient({
       if (fromDate && (!rowDate || rowDate < fromDate)) return false;
       if (toDate && (!rowDate || rowDate > toDate)) return false;
       if (clientFilter && row.source_chat_jid !== clientFilter) return false;
-      if (!allStatusOn) {
+      if (statusFilter) {
         const statusOk =
-          (statusFilters.running && RUNNING_STATES.has(row.state)) ||
-          (statusFilters.completed && row.state === 'RELEASED') ||
-          (statusFilters.cancel && row.state === 'VOIDED') ||
-          (statusFilters.escortChange && Boolean(row.escort_change_from_program_id)) ||
-          (statusFilters.draft && row.state === 'DRAFT');
+          (statusFilter === 'RUNNING' && RUNNING_STATES.has(row.state)) ||
+          (statusFilter === 'COMPLETED' && (row.state === 'RELEASED' || row.state === 'COMPLETED')) ||
+          (statusFilter === 'CANCEL' && (row.state === 'VOIDED' || row.state === 'WITHDRAWN')) ||
+          (statusFilter === 'ESCORT_CHANGE' && Boolean(row.escort_change_from_program_id)) ||
+          (statusFilter === 'DRAFT' && row.state === 'DRAFT');
         if (!statusOk) return false;
       }
       return true;
     }).sort((a, b) => String(b.event_at ?? '').localeCompare(String(a.event_at ?? '')));
-  }, [allRows, motherFilter, lighterFilter, escortNameFilter, escortMobileFilter, fromDate, toDate, clientFilter, statusFilters]);
+  }, [allRows, motherFilter, lighterFilter, escortNameFilter, escortMobileFilter, fromDate, toDate, clientFilter, statusFilter]);
+
+  const monthBounds = (offset: number) => {
+    const now = new Date();
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1));
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset + 1, 0));
+    return {from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10)};
+  };
+  const thisMonth = monthBounds(0);
+  const lastMonth = monthBounds(-1);
+  const inMonth = (value: string | null | undefined, bounds: {from: string; to: string}) => {
+    const day = eventDateIso(value);
+    return Boolean(day && day >= bounds.from && day <= bounds.to);
+  };
+  const totalCount = allRows.length;
+  const lastMonthCount = allRows.filter((row) => inMonth(row.event_at, lastMonth)).length;
+  const thisMonthCount = allRows.filter((row) => inMonth(row.event_at, thisMonth)).length;
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / limit));
   const safePage = Math.min(page, totalPages);
@@ -193,24 +240,24 @@ export function VesselRegisterClient({
   const offset = (safePage - 1) * limit;
   const exportRows: ExportRow[] = pageRows.map((row, index) => ({...row, sl: offset + index + 1}));
   const columns: ExportColumn<ExportRow>[] = [
-    {header: 'Event Date', value: (row) => eventDate(row.event_at)},
-    {header: 'Mother Vessel', value: (row) => row.mother_vessel},
-    {header: 'Lighter Vessel', value: (row) => row.master_mobile ? `${row.lighter_vessel} (${row.master_mobile})` : row.lighter_vessel},
+    {header: 'Date', value: (row) => eventDate(row.event_at)},
+    {header: 'Mother Vessel', value: (row) => withMv(row.mother_vessel)},
+    {header: 'Lighter Vessel', value: (row) => withMv(row.lighter_vessel)},
     {header: 'Escort Name', value: (row) => cleanEmployeeName(row.escort_name)},
     {header: 'Escort Mobile', value: (row) => row.escort_mobile ?? ''},
-    {header: 'Start', value: (row) => `${dateDdMmYyyy(row.start_date)} · ${row.start_shift}`},
-    {header: 'End', value: (row) => row.end_date ? `${dateDdMmYyyy(row.end_date)} · ${row.end_shift ?? ''}` : ''},
-    {header: 'Status', value: (row) => row.state},
-    {header: 'Updated', value: (row) => dhakaDateTime(row.updated_at)},
+    {header: 'Start', value: (row) => shift(row.start_date, row.start_shift)},
+    {header: 'End', value: (row) => shift(row.end_date, row.end_shift)},
+    {header: 'Days', value: (row) => payCells({...row, halfDayUnits: row.shifts}).days.value},
+    {header: 'Salary', value: (row) => payCells({...row, halfDayUnits: row.shifts}).salary.value},
+    {header: 'Conv.', value: (row) => payCells({...row, halfDayUnits: row.shifts}).conveyance.value},
+    {header: 'Total', value: (row) => payCells({...row, halfDayUnits: row.shifts}).total.value},
   ];
-  const activeFilters = [
-    motherFilter, lighterFilter, escortNameFilter, escortMobileFilter, fromDate, toDate, clientFilter,
-  ].filter(Boolean).length + (Object.values(statusFilters).every(Boolean) ? 0 : 1);
   const filterSummary = [
     motherFilter && `Mother: ${motherFilter}`,
     lighterFilter && `Lighter: ${lighterFilter}`,
     escortNameFilter && `Escort: ${escortNameFilter}`,
     clientFilter && `Client: ${clients.find((c) => c.jid === clientFilter)?.label ?? clientFilter}`,
+    statusFilter && `Status: ${STATUS_OPTIONS.find(([value]) => value === statusFilter)?.[1] ?? statusFilter}`,
     fromDate && `From: ${fromDate}`,
     toDate && `To: ${toDate}`,
   ].filter(Boolean) as string[];
@@ -223,7 +270,7 @@ export function VesselRegisterClient({
     setFromDate('');
     setToDate('');
     setClientFilter('');
-    setStatusFilters(DEFAULT_STATUS);
+    setStatusFilter('');
     setPage(1);
   }
 
@@ -269,60 +316,66 @@ export function VesselRegisterClient({
             <RealtimeIndicator status={realtime.status} />
             <span className="muted" aria-live="polite">{loading ? 'Refreshing…' : updatedAt ? 'Updated just now' : 'Live data'}</span>
             {showNew && canCommand ? (
+              <ChatImportDialog onImported={() => void loadAll(true)} />
+            ) : null}
+            {showNew && canCommand ? (
               <Button type="button" size="sm" onClick={() => setNewOpen(true)}><Plus className="size-4" />New Program</Button>
             ) : null}
           </div>
         </div>
 
-        {/* 12 search/filter fields above the table */}
-        <div className="card" style={{padding: 14, marginBottom: 14}}>
-          <div className="page-head" style={{marginBottom: 8}}>
+        {/* 12-cell filter + dashboard grid (4 columns × 3 rows) */}
+        <div className="card vessel-filter-card" style={{padding: 16, marginBottom: 16}}>
+          <div className="page-head" style={{marginBottom: 10}}>
             <div><h4 style={{margin: 0}}>Search &amp; filters</h4></div>
-            <Button type="button" size="sm" variant="outline" onClick={clearFilters}>Clear All Filters</Button>
+            <span className="muted" style={{fontSize: 12}}>{filteredRows.length.toLocaleString()} matching programs</span>
           </div>
-          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 10}}>
-            <label className="text-sm">Mother Vessel
+          <div className="vessel-filter-grid">
+            <label>Mother Vessel
               <LookupFilter id="filter-mothers" value={motherFilter} onChange={setMotherFilter} items={initialMothers} placeholder="All mothers" />
             </label>
-            <label className="text-sm">Lighter Vessel
+            <label>Lighter Vessel
               <LookupFilter id="filter-lighters" value={lighterFilter} onChange={setLighterFilter} items={initialLighters} placeholder="All lighters" />
             </label>
-            <label className="text-sm">Escort Name
+            <label>Escort Name
               <LookupFilter id="filter-escort-names" value={escortNameFilter} onChange={setEscortNameFilter} items={initialEscortNames} placeholder="All escorts" />
             </label>
-            <label className="text-sm">Escort Mobile
+            <label>Escort Mobile
               <LookupFilter id="filter-escort-mobiles" value={escortMobileFilter} onChange={setEscortMobileFilter} items={initialEscortMobiles} placeholder="All mobiles" />
             </label>
-            <label className="text-sm">Date From
+
+            <label>Date From
               <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
             </label>
-            <label className="text-sm">Date To
+            <label>Date To
               <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
             </label>
-            <label className="text-sm">Escort Client
-              <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="h-9 w-full rounded-md border bg-background px-2 text-sm">
+            <label>Escort Client
+              <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="vessel-select">
                 <option value="">All clients</option>
                 {clients.map((client) => <option key={client.jid} value={client.jid}>{client.label}</option>)}
               </select>
             </label>
-          </div>
-          <div style={{display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 12}}>
-            {([
-              ['running', 'Running'],
-              ['completed', 'Completed'],
-              ['cancel', 'Cancel'],
-              ['escortChange', 'Escort Change'],
-              ['draft', 'Draft'],
-            ] as const).map(([key, label]) => (
-              <label key={key} style={{display: 'flex', alignItems: 'center', gap: 6, fontSize: 13}}>
-                <input
-                  type="checkbox"
-                  checked={statusFilters[key]}
-                  onChange={(e) => setStatusFilters((current) => ({...current, [key]: e.target.checked}))}
-                />
-                {label}
-              </label>
-            ))}
+            <label>Status
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="vessel-select">
+                {STATUS_OPTIONS.map(([value, label]) => <option key={value || 'all'} value={value}>{label}</option>)}
+              </select>
+            </label>
+
+            <button type="button" className="vessel-kpi" onClick={clearFilters} title="Show every program">
+              <span>Total Programs</span><strong>{totalCount.toLocaleString()}</strong>
+            </button>
+            <button type="button" className="vessel-kpi" title="Filter to last month"
+              onClick={() => { setFromDate(lastMonth.from); setToDate(lastMonth.to); setStatusFilter(''); setPage(1); }}>
+              <span>Last Month</span><strong>{lastMonthCount.toLocaleString()}</strong>
+            </button>
+            <button type="button" className="vessel-kpi" title="Filter to the current month"
+              onClick={() => { setFromDate(thisMonth.from); setToDate(thisMonth.to); setStatusFilter(''); setPage(1); }}>
+              <span>Running Month</span><strong>{thisMonthCount.toLocaleString()}</strong>
+            </button>
+            <button type="button" className="vessel-kpi vessel-kpi--clear" onClick={clearFilters}>
+              <span>Clear All Filters</span><strong>↺</strong>
+            </button>
           </div>
         </div>
 
@@ -340,44 +393,50 @@ export function VesselRegisterClient({
 
         {error ? <div className="error" role="alert">{error}</div> : null}
 
-        <div style={{overflowX: 'auto'}}>
-          <table className="cash-payment-table" style={{tableLayout: 'fixed', minWidth: 1120}}>
+        <div className="vessel-table-wrap">
+          <table className="cash-payment-table vessel-register-table" style={{tableLayout: 'fixed', minWidth: 920}}>
             <colgroup>
-              <col style={{width: 100}} /><col style={{width: 150}} /><col style={{width: 170}} />
-              <col style={{width: 150}} /><col style={{width: 130}} /><col style={{width: 120}} /><col style={{width: 120}} />
-              <col style={{width: 110}} /><col style={{width: 130}} /><col style={{width: 50}} />
+              <col style={{width: 75}} /><col style={{width: 120}} /><col style={{width: 120}} />
+              <col style={{width: 130}} /><col style={{width: 90}} /><col style={{width: 90}} />
+              <col style={{width: 45}} /><col style={{width: 60}} /><col style={{width: 55}} />
+              <col style={{width: 60}} /><col style={{width: 35}} />
             </colgroup>
             <thead>
               <tr>
-                <th>Event Date</th><th>Mother Vessel</th><th>Lighter Vessel</th><th>Escort Name</th><th>Escort Mobile</th>
-                <th>Start</th><th>End</th><th>Status</th><th>Updated</th><th><span className="sr-only">Actions</span></th>
+                <th>Date</th><th>Mother Vessel</th><th>Lighter Vessel</th><th>Escort Name</th>
+                <th>Start</th><th>End</th><th className="num">Days</th><th className="num">Salary</th>
+                <th className="num">Conv.</th><th className="num">Total</th><th><span className="sr-only">View</span></th>
               </tr>
             </thead>
             <tbody>
               {loading ? Array.from({length: Math.min(limit, 5)}).map((_, index) => (
-                <tr key={`sk-${index}`}><td>—</td><td colSpan={9}><span className="muted">Loading…</span></td></tr>
-              )) : pageRows.map((program) => (
-                <tr key={program.id}>
-                  <td>{eventDate(program.event_at)}</td>
-                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}} title={program.mother_vessel}>{program.mother_vessel}</td>
-                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>
-                    <div>{program.lighter_vessel}</div>
-                    <small className="muted">{program.master_mobile ?? '—'}</small>
-                  </td>
-                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{cleanEmployeeName(program.escort_name)}</td>
-                  <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{program.escort_mobile ?? '—'}</td>
-                  <td>{shift(program.start_date, program.start_shift)}</td>
-                  <td>{shift(program.end_date, program.end_shift)}</td>
-                  <td><span className={`pill ${stateTone(program.state)}`}>{program.state}</span></td>
-                  <td>{program.updated_at ? new Date(program.updated_at).toLocaleString('en-GB', {timeZone: 'Asia/Dhaka', dateStyle: 'short', timeStyle: 'short'}) : '—'}</td>
-                  <td>
-                    <Button type="button" size="icon-sm" variant="ghost" aria-label={`Actions for ${program.lighter_vessel}`} onClick={() => setSelectedId(program.id)}>
-                      <MoreHorizontal className="size-4" />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-              {!loading && !pageRows.length ? <tr><td colSpan={10} className="muted">No programs match this filter.</td></tr> : null}
+                <tr key={`sk-${index}`}><td>—</td><td colSpan={10}><span className="muted">Loading…</span></td></tr>
+              )) : pageRows.map((program) => {
+                const pay = payCells({...program, halfDayUnits: program.shifts});
+                return (
+                  <tr key={program.id}>
+                    <td>{eventDate(program.event_at)}</td>
+                    <td className="vessel-ellipsis" title={program.mother_vessel}>{withMv(program.mother_vessel)}</td>
+                    <td className="vessel-ellipsis" title={program.lighter_vessel}>{withMv(program.lighter_vessel)}</td>
+                    <td className="vessel-escort-cell">
+                      <strong className="vessel-ellipsis" title={cleanEmployeeName(program.escort_name)}>{cleanEmployeeName(program.escort_name) || '—'}</strong>
+                      <small>{program.escort_mobile ?? '—'}</small>
+                    </td>
+                    <td>{shift(program.start_date, program.start_shift)}</td>
+                    <td>{shift(program.end_date, program.end_shift)}</td>
+                    <td className="num">{pay.days.value}</td>
+                    <td className="num">{pay.salary.value}</td>
+                    <td className="num">{pay.conveyance.value}</td>
+                    <td className="num">{pay.total.value}</td>
+                    <td>
+                      <Button type="button" size="icon-sm" variant="ghost" aria-label={`View ${program.lighter_vessel}`} onClick={() => setSelectedId(program.id)}>
+                        <Eye className="size-4" />
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!loading && !pageRows.length ? <tr><td colSpan={11} className="muted">No programs match this filter.</td></tr> : null}
             </tbody>
           </table>
         </div>

@@ -11,6 +11,7 @@ import {
 } from '@/lib/standalone/review';
 import {decideCashSubmission} from '@/lib/standalone/finance';
 import {approveMessageReviewQueue, listMessageReviewQueue, resolveMessageReviewQueue} from '@/lib/standalone/message-review-queue';
+import {decideVesselReview, saveVesselReviewDraft} from '@/lib/standalone/vessel-review';
 import {reviewActionsFor, type ReviewActor} from '@/lib/review-ui';
 import {assertCapability} from '@/lib/standalone/authz';
 
@@ -108,6 +109,31 @@ export async function POST(request: Request) {
 
     if (action === 'withdraw') {
       return ok(await withdrawReview(actor as never, id));
+    }
+
+    if (action === 'vessel_review_decide') {
+      assertCapability(actor as never, 'review.decide');
+      const kind = body.kind === 'item' ? 'item' : 'message';
+      const decision = String(body.decision ?? '').toUpperCase();
+      if (!['APPROVED', 'REJECTED', 'IGNORED', 'SENT_BACK'].includes(decision)) {
+        return ok({error: 'INVALID_DECISION'}, 400);
+      }
+      const payload = body.payload && typeof body.payload === 'object'
+        ? body.payload as Record<string, unknown> : undefined;
+      return ok(await decideVesselReview(actor as never, kind, id, decision, {
+        comment: typeof body.comment === 'string' ? body.comment : undefined,
+        workflow: typeof body.workflow === 'string' ? body.workflow : 'Vessel',
+        payload,
+      }));
+    }
+
+    if (action === 'vessel_review_draft') {
+      assertCapability(actor as never, 'review.decide');
+      const kind = body.kind === 'item' ? 'item' : 'message';
+      const payload = body.payload && typeof body.payload === 'object'
+        ? body.payload as Record<string, unknown> : {};
+      return ok(await saveVesselReviewDraft(actor as never, kind, id, payload,
+        typeof body.comment === 'string' ? body.comment : undefined));
     }
 
     if (action === 'vessel_queue_resolve') {

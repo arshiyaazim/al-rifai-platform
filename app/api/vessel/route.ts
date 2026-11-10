@@ -16,6 +16,7 @@ export async function GET(request: Request) {
       q: url.searchParams.get('q') ?? '',
       state: url.searchParams.get('state') ?? undefined,
       escort: url.searchParams.get('escort') ?? undefined,
+      escortMobile: url.searchParams.get('escort_mobile') ?? undefined,
       mother: url.searchParams.get('mother') ?? undefined,
       from: url.searchParams.get('from') ?? undefined,
       to: url.searchParams.get('to') ?? undefined,

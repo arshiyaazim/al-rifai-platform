@@ -808,3 +808,55 @@ input, select, textarea, .pill, .vessel-facets button, .button-link,
 .cash-date small { display: block; }
 [data-theme="dark"] .cash-payment-table tbody tr:nth-child(even) { background: #172033; }
 [data-theme="dark"] .cash-payment-table tbody tr:hover { background: #243247; }
+
+/* ---------- vessel register (Phase 3 overhaul) ---------- */
+.vessel-workspace { max-width: 1400px; margin: 0 auto; padding: 0 24px; box-sizing: border-box; }
+.vessel-filter-card { border: 1px solid #e5e7eb; border-radius: 8px; }
+.vessel-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.vessel-filter-grid > label {
+  display: flex; flex-direction: column; gap: 5px;
+  font-size: 12px; font-weight: 600; color: #374151; min-width: 0;
+}
+.vessel-filter-grid input,
+.vessel-filter-grid .vessel-select { min-width: 0; width: 100%; }
+.vessel-select {
+  appearance: none; -webkit-appearance: none;
+  height: 36px; padding: 6px 28px 6px 10px;
+  border: 1px solid #d1d5db; border-radius: 6px; background-color: #fff;
+  color: #111827; font-size: 13px; line-height: 1.2;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 9px center;
+}
+.vessel-select:focus { outline: none; border-color: #60a5fa; box-shadow: 0 0 0 2px rgba(96, 165, 250, .35); }
+.vessel-kpi {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center;
+  gap: 2px; min-height: 58px; padding: 8px 12px; text-align: left; cursor: pointer;
+  border: 1px solid #d1d5db; border-radius: 8px; background: #fff; color: #111827;
+}
+.vessel-kpi span { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; }
+.vessel-kpi strong { font-size: 20px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.vessel-kpi:hover { border-color: #93c5fd; background: #f8fbff; }
+.vessel-kpi--clear { align-items: center; justify-content: center; text-align: center; }
+.vessel-table-wrap { width: 100%; max-width: 100%; overflow-x: hidden; }
+.vessel-register-table { width: 100%; }
+.vessel-register-table th, .vessel-register-table td { padding: 8px 8px; }
+.vessel-register-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vessel-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vessel-escort-cell { min-width: 0; }
+.vessel-escort-cell strong { display: block; font-size: .82em; line-height: 1.25; }
+.vessel-escort-cell small { display: block; color: #4b5563; font-size: .8em; line-height: 1.25; }
+@media (max-width: 1100px) {
+  .vessel-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .vessel-workspace { padding: 0 10px; }
+  .vessel-filter-grid { grid-template-columns: 1fr; }
+  .vessel-table-wrap { overflow-x: auto; }
+}
+[data-theme="dark"] .vessel-select,
+[data-theme="dark"] .vessel-kpi { background-color: #111827; color: #e5e7eb; border-color: #374151; }
+[data-theme="dark"] .vessel-kpi span { color: #9ca3af; }

@@ -34,7 +34,7 @@ const dash = (value: unknown) => value === null || value === undefined || value 
 const when = (value: string | null | undefined) => value ? new Date(value).toISOString().slice(0, 16).replace('T', ' ') : '—';
 export const stateTone = (state: string) => state === 'RELEASED' || state === 'COMPLETED' ? 'ok'
   : state === 'CONFIRMED' || state === 'ASSIGNED' || state === 'IN_DUTY' ? 'info'
-    : state === 'VOIDED' ? 'bad' : '';
+    : state === 'VOIDED' || state === 'WITHDRAWN' ? 'bad' : '';
 
 async function csrfToken(): Promise<string> {
   const response = await fetch('/api/auth/session', {credentials: 'same-origin', cache: 'no-store'});
@@ -56,6 +56,7 @@ export function VesselDetailSidebar({
   const [detail, setDetail] = useState<VesselDetail | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [form, setForm] = useState({
     masterName: '', masterMobile: '', escortMobile: '', escortName: '',
     startDate: '', startShift: 'D', endDate: '', endShift: '', notes: '',
@@ -71,8 +72,7 @@ export function VesselDetailSidebar({
     return () => controller.abort();
   }, [programId]);
 
-  const startEdit = () => {
-    if (!detail) return;
+  const startEdit = () => {    if (!detail) return;
     const p = detail.program;
     setForm({
       masterName: p.master_name ?? '', masterMobile: p.master_mobile ?? '',
@@ -117,6 +117,30 @@ export function VesselDetailSidebar({
     }
   };
 
+  const remove = async () => {
+    if (!detail) return;
+    if (!window.confirm(`Delete ${detail.program.mother_vessel} → ${detail.program.lighter_vessel}? The row is marked VOIDED, never hard-deleted.`)) return;
+    setDeleting(true);
+    try {
+      const token = await csrfToken();
+      const response = await fetch(`/api/vessel/${encodeURIComponent(detail.program.id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token},
+        body: JSON.stringify({reason: 'Deleted from vessel sidebar'}),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
+      toast.success('Program voided.');
+      onUpdated?.();
+      onClose();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : 'Delete failed.', {duration: Infinity});
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const loading = Boolean(programId) && !detail;
   const program = detail?.program;
   const orderSource = detail?.sources?.find((source) => source.source_role === 'primary') ?? detail?.sources?.[0];
@@ -137,7 +161,14 @@ export function VesselDetailSidebar({
           <>
             <Button type="button" size="sm" variant="outline" onClick={() => { setEditing(false); onClose(); }}>Close</Button>
             {canCommand ? <Button type="button" size="sm" onClick={startEdit}>Edit</Button> : null}
-            <Button asChild size="sm" variant="outline"><Link href={`/vessel/${encodeURIComponent(program.id)}`}>All Programs</Link></Button>
+            <Button asChild size="sm" variant="outline">
+              <Link href={program.escort_mobile ? `/vessel?escort_mobile=${encodeURIComponent(program.escort_mobile)}` : '/vessel'}>All Programs</Link>
+            </Button>
+            {canCommand && program.state !== 'VOIDED' ? (
+              <Button type="button" size="sm" variant="outline" disabled={deleting} onClick={() => void remove()}>
+                {deleting ? 'Deleting…' : 'Delete'}
+              </Button>
+            ) : null}
           </>
         )
       ) : null}

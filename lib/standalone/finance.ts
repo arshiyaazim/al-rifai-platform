@@ -147,6 +147,14 @@ export async function insertBusinessPaidEvent(client: Tx, input: BusinessPaidEve
   } else if (!input.sourceSubmissionId) {
     throw new DomainError('PAID_EVENT_OFFICE_SUBMISSION_REQUIRED', 409);
   }
+  // Owner rule Q: a cash payment for an unknown mobile creates the employee
+  // identity. The cash tables are untouched; only the shared directory grows.
+  await client.query(
+    `INSERT INTO employees (employee_mobile, preferred_name, duty_type, created_by)
+     VALUES ($1,$2,'other','system')
+     ON CONFLICT (employee_mobile) DO NOTHING`,
+    [employeeMobile, employeeName || `Unknown-${employeeMobile.slice(-4)}`],
+  );
   const registered = await client.query(
     'SELECT 1 FROM employees WHERE employee_mobile = $1', [employeeMobile],
   );

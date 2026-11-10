@@ -3,6 +3,9 @@ import {row, rows, tx, text, optionalText, isoDate, shift, mobile, optionalMobil
 import {recordAudit, stableId} from './audit.ts';
 import {assertCapability} from './authz.ts';
 import {vesselKey} from '../vessel-match.ts';
+import {evaluateSixFieldDedup, type SixFieldCandidate} from '../pipelines/vessel/six-field-dedup.ts';
+import {ensureVessel} from '../pipelines/vessel/vessels.ts';
+import {handleEscortChangeOn} from '../pipelines/vessel/escort-change.ts';
 import {emitDomainEvent} from '../realtime/server.ts';
 
 export type ProgramInput = {
@@ -57,7 +60,8 @@ export type ProgramRow = {
 };
 
 export type ProgramListRow = ProgramRow & {
-  pay_state: string | null;
+  pay_state: 'CALCULATED' | 'UNRESOLVED' | null;
+  shifts: number | null;
   total_minor: string | null;
   salary_minor: string | null;
   conveyance_minor: string | null;
@@ -89,8 +93,28 @@ export async function potentialDuplicates(input: {motherVessel: string; lighterV
     .map((candidate) => ({id: candidate.id, start_date: candidate.start_date}));
 }
 
-export type ProgramSource = {
-  channel?: 'WEB' | 'WHATSAPP' | 'IMPORT';
+/**
+ * Candidate window for the Owner-approved six-field engine. Ninety days is
+ * enough to cover a delayed confirmation or an escort change while keeping the
+ * scan bounded; the register has a few hundred rows, not millions.
+ */
+async function loadSixFieldCandidates(
+  client: Pick<PoolClient, 'query'>,
+  startDate: string,
+): Promise<SixFieldCandidate[]> {
+  const found = await client.query<SixFieldCandidate & {start_date: string; start_shift: string}>(`
+    SELECT id, mother_vessel AS "motherVessel", lighter_vessel AS "lighterVessel",
+           master_mobile AS "masterMobile", escort_mobile AS "escortMobile",
+           start_date::text AS "startDate", start_shift AS "startShift", state
+      FROM programs
+     WHERE state NOT IN ('VOIDED','WITHDRAWN')
+       AND start_date BETWEEN $1::date - 90 AND $1::date + 90
+     ORDER BY start_date DESC
+     LIMIT 500`, [startDate]);
+  return found.rows;
+}
+
+export type ProgramSource = {  channel?: 'WEB' | 'WHATSAPP' | 'IMPORT';
   sourceType?: 'MANUAL' | 'WHATSAPP_ORDER';
   messageId?: string | null;
   chatJid?: string | null;
@@ -120,8 +144,46 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
   const escortMobile = optionalMobile(input.escortMobile, 'escortMobile');
 
   const duplicates = await potentialDuplicates({motherVessel, lighterVessel, startDate});
-  const exact = duplicates.find((candidate) => candidate.start_date === startDate);
-  if (exact) throw new DomainError('DUPLICATE_PROGRAM', 409, exact.id);
+  const candidates = await loadSixFieldCandidates(client, startDate);
+  const decision = evaluateSixFieldDedup({
+    motherVessel, lighterVessel, masterMobile, escortMobile: escortMobile ?? null,
+    startDate, startShift,
+  }, candidates);
+
+  if (decision.action === 'DUPLICATE') {
+    throw new DomainError('DUPLICATE_PROGRAM', 409, decision.candidateId ?? undefined);
+  }
+
+  if (decision.action === 'UPDATE' && decision.candidateId) {
+    const updated = await client.query<ProgramRow>(
+      `UPDATE programs
+          SET start_date = $2, start_shift = $3, end_date = $4, end_shift = $5,
+              revision = revision + 1, updated_at = now()
+        WHERE id = $1
+        RETURNING *`,
+      [decision.candidateId, startDate, startShift, endDate, endShift],
+    );
+    await client.query(
+      `INSERT INTO program_events (program_id, action, command_key, actor, payload)
+       VALUES ($1,'PROGRAM_WINDOW_UPDATED',$2,$3,$4::jsonb)`,
+      [decision.candidateId, commandKey ? `window:${commandKey}` : null, actor.id,
+        JSON.stringify({startDate, startShift, endDate, endShift, reason: 'LATEST_ASSIGNMENT_WINS'})],
+    );
+    await recordAudit({actor, action: 'VESSEL:PROGRAM_WINDOW_UPDATED', entity: 'program',
+      entityId: decision.candidateId, detail: {startDate, startShift, endDate, endShift}}, client);
+    return {program: updated.rows[0], potentialDuplicates: [], decision};
+  }
+
+  if (decision.action === 'ESCORT_CHANGE' && decision.candidateId && escortMobile) {
+    const changed = await handleEscortChangeOn(client, actor, decision.candidateId, {
+      name: optionalText(input.escortName, 'escortName', 150) ?? escortMobile,
+      mobile: escortMobile,
+      shift: startShift,
+      eventAt: new Date().toISOString(),
+    }, startDate);
+    const created = await client.query<ProgramRow>('SELECT * FROM programs WHERE id = $1', [changed.programId]);
+    return {program: created.rows[0], potentialDuplicates: [], decision};
+  }
 
   const id = programId(motherVessel, lighterVessel, startDate, startShift);
   const state = escortMobile ? 'ASSIGNED' : 'DRAFT';
@@ -146,6 +208,8 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
       startDate, startShift, endDate, endShift, state, channel, sourceType,
       source.messageId ?? null, source.chatJid ?? null, actor.id, notes],
   );
+  await ensureVessel(client, motherVessel, 'mother');
+  await ensureVessel(client, lighterVessel, 'lighter');
   if (escortMobile) {
     await client.query(
       `INSERT INTO program_assignments
@@ -161,7 +225,7 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
   );
   await recordAudit({actor, action: 'PROGRAM_CREATED', entity: 'program', entityId: id,
     detail: {motherVessel, lighterVessel, startDate, startShift, escortMobile}}, client);
-  return {program: inserted.rows[0], potentialDuplicates: duplicates};
+  return {program: inserted.rows[0], potentialDuplicates: duplicates, decision};
 }
 
 /**
@@ -211,6 +275,7 @@ async function assignEscortOn(
     if (!program.rowCount) throw new DomainError('PROGRAM_NOT_FOUND', 404);
     const current = program.rows[0];
     if (current.state === 'VOIDED') throw new DomainError('PROGRAM_VOIDED', 409);
+    if (current.state === 'WITHDRAWN') throw new DomainError('PROGRAM_WITHDRAWN', 409);
     const startDate = input.startDate ? isoDate(input.startDate, 'startDate') : current.start_date;
     const startShift = input.startShift ? shift(input.startShift, 'startShift') : current.start_shift;
     // Prefer an explicit operator-supplied name. Otherwise resolve the directory
@@ -224,6 +289,16 @@ async function assignEscortOn(
           [employeeMobile],
         );
     const name = suppliedName ?? existingEmployee?.rows[0]?.preferred_name ?? employeeMobile;
+    // Owner rule P: a different escort mobile is a new program row linked to
+    // the previous one; the previous row is WITHDRAWN, never overwritten.
+    const currentEscort = String(current.escort_mobile ?? '').replace(/[^0-9]/g, '').replace(/^880(1[3-9][0-9]{8})$/, '0$1');
+    const nextEscort = employeeMobile.replace(/[^0-9]/g, '').replace(/^880(1[3-9][0-9]{8})$/, '0$1');
+    if (currentEscort && currentEscort !== nextEscort) {
+      const changed = await handleEscortChangeOn(client, actor, current.id, {
+        name, mobile: nextEscort, shift: startShift, eventAt: new Date().toISOString(),
+      }, startDate);
+      return {programId: changed.programId, assignmentId: changed.assignmentId};
+    }
     await client.query(
       `INSERT INTO employees (employee_mobile, preferred_name, duty_type, created_by)
        VALUES ($1,$2,'escort',$3) ON CONFLICT (employee_mobile) DO NOTHING`,
@@ -543,6 +618,7 @@ export type ProgramListFilters = {
   q?: string;
   state?: string;
   escort?: string;
+  escortMobile?: string;
   mother?: string;
   from?: string;
   to?: string;
@@ -561,8 +637,9 @@ function programFilterSql(filters: ProgramListFilters): {clause: string; values:
         AND ($3::text IS NULL OR p.escort_mobile = $3)
         AND ($4::date IS NULL OR p.start_date >= $4)
         AND ($5::date IS NULL OR p.start_date <= $5)
-        AND ($6::text IS NULL OR lower(btrim(p.mother_vessel)) = lower(btrim($6)))`,
-    values: [q, filters.state ?? null, filters.escort ?? null, filters.from ?? null, filters.to ?? null, filters.mother ?? null],
+        AND ($6::text IS NULL OR lower(btrim(p.mother_vessel)) = lower(btrim($6)))
+        AND ($7::text IS NULL OR p.escort_mobile = $7)`,
+    values: [q, filters.state ?? null, filters.escort ?? null, filters.from ?? null, filters.to ?? null, filters.mother ?? null, filters.escortMobile ?? null],
   };
 }
 
@@ -572,11 +649,11 @@ export async function listPrograms(filters: ProgramListFilters = {}) {
   const {clause, values} = programFilterSql(filters);
   return rows<ProgramListRow>(
     `SELECT p.*, p.start_date::text AS start_date, p.end_date::text AS end_date,
-            pp.state AS pay_state, pp.total_minor::text, pp.salary_minor::text, pp.conveyance_minor::text
+            pp.state AS pay_state, pp.shifts, pp.total_minor::text, pp.salary_minor::text, pp.conveyance_minor::text
        FROM programs p LEFT JOIN program_pay pp ON pp.program_id = p.id
        ${clause}
       ORDER BY p.start_date DESC, p.created_at DESC
-      LIMIT $7 OFFSET $8`,
+      LIMIT $8 OFFSET $9`,
     [...values, limit, offset],
   );
 }

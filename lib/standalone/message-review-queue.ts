@@ -100,20 +100,47 @@ export async function approveMessageReviewQueue(
     let programId: string | null = null;
 
     if (workflow === 'vessel') {
-      const mother = pick(payload, ['motherVessel', 'mother_vessel', 'mother']).replace(/^m\.?\s*v\.?\s*[:.,-]?\s*/i, '');
-      const lighter = pick(payload, ['lighterVessel', 'lighter_vessel', 'lighter']).replace(/^m\.?\s*v\.?\s*[:.,-]?\s*/i, '');
-      const master = digits(pick(payload, ['masterMobile', 'master_mobile', 'master']));
-      if (!mother || !lighter || !master) throw new Error('REVIEW_VESSEL_FIELDS_REQUIRED');
       const eventAt = String(item.source_timestamp);
       const fallback = orderIntakeDateAndShift(eventAt, String(item.message_text ?? ''));
-      const requestedStart = normalizeDraftDate(pick(payload, ['startDate', 'start_date', 'date', 'assignmentDate']));
+      let mother = pick(payload, ['motherVessel', 'mother_vessel', 'mother']).replace(/^m\.?\s*v\.?\s*[:.,-]?\s*/i, '');
+      let lighter = pick(payload, ['lighterVessel', 'lighter_vessel', 'lighter']).replace(/^m\.?\s*v\.?\s*[:.,-]?\s*/i, '');
+      let master = digits(pick(payload, ['masterMobile', 'master_mobile', 'master']));
+      let escortName = pick(payload, ['escortName', 'escort_name']);
+      let escortMobile = digits(pick(payload, ['escortMobile', 'escort_mobile']));
+      let requestedStart = normalizeDraftDate(pick(payload, ['startDate', 'start_date', 'date', 'assignmentDate']));
+      let requestedShift = normalizeDraftShift(pick(payload, ['shift', 'startShift', 'start_shift']));
+
+      // The queue stores the human-readable message, not a structured payload.
+      // Derive the fields server-side instead of failing with
+      // REVIEW_VESSEL_FIELDS_REQUIRED (Owner-approved approval path).
+      if (!mother || !lighter || !master || (!escortName && !escortMobile)) {
+        const {parseEscortOrder} = await import('../escort-intake-candidate.mjs');
+        const blocks = parseEscortOrder(String(item.message_text ?? ''), {
+          messageDate: eventAt.slice(0, 10),
+        }) as Array<Record<string, unknown>>;
+        const block = blocks[0] as Record<string, unknown> | undefined;
+        const fields = (block?.fields ?? {}) as Record<string, unknown>;
+        mother = mother || clean(fields.motherVessel);
+        lighter = lighter || clean(fields.lighterVessel);
+        master = master || digits(block?.masterMobile ?? fields.masterMobile);
+        escortName = escortName || clean(fields.escortName);
+        escortMobile = escortMobile || digits(block?.employeeMobile ?? fields.escortMobile);
+        requestedStart = requestedStart || normalizeDraftDate(block?.assignmentDate);
+        requestedShift = requestedShift || normalizeDraftShift(block?.shift);
+      }
+      if (!mother || !lighter || !master) throw new Error('REVIEW_VESSEL_FIELDS_REQUIRED');
+
       const lookupDate = requestedStart || fallback?.date || eventAt.slice(0, 10);
-      const escortName = pick(payload, ['escortName', 'escort_name']);
-      const escortMobile = digits(pick(payload, ['escortMobile', 'escort_mobile']));
       const confirmed = Boolean(escortName && escortMobile);
       if (escortMobile) {
-        const employee = await client.query('SELECT 1 FROM employees WHERE employee_mobile=$1', [`+88${escortMobile}`]);
-        if (!employee.rowCount) throw new Error('ESCORT_NOT_IN_EMPLOYEES');
+        // Owner rule: a new escort mobile is auto-created in the employee
+        // directory; the review approval must not fail with a missing FK.
+        await client.query(
+          `INSERT INTO employees (employee_mobile, preferred_name, duty_type, created_by)
+           VALUES ($1,$2,'escort','system')
+           ON CONFLICT (employee_mobile) DO NOTHING`,
+          [`+88${escortMobile}`, escortName || `Unknown-${escortMobile.slice(-4)}`],
+        );
       }
       const orderKey = `${vesselKey(mother)}|${vesselKey(lighter)}`;
       const requestedId = pick(payload, ['programId', 'program_id']);
@@ -131,7 +158,7 @@ export async function approveMessageReviewQueue(
       }
       const existingDate = existing ? normalizeDraftDate(existing.start_date) : '';
       const startDate = requestedStart || existingDate || lookupDate;
-      const rawShift = normalizeDraftShift(pick(payload, ['shift', 'startShift', 'start_shift']))
+      const rawShift = requestedShift
         || (existing ? String(existing.start_shift) : fallback?.shift) || 'D';
       const shift: 'D' | 'N' = rawShift === 'N' ? 'N' : 'D';
       const existingEventAt = existing?.event_at instanceof Date ? existing.event_at.toISOString() : String(existing?.event_at ?? '');

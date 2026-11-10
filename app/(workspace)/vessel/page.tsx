@@ -7,15 +7,6 @@ import {pageUser} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
 import {VesselRegisterClient} from '@/components/standalone/vessel-register-client';
-import {
-  formatReviewTimestamp,
-  reviewCategoryLabel,
-  reviewCategoryTone,
-  reviewEscortConflict,
-  reviewStateLabel,
-  reviewStateTone,
-  reviewVesselNames,
-} from '@/lib/review-ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +17,7 @@ const VESSEL_CLIENTS = [
   {jid: '8801757622300@s.whatsapp.net', label: 'TCIS'},
 ];
 
-export default async function VesselPage({searchParams}: {searchParams: Promise<{q?: string; state?: string; page?: string; mother?: string}>}) {
+export default async function VesselPage({searchParams}: {searchParams: Promise<{q?: string; state?: string; page?: string; mother?: string; escort_mobile?: string}>}) {
   const filters = await searchParams;
   const user = await pageUser();
   const canCommand = can(user as never, 'vessel.command');
@@ -34,14 +25,15 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
   const q = (filters.q ?? '').trim();
   const state = filters.state ?? '';
   const mother = filters.mother ?? '';
+  const escortMobile = (filters.escort_mobile ?? '').trim();
   const [initialPrograms, tableTotal, programs, vesselReviews, escorts, motherRows, lighterRows, escortNameRows, escortMobileRows] = await Promise.all([
-    listPrograms({q, state: state || undefined, mother: mother || undefined, limit: 20, offset: 0}),
-    countPrograms({q, state: state || undefined, mother: mother || undefined}),
-    listPrograms({q, state: state || undefined, mother: mother || undefined, limit: 200, offset: 0}),
+    listPrograms({q, state: state || undefined, mother: mother || undefined, escortMobile: escortMobile || undefined, limit: 20, offset: 0}),
+    countPrograms({q, state: state || undefined, mother: mother || undefined, escortMobile: escortMobile || undefined}),
+    listPrograms({q, state: state || undefined, mother: mother || undefined, escortMobile: escortMobile || undefined, limit: 200, offset: 0}),
     listReviewQueue({domain: 'PROGRAM', state: 'PENDING', limit: 100}),
     listEmployees({state: 'ACTIVE', limit: 500}),
-    rows<{mother_vessel: string}>('SELECT DISTINCT mother_vessel FROM programs WHERE state <> \'VOIDED\' ORDER BY mother_vessel'),
-    rows<{lighter_vessel: string}>('SELECT DISTINCT lighter_vessel FROM programs WHERE state <> \'VOIDED\' ORDER BY lighter_vessel'),
+    rows<{vessel_name: string}>("SELECT vessel_name FROM vessels WHERE vessel_type = 'mother' ORDER BY vessel_name"),
+    rows<{vessel_name: string}>("SELECT vessel_name FROM vessels WHERE vessel_type = 'lighter' ORDER BY vessel_name"),
     rows<{escort_name: string}>('SELECT DISTINCT escort_name FROM programs WHERE escort_name IS NOT NULL ORDER BY escort_name'),
     rows<{escort_mobile: string}>('SELECT DISTINCT escort_mobile FROM programs WHERE escort_mobile IS NOT NULL ORDER BY escort_mobile'),
   ]);
@@ -56,10 +48,10 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
   const duplicates = vesselReviews.filter((item) => item.category === 'VESSEL_DUPLICATE_CANDIDATE');
   const ambiguous = vesselReviews.filter((item) => item.category === 'AMBIGUOUS_VESSEL_CONFIRMATION');
   const unmatched = vesselReviews.filter((item) => item.category === 'UNMATCHED_VESSEL_ASSIGNMENT');
-  const confirmedPrograms = programs.filter((program) => program.confirmation_message_id);
+
 
   return (
-    <>
+    <div className="vessel-workspace">
       <div className="page-head">
         <div><h1>Vessel Register</h1><p className="muted">Orders, escorts, duty dates, release and duplicate prevention.</p></div>
         <div className="row-actions">
@@ -76,14 +68,15 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
           totalPages: Math.max(1, Math.ceil(tableTotal / 20)),
         }}
         escorts={escorts.map((employee) => ({mobile: employee.employee_mobile, name: employee.preferred_name}))}
-        mothers={motherRows.map((row) => row.mother_vessel)}
-        lighters={lighterRows.map((row) => row.lighter_vessel)}
+        mothers={motherRows.map((row) => row.vessel_name)}
+        lighters={lighterRows.map((row) => row.vessel_name)}
         escortNames={escortNameRows.map((row) => row.escort_name)}
         escortMobiles={escortMobileRows.map((row) => row.escort_mobile)}
         clients={VESSEL_CLIENTS}
         initialQ={q}
         initialState={state}
         initialMother={mother}
+        initialEscortMobile={escortMobile}
         canCommand={canCommand}
         canRelease={canRelease}
       />
@@ -91,26 +84,9 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
       <section className="card" style={{marginBottom: 18}}>
         <div className="page-head" style={{marginBottom: 8}}>
           <div><h3>Vessel review ({vesselReviews.length} pending)</h3></div>
-          <span className="muted">Incomplete orders, duplicate warnings, ambiguous confirmations and escort conflicts.</span>
+          <span className="muted">Human-readable sender, problem and correction fields now live on the Review Queue page.</span>
         </div>
-        {vesselReviews.length ? (
-          <table>
-            <thead><tr><th>Item</th><th>Category</th><th>State</th><th>Target / source</th><th>Submitter</th><th>Created</th><th>Review</th></tr></thead>
-            <tbody>
-              {vesselReviews.map((item) => (
-                <tr key={item.id}>
-                  <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.id}</td>
-                  <td><span className={`pill ${reviewCategoryTone(item.category)}`}>{reviewCategoryLabel(item.category)}</span></td>
-                  <td><span className={`pill ${reviewStateTone(item.state)}`}>{reviewStateLabel(item.state)}</span></td>
-                  <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.target_ref ?? '—'}</td>
-                  <td>{item.submitter_name ?? item.submitted_by.slice(0, 12)}</td>
-                  <td style={{whiteSpace: 'nowrap'}}>{formatReviewTimestamp(item.created_at)}</td>
-                  <td><Link href={`/review/${item.id}`}>Inspect →</Link></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : <p className="muted">No vessel reviews are pending.</p>}
+        <Link href="/review">Open Review Queue — vessel, cash and message items →</Link>
       </section>
 
       <div className="grid-cards" style={{marginBottom: 18}}>
@@ -138,44 +114,13 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
 
       <div className="split" style={{marginBottom: 18}}>
         <section className="card">
-          <h3>Incomplete orders</h3>
-          {!incomplete.length ? <p className="muted">None pending.</p> : incomplete.map((item) => (
-            <div key={item.id} style={{marginBottom: 10}}>
-              <div style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.id}</div>
-              <div className="muted">{String((item.payload as Record<string, unknown>).rawText ?? item.target_ref ?? '').slice(0, 180)}</div>
-              <Link href={`/review/${item.id}`}>Inspect source evidence →</Link>
-            </div>
-          ))}
+          <h3>Review evidence</h3>
+          <p className="muted">Incomplete orders, duplicate warnings, ambiguous confirmations and escort conflicts are shown as human-readable rows on the Review Queue.</p>
+          <Link href="/review">Open Review Queue →</Link>
         </section>
         <section className="card">
-          <h3>Duplicate warnings</h3>
-          {!duplicates.length ? <p className="muted">None pending.</p> : duplicates.map((item) => (
-            <div key={item.id} style={{marginBottom: 10}}>
-              <div style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.id}</div>
-              <div className="muted">Target {item.target_ref ?? '—'} · submitter {item.submitter_name ?? item.submitted_by.slice(0, 12)}</div>
-              <Link href={`/review/${item.id}`}>Compare candidates →</Link>
-            </div>
-          ))}
-        </section>
-        <section className="card">
-          <h3>Ambiguous confirmations</h3>
-          {!ambiguous.length ? <p className="muted">None pending.</p> : ambiguous.map((item) => (
-            <div key={item.id} style={{marginBottom: 10}}>
-              <div style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.id}</div>
-              <div className="muted">Target {item.target_ref ?? '—'}</div>
-              <Link href={`/review/${item.id}`}>Inspect confirmation evidence →</Link>
-            </div>
-          ))}
-        </section>
-        <section className="card">
-          <h3>Escort assignment conflicts</h3>
-          {!unmatched.length ? <p className="muted">None pending.</p> : unmatched.map((item) => (
-            <div key={item.id} style={{marginBottom: 10}}>
-              <div style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.id}</div>
-              <div className="muted">{reviewEscortConflict({payload: item.payload}) ?? 'Unmatched assignment evidence'}</div>
-              <Link href={`/review/${item.id}`}>Inspect assignment →</Link>
-            </div>
-          ))}
+          <h3>Confirmation rule</h3>
+          <p className="muted">The Admin&apos;s outgoing reply in the original order chat is the confirmation. A different date/shift updates the assignment window; a different escort mobile creates a linked escort-change row.</p>
         </section>
       </div>
 
@@ -211,48 +156,6 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
 
       */}
 
-      <div className="split" style={{marginBottom: 18}}>
-        <section className="card">
-          <h3>Confirmation evidence</h3>
-          <p className="muted" style={{marginTop: -6}}>Confirmation is applied from the admin&apos;s outgoing WhatsApp reply via applyConfirmation(). No second confirmation is required.</p>
-          {confirmedPrograms.length ? (
-            <table>
-              <thead><tr><th>Program</th><th>confirmation_message_id</th><th>Open</th></tr></thead>
-              <tbody>
-                {confirmedPrograms.map((program) => (
-                  <tr key={program.id}>
-                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{program.id}</td>
-                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{program.confirmation_message_id}</td>
-                    <td><Link href={`/messages?q=${encodeURIComponent(program.confirmation_message_id ?? '')}`}>Message →</Link></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : <p className="muted">No confirmations recorded yet.</p>}
-        </section>
-        <section className="card">
-          <h3>Vessel name normalization</h3>
-          <p className="muted" style={{marginTop: -6}}>Original names from the WhatsApp message and normalized names used for matching are both preserved.</p>
-          {vesselReviews.length ? (
-            <table>
-              <thead><tr><th>Item</th><th>Original</th><th>Normalized</th></tr></thead>
-              <tbody>
-                {vesselReviews.map((item) => {
-                  const names = reviewVesselNames({payload: item.payload});
-                  return (
-                    <tr key={item.id}>
-                      <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.id.slice(0, 18)}</td>
-                      <td>{names.original.length ? names.original.join(' · ') : '—'}</td>
-                      <td>{names.normalized.length ? names.normalized.join(' · ') : '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          ) : <p className="muted">No vessel review items to normalize.</p>}
-        </section>
-      </div>
-
       <div className="split">
         {canCommand ? (
           <ActionForm title="Assign / replace escort" endpoint="/api/programs" action="assign" submitLabel="Assign"
@@ -281,6 +184,6 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
             ]} />
         ) : null}
       </div>
-    </>
+    </div>
   );
 }

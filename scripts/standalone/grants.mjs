@@ -32,6 +32,8 @@ const READ_WRITE = [
   // Phase 2 vessel overhaul (migration 018).
   'system_feature_flags', 'message_review_queue', 'message_pipeline_state',
   'vessel_backlog_progress',
+  // Phase 3 vessel reference directory (migration 020).
+  'vessels',
 ];
 
 const APPEND_ONLY = [
