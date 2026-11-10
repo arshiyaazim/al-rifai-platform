@@ -103,6 +103,7 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
         lighters={[]}
         escortNames={[]}
         escortMobiles={[]}
+        clients={[]}
         fixedMother={program.mother_vessel}
         canCommand={canCommand}
         canRelease={canRelease}

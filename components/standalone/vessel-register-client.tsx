@@ -1,6 +1,6 @@
 'use client';
 
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {MoreHorizontal, Plus} from 'lucide-react';
 import {toast} from 'sonner';
 import {AppToaster} from '@/components/standalone/app-toaster';
@@ -9,15 +9,20 @@ import {TableExportControls} from '@/components/standalone/export-controls';
 import {RealtimeIndicator} from '@/components/standalone/realtime-refresher';
 import {VesselDetailSidebar, stateTone, type VesselProgram} from '@/components/standalone/vessel-detail-sidebar';
 import {Button} from '@/components/ui/button';
+import {Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList} from '@/components/ui/combobox';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 import {useRealtimeUpdates} from '@/hooks/use-realtime-updates';
 import {cleanEmployeeName} from '@/lib/display-name';
 import {dateDdMmYyyy, dhakaDateTime, type ExportColumn} from '@/lib/export-format';
 
-export type VesselRow = VesselProgram & {updated_at?: string | null; source_type?: string | null; event_at?: string | null};
-
-export type MotherFacet = {name: string; count: number};
+export type VesselRow = VesselProgram & {
+  updated_at?: string | null;
+  source_type?: string | null;
+  event_at?: string | null;
+  source_chat_jid?: string | null;
+  escort_change_from_program_id?: string | null;
+};
 
 export type VesselPage = {
   rows: VesselRow[];
@@ -25,12 +30,14 @@ export type VesselPage = {
   page: number;
   limit: number;
   totalPages: number;
-  mothers?: MotherFacet[];
 };
 
 type ExportRow = VesselRow & {sl: number};
 
-const VESSEL_STATES = ['DRAFT', 'CONFIRMED', 'ASSIGNED', 'IN_DUTY', 'RELEASED', 'COMPLETED', 'VOIDED'];
+export type VesselClientOption = {jid: string; label: string};
+
+const DEFAULT_STATUS = {running: true, completed: true, cancel: true, escortChange: true, draft: true};
+const RUNNING_STATES = new Set(['CONFIRMED', 'ASSIGNED', 'IN_DUTY']);
 
 async function csrfToken(): Promise<string> {
   const response = await fetch('/api/auth/session', {credentials: 'same-origin', cache: 'no-store'});
@@ -47,28 +54,48 @@ function eventDate(value: string | null | undefined) {
   return date.toLocaleDateString('en-GB', {timeZone: 'Asia/Dhaka'}).replaceAll('/', '-');
 }
 
+function eventDateIso(value: string | null | undefined) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('en-CA', {timeZone: 'Asia/Dhaka'});
+}
+
 function shift(value: string | null | undefined, shiftValue: string | null | undefined) {
   return value ? `${value} · ${shiftValue ?? '—'}` : '—';
 }
 
-function updateUrl(page: number, limit: number, q: string, state: string, mother: string) {
-  if (typeof window === 'undefined') return;
-  const url = new URL(window.location.href);
-  const set = (key: string, value: string) => {
-    if (value) url.searchParams.set(key, value);
-    else url.searchParams.delete(key);
-  };
-  set('q', q);
-  set('state', state);
-  set('mother', mother);
-  set('page', page > 1 ? String(page) : '');
-  set('limit', limit !== 20 ? String(limit) : '');
-  window.history.replaceState(null, '', url);
+function matches(value: unknown, filter: string) {
+  if (!filter.trim()) return true;
+  return String(value ?? '').toLowerCase().includes(filter.trim().toLowerCase());
+}
+
+function LookupFilter({
+  id, value, onChange, items, placeholder,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  items: string[];
+  placeholder: string;
+}) {
+  return (
+    <Combobox items={items} value={value} onValueChange={(next) => onChange(typeof next === 'string' ? next : '')}>
+      <ComboboxInput placeholder={placeholder} showClear />
+      <ComboboxContent>
+        <ComboboxList>
+          {(item: string) => <ComboboxItem key={item} value={item}>{item}</ComboboxItem>}
+        </ComboboxList>
+        <ComboboxEmpty>No match</ComboboxEmpty>
+      </ComboboxContent>
+    </Combobox>
+  );
 }
 
 export function VesselRegisterClient({
-  initial, escorts, mothers: initialMothers, lighters: initialLighters, escortNames: initialEscortNames, escortMobiles: initialEscortMobiles, fixedMother, initialQ = '', initialState = '', initialMother = '',
-  canCommand, canRelease, showNew = true,
+  initial, escorts, mothers: initialMothers, lighters: initialLighters,
+  escortNames: initialEscortNames, escortMobiles: initialEscortMobiles,
+  clients, fixedMother, initialMother = '', canCommand, canRelease, showNew = true,
 }: {
   initial: VesselPage;
   escorts: Array<{mobile: string; name: string}>;
@@ -76,6 +103,7 @@ export function VesselRegisterClient({
   lighters: string[];
   escortNames: string[];
   escortMobiles: string[];
+  clients: VesselClientOption[];
   fixedMother?: string;
   initialQ?: string;
   initialState?: string;
@@ -84,47 +112,42 @@ export function VesselRegisterClient({
   canRelease: boolean;
   showNew?: boolean;
 }) {
-  const [data, setData] = useState<VesselPage>(initial);
-  const [page, setPage] = useState(initial.page);
-  const [limit, setLimit] = useState(initial.limit);
-  const [q, setQ] = useState(initialQ);
-  const [state, setState] = useState(initialState);
-  const [mother, setMother] = useState(fixedMother ?? initialMother);
-  const [mothers, setMothers] = useState<MotherFacet[]>(initial.mothers ?? []);
+  const [allRows, setAllRows] = useState<VesselRow[]>(initial.rows);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [motherFilter, setMotherFilter] = useState(fixedMother ?? initialMother);
+  const [lighterFilter, setLighterFilter] = useState('');
+  const [escortNameFilter, setEscortNameFilter] = useState('');
+  const [escortMobileFilter, setEscortMobileFilter] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [clientFilter, setClientFilter] = useState('');
+  const [statusFilters, setStatusFilters] = useState(DEFAULT_STATUS);
   const [form, setForm] = useState({
     motherVessel: fixedMother ?? '', lighterName: '', masterName: '', masterMobile: '',
     startDate: '', startShift: 'D', escortName: '', escortMobile: '', notes: '',
   });
   const request = useRef(0);
-  const current = useRef({page: initial.page, limit: initial.limit, q: initialQ, state: initialState, mother: fixedMother ?? initialMother});
 
-  useEffect(() => {
-    current.current = {page, limit, q, state, mother};
-  }, [page, limit, q, state, mother]);
-
-  async function load(nextPage: number, nextLimit: number, nextQ: string, nextState: string, nextMother: string, quiet = false) {
+  async function loadAll(quiet = false) {
     const id = ++request.current;
     if (!quiet) setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({page: String(nextPage), limit: String(nextLimit)});
-      if (nextQ) params.set('q', nextQ);
-      if (nextState) params.set('state', nextState);
-      if (nextMother) params.set('mother', nextMother);
-      const response = await fetch(`/api/vessel?${params.toString()}`, {headers: {accept: 'application/json'}, cache: 'no-store'});
+      const response = await fetch('/api/vessel?page=1&limit=10000', {
+        headers: {accept: 'application/json'}, cache: 'no-store',
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const payload = await response.json() as VesselPage;
       if (id !== request.current) return;
-      setData(payload);
-      setPage(payload.page);
+      setAllRows(payload.rows);
       setUpdatedAt(new Date());
-      if (payload.mothers) setMothers(payload.mothers);
     } catch {
       if (id === request.current) setError('Could not refresh vessel programs. The last successful result is shown.');
     } finally {
@@ -132,43 +155,80 @@ export function VesselRegisterClient({
     }
   }
 
-  useEffect(() => {
-    const {page: p, limit: l, q: search, state: status, mother: vessel} = current.current;
-    void load(p, l, search, status, vessel, true);
-  }, []);
+  useEffect(() => { void loadAll(true); }, []);
+  const realtime = useRealtimeUpdates('VESSEL', () => { void loadAll(true); });
 
-  const realtime = useRealtimeUpdates('VESSEL', () => {
-    const {page: p, limit: l, q: search, state: status, mother: vessel} = current.current;
-    void load(p, l, search, status, vessel, true);
-  });
+  useEffect(() => { setPage(1); }, [
+    motherFilter, lighterFilter, escortNameFilter, escortMobileFilter,
+    fromDate, toDate, clientFilter, statusFilters,
+  ]);
 
-  const submitFilters = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    updateUrl(1, limit, q, state, mother);
-    void load(1, limit, q, state, mother);
-  };
+  const filteredRows = useMemo(() => {
+    const allStatusOn = Object.values(statusFilters).every(Boolean);
+    return allRows.filter((row) => {
+      if (!matches(row.mother_vessel, motherFilter)) return false;
+      if (!matches(row.lighter_vessel, lighterFilter)) return false;
+      if (!matches(row.escort_name, escortNameFilter)) return false;
+      if (!matches(row.escort_mobile, escortMobileFilter)) return false;
+      const rowDate = eventDateIso(row.event_at);
+      if (fromDate && (!rowDate || rowDate < fromDate)) return false;
+      if (toDate && (!rowDate || rowDate > toDate)) return false;
+      if (clientFilter && row.source_chat_jid !== clientFilter) return false;
+      if (!allStatusOn) {
+        const statusOk =
+          (statusFilters.running && RUNNING_STATES.has(row.state)) ||
+          (statusFilters.completed && row.state === 'RELEASED') ||
+          (statusFilters.cancel && row.state === 'VOIDED') ||
+          (statusFilters.escortChange && Boolean(row.escort_change_from_program_id)) ||
+          (statusFilters.draft && row.state === 'DRAFT');
+        if (!statusOk) return false;
+      }
+      return true;
+    }).sort((a, b) => String(b.event_at ?? '').localeCompare(String(a.event_at ?? '')));
+  }, [allRows, motherFilter, lighterFilter, escortNameFilter, escortMobileFilter, fromDate, toDate, clientFilter, statusFilters]);
 
-  const changeState = (value: string) => {
-    setState(value);
-    updateUrl(1, limit, q, value, mother);
-    void load(1, limit, q, value, mother);
-  };
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / limit));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = filteredRows.slice((safePage - 1) * limit, safePage * limit);
+  const offset = (safePage - 1) * limit;
+  const exportRows: ExportRow[] = pageRows.map((row, index) => ({...row, sl: offset + index + 1}));
+  const columns: ExportColumn<ExportRow>[] = [
+    {header: 'Event Date', value: (row) => eventDate(row.event_at)},
+    {header: 'Mother Vessel', value: (row) => row.mother_vessel},
+    {header: 'Lighter Vessel', value: (row) => row.master_mobile ? `${row.lighter_vessel} (${row.master_mobile})` : row.lighter_vessel},
+    {header: 'Escort Name', value: (row) => cleanEmployeeName(row.escort_name)},
+    {header: 'Escort Mobile', value: (row) => row.escort_mobile ?? ''},
+    {header: 'Start', value: (row) => `${dateDdMmYyyy(row.start_date)} · ${row.start_shift}`},
+    {header: 'End', value: (row) => row.end_date ? `${dateDdMmYyyy(row.end_date)} · ${row.end_shift ?? ''}` : ''},
+    {header: 'Status', value: (row) => row.state},
+    {header: 'Updated', value: (row) => dhakaDateTime(row.updated_at)},
+  ];
+  const activeFilters = [
+    motherFilter, lighterFilter, escortNameFilter, escortMobileFilter, fromDate, toDate, clientFilter,
+  ].filter(Boolean).length + (Object.values(statusFilters).every(Boolean) ? 0 : 1);
+  const filterSummary = [
+    motherFilter && `Mother: ${motherFilter}`,
+    lighterFilter && `Lighter: ${lighterFilter}`,
+    escortNameFilter && `Escort: ${escortNameFilter}`,
+    clientFilter && `Client: ${clients.find((c) => c.jid === clientFilter)?.label ?? clientFilter}`,
+    fromDate && `From: ${fromDate}`,
+    toDate && `To: ${toDate}`,
+  ].filter(Boolean) as string[];
 
-  const changeMother = (value: string) => {
-    setMother(value);
-    updateUrl(1, limit, q, state, value);
-    void load(1, limit, q, state, value);
-  };
+  function clearFilters() {
+    setMotherFilter(fixedMother ?? '');
+    setLighterFilter('');
+    setEscortNameFilter('');
+    setEscortMobileFilter('');
+    setFromDate('');
+    setToDate('');
+    setClientFilter('');
+    setStatusFilters(DEFAULT_STATUS);
+    setPage(1);
+  }
 
   async function fetchAllForExport(): Promise<ExportRow[]> {
-    const params = new URLSearchParams({page: '1', limit: '10000'});
-    if (q) params.set('q', q);
-    if (state) params.set('state', state);
-    if (mother) params.set('mother', mother);
-    const response = await fetch(`/api/vessel?${params.toString()}`, {headers: {accept: 'application/json'}, cache: 'no-store'});
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json() as VesselPage;
-    return payload.rows.map((row, index) => ({...row, sl: index + 1}));
+    return filteredRows.map((row, index) => ({...row, sl: index + 1}));
   }
 
   const create = async () => {
@@ -186,7 +246,7 @@ export function VesselRegisterClient({
       toast.success('Program created.');
       setNewOpen(false);
       setForm({motherVessel: fixedMother ?? '', lighterName: '', masterName: '', masterMobile: '', startDate: '', startShift: 'D', escortName: '', escortMobile: '', notes: ''});
-      await load(1, limit, q, state, mother);
+      await loadAll(true);
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'Create failed.', {duration: Infinity});
     } finally {
@@ -194,37 +254,15 @@ export function VesselRegisterClient({
     }
   };
 
-  const rows = data.rows;
-  const offset = (data.page - 1) * data.limit;
-  const exportRows: ExportRow[] = rows.map((row, index) => ({...row, sl: offset + index + 1}));
-  const columns: ExportColumn<ExportRow>[] = [
-    {header: 'Event Date', value: (row) => eventDate(row.event_at)},
-    {header: 'Mother Vessel', value: (row) => row.mother_vessel},
-    {header: 'Lighter Vessel', value: (row) => row.master_mobile ? `${row.lighter_vessel} (${row.master_mobile})` : row.lighter_vessel},
-    {header: 'Escort Name', value: (row) => cleanEmployeeName(row.escort_name)},
-    {header: 'Escort Mobile', value: (row) => row.escort_mobile ?? ''},
-    {header: 'Start', value: (row) => `${dateDdMmYyyy(row.start_date)} · ${row.start_shift}`},
-    {header: 'End', value: (row) => row.end_date ? `${dateDdMmYyyy(row.end_date)} · ${row.end_shift ?? ''}` : ''},
-    {header: 'Status', value: (row) => row.state},
-    {header: 'Updated', value: (row) => dhakaDateTime(row.updated_at)},
-  ];
-  const facetsTotal = mothers.reduce((sum, facet) => sum + facet.count, 0);
-  const filterSummary = [
-    state && `State: ${state}`,
-    mother && `Mother: ${mother}`,
-    q && `Search: ${q}`,
-  ];
-  const activeFilters = (state ? 1 : 0) + (mother ? 1 : 0) + (q ? 1 : 0);
-
   return (
     <>
       <AppToaster />
       <section className="card print-area" style={{marginBottom: 18}}>
         <div className="page-head" style={{marginBottom: 8}}>
           <div>
-            <h3>Programs ({data.total.toLocaleString()})</h3>
+            <h3>Vessel Register ({filteredRows.length.toLocaleString()})</h3>
             <p className="muted" style={{marginTop: 0}}>
-              {fixedMother ? `All programs for ${fixedMother}.` : 'WhatsApp orders, Admin confirmations and release updates, newest first.'}
+              WhatsApp orders, Admin confirmations and release updates, newest first.
             </p>
           </div>
           <div className="row-actions" style={{alignItems: 'center'}}>
@@ -236,56 +274,59 @@ export function VesselRegisterClient({
           </div>
         </div>
 
-        {!fixedMother && mothers.length ? (
-          <>
-            <div className="vessel-facets" aria-label="Mother vessel filter">
-              <button type="button" className={!mother ? 'is-active' : ''} onClick={() => changeMother('')}>
-                All <span>{facetsTotal}</span>
-              </button>
-              {mothers.map((facet) => (
-                <button
-                  key={facet.name}
-                  type="button"
-                  className={mother === facet.name ? 'is-active' : ''}
-                  onClick={() => changeMother(facet.name)}
-                  title={`Filter by ${facet.name}`}
-                >
-                  {facet.name} <span>{facet.count}</span>
-                </button>
-              ))}
-            </div>
-            <label className="vessel-facet-mobile">
-              <span>Mother vessel</span>
-              <select value={mother} onChange={(event) => changeMother(event.target.value)}>
-                <option value="">All vessels ({facetsTotal})</option>
-                {mothers.map((facet) => <option key={facet.name} value={facet.name}>{facet.name} ({facet.count})</option>)}
+        {/* 12 search/filter fields above the table */}
+        <div className="card" style={{padding: 14, marginBottom: 14}}>
+          <div className="page-head" style={{marginBottom: 8}}>
+            <div><h4 style={{margin: 0}}>Search &amp; filters</h4></div>
+            <Button type="button" size="sm" variant="outline" onClick={clearFilters}>Clear All Filters</Button>
+          </div>
+          <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 10}}>
+            <label className="text-sm">Mother Vessel
+              <LookupFilter id="filter-mothers" value={motherFilter} onChange={setMotherFilter} items={initialMothers} placeholder="All mothers" />
+            </label>
+            <label className="text-sm">Lighter Vessel
+              <LookupFilter id="filter-lighters" value={lighterFilter} onChange={setLighterFilter} items={initialLighters} placeholder="All lighters" />
+            </label>
+            <label className="text-sm">Escort Name
+              <LookupFilter id="filter-escort-names" value={escortNameFilter} onChange={setEscortNameFilter} items={initialEscortNames} placeholder="All escorts" />
+            </label>
+            <label className="text-sm">Escort Mobile
+              <LookupFilter id="filter-escort-mobiles" value={escortMobileFilter} onChange={setEscortMobileFilter} items={initialEscortMobiles} placeholder="All mobiles" />
+            </label>
+            <label className="text-sm">Date From
+              <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            </label>
+            <label className="text-sm">Date To
+              <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+            </label>
+            <label className="text-sm">Escort Client
+              <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="h-9 w-full rounded-md border bg-background px-2 text-sm">
+                <option value="">All clients</option>
+                {clients.map((client) => <option key={client.jid} value={client.jid}>{client.label}</option>)}
               </select>
             </label>
-          </>
-        ) : null}
-
-        <div className="table-toolbar print-hidden">
-          <form method="get" className="form compact" onSubmit={submitFilters} style={{margin: 0, flex: 1}}>
-            <div className="row" style={{gap: 10, flexWrap: 'wrap'}}>
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search mother, lighter, escort or master" style={{minWidth: 240, maxWidth: 420}} />
-              <select value={state} onChange={(e) => changeState(e.target.value)} className="h-9 rounded-md border bg-background px-2 text-sm" aria-label="State filter">
-                <option value="">All states</option>
-                {VESSEL_STATES.map((value) => <option key={value} value={value}>{value}</option>)}
-              </select>
-              <Button type="submit" size="sm">Filter</Button>
-              {activeFilters ? (
-                <Button type="button" size="sm" variant="outline" onClick={() => { setQ(''); setState(''); if (!fixedMother) setMother(''); updateUrl(1, limit, '', '', fixedMother ?? ''); void load(1, limit, '', '', fixedMother ?? ''); }}>
-                  Clear filters ({activeFilters})
-                </Button>
-              ) : null}
-              <label className="muted" style={{display: 'flex', alignItems: 'center', gap: 6}}>
-                Rows
-                <select value={limit} onChange={(e) => { const next = Number(e.target.value); setLimit(next); updateUrl(1, next, q, state, mother); void load(1, next, q, state, mother); }} className="h-8 rounded-md border bg-background px-2 text-sm">
-                  {[10, 20, 50].map((value) => <option key={value} value={value}>{value}</option>)}
-                </select>
+          </div>
+          <div style={{display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 12}}>
+            {([
+              ['running', 'Running'],
+              ['completed', 'Completed'],
+              ['cancel', 'Cancel'],
+              ['escortChange', 'Escort Change'],
+              ['draft', 'Draft'],
+            ] as const).map(([key, label]) => (
+              <label key={key} style={{display: 'flex', alignItems: 'center', gap: 6, fontSize: 13}}>
+                <input
+                  type="checkbox"
+                  checked={statusFilters[key]}
+                  onChange={(e) => setStatusFilters((current) => ({...current, [key]: e.target.checked}))}
+                />
+                {label}
               </label>
-            </div>
-          </form>
+            ))}
+          </div>
+        </div>
+
+        <div className="table-toolbar print-hidden" style={{justifyContent: 'flex-end'}}>
           <TableExportControls
             title="Vessel Register"
             filenamePrefix="vessel_register"
@@ -314,8 +355,8 @@ export function VesselRegisterClient({
             </thead>
             <tbody>
               {loading ? Array.from({length: Math.min(limit, 5)}).map((_, index) => (
-                <tr key={`sk-${index}`}><td>—</td><td colSpan={8}><span className="muted">Loading…</span></td></tr>
-              )) : rows.map((program, index) => (
+                <tr key={`sk-${index}`}><td>—</td><td colSpan={9}><span className="muted">Loading…</span></td></tr>
+              )) : pageRows.map((program) => (
                 <tr key={program.id}>
                   <td>{eventDate(program.event_at)}</td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}} title={program.mother_vessel}>{program.mother_vessel}</td>
@@ -336,15 +377,23 @@ export function VesselRegisterClient({
                   </td>
                 </tr>
               ))}
-              {!loading && !rows.length ? <tr><td colSpan={10} className="muted">No programs match this filter.</td></tr> : null}
+              {!loading && !pageRows.length ? <tr><td colSpan={10} className="muted">No programs match this filter.</td></tr> : null}
             </tbody>
           </table>
         </div>
 
-        <div className="row-actions cash-pagination print-hidden" style={{marginTop: 12}}>
-          <Button type="button" size="sm" variant="outline" disabled={loading || data.page <= 1} onClick={() => { const next = data.page - 1; updateUrl(next, limit, q, state, mother); void load(next, limit, q, state, mother); }}>← Previous</Button>
-          <span className="muted">Page {data.page} / {data.totalPages}</span>
-          <Button type="button" size="sm" variant="outline" disabled={loading || data.page >= data.totalPages} onClick={() => { const next = data.page + 1; updateUrl(next, limit, q, state, mother); void load(next, limit, q, state, mother); }}>Next →</Button>
+        <div className="row-actions cash-pagination print-hidden" style={{marginTop: 12, justifyContent: 'space-between'}}>
+          <div className="row-actions" style={{gap: 8}}>
+            <Button type="button" size="sm" variant="outline" disabled={loading || safePage <= 1} onClick={() => setPage(safePage - 1)}>← Previous</Button>
+            <span className="muted">Page {safePage} / {totalPages}</span>
+            <Button type="button" size="sm" variant="outline" disabled={loading || safePage >= totalPages} onClick={() => setPage(safePage + 1)}>Next →</Button>
+          </div>
+          <label className="muted" style={{display: 'flex', alignItems: 'center', gap: 6}}>
+            Rows
+            <select value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }} className="h-8 rounded-md border bg-background px-2 text-sm">
+              {[10, 20, 50].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
         </div>
       </section>
 
@@ -352,7 +401,7 @@ export function VesselRegisterClient({
         key={selectedId ?? 'none'}
         programId={selectedId}
         onClose={() => setSelectedId(null)}
-        onUpdated={() => void load(page, limit, q, state, mother, true)}
+        onUpdated={() => void loadAll(true)}
         canCommand={canCommand}
         canRelease={canRelease}
       />

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import {countPrograms, listPrograms, motherFacets} from '@/lib/standalone/programs';
+import {countPrograms, listPrograms} from '@/lib/standalone/programs';
 import {listEmployees} from '@/lib/standalone/employees';
 import {rows} from '@/lib/standalone/db';
 import {listProgramSourcesForPrograms, listReviewQueue} from '@/lib/standalone/review';
@@ -19,6 +19,13 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+const VESSEL_CLIENTS = [
+  {jid: '8801670535255@s.whatsapp.net', label: 'Hridoy PN'},
+  {jid: '166082241384593@lid', label: 'Hridoy LID'},
+  {jid: '8801836743754@s.whatsapp.net', label: 'Rezaul'},
+  {jid: '8801757622300@s.whatsapp.net', label: 'TCIS'},
+];
+
 export default async function VesselPage({searchParams}: {searchParams: Promise<{q?: string; state?: string; page?: string; mother?: string}>}) {
   const filters = await searchParams;
   const user = await pageUser();
@@ -27,14 +34,13 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
   const q = (filters.q ?? '').trim();
   const state = filters.state ?? '';
   const mother = filters.mother ?? '';
-  const [initialPrograms, tableTotal, programs, vesselReviews, escorts, motherRows, motherCounts, lighterRows, escortNameRows, escortMobileRows] = await Promise.all([
+  const [initialPrograms, tableTotal, programs, vesselReviews, escorts, motherRows, lighterRows, escortNameRows, escortMobileRows] = await Promise.all([
     listPrograms({q, state: state || undefined, mother: mother || undefined, limit: 20, offset: 0}),
     countPrograms({q, state: state || undefined, mother: mother || undefined}),
     listPrograms({q, state: state || undefined, mother: mother || undefined, limit: 200, offset: 0}),
     listReviewQueue({domain: 'PROGRAM', state: 'PENDING', limit: 100}),
     listEmployees({state: 'ACTIVE', limit: 500}),
     rows<{mother_vessel: string}>('SELECT DISTINCT mother_vessel FROM programs WHERE state <> \'VOIDED\' ORDER BY mother_vessel'),
-    motherFacets({q, state: state || undefined}),
     rows<{lighter_vessel: string}>('SELECT DISTINCT lighter_vessel FROM programs WHERE state <> \'VOIDED\' ORDER BY lighter_vessel'),
     rows<{escort_name: string}>('SELECT DISTINCT escort_name FROM programs WHERE escort_name IS NOT NULL ORDER BY escort_name'),
     rows<{escort_mobile: string}>('SELECT DISTINCT escort_mobile FROM programs WHERE escort_mobile IS NOT NULL ORDER BY escort_mobile'),
@@ -68,13 +74,13 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
           page: 1,
           limit: 20,
           totalPages: Math.max(1, Math.ceil(tableTotal / 20)),
-          mothers: motherCounts,
         }}
         escorts={escorts.map((employee) => ({mobile: employee.employee_mobile, name: employee.preferred_name}))}
         mothers={motherRows.map((row) => row.mother_vessel)}
         lighters={lighterRows.map((row) => row.lighter_vessel)}
         escortNames={escortNameRows.map((row) => row.escort_name)}
         escortMobiles={escortMobileRows.map((row) => row.escort_mobile)}
+        clients={VESSEL_CLIENTS}
         initialQ={q}
         initialState={state}
         initialMother={mother}
@@ -173,6 +179,7 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
         </section>
       </div>
 
+      {/* HIDDEN: Multi-message source evidence — Owner request 2026-11-10
       <section className="card" style={{marginBottom: 18}}>
         <h3>Multi-message source evidence</h3>
         <p className="muted" style={{marginTop: -6}}>One program can be assembled from multiple WhatsApp messages. Primary and contributor messages are both shown.</p>
@@ -201,6 +208,8 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
           </table>
         ) : <p className="muted">No multi-message program evidence yet.</p>}
       </section>
+
+      */}
 
       <div className="split" style={{marginBottom: 18}}>
         <section className="card">
