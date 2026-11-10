@@ -5,6 +5,7 @@ import {useEffect, useRef, useState} from 'react';
 import {Eye} from 'lucide-react';
 import {AppToaster} from '@/components/standalone/app-toaster';
 import {CashTransactionSidebar} from '@/components/standalone/cash-transaction-sidebar';
+import {CsvImportDialog} from '@/components/standalone/csv-import-dialog';
 import {TableExportControls} from '@/components/standalone/export-controls';
 import {RealtimeIndicator} from '@/components/standalone/realtime-refresher';
 import {Button} from '@/components/ui/button';
@@ -223,6 +224,11 @@ export function CashTransactionsTable({
     appliedSearch && `Search: ${appliedSearch}`,
   ];
   const activeFilters = (stateFilter ? 1 : 0) + (appliedSearch ? 1 : 0) + (employeeFilter ? 1 : 0);
+  const exportParams = new URLSearchParams();
+  if (appliedSearch) exportParams.set('search', appliedSearch);
+  if (stateFilter) exportParams.set('status', stateFilter);
+  if (employeeFilter) exportParams.set('employee_mobile', employeeFilter);
+  const exportHref = `/api/cash/export${exportParams.size ? `?${exportParams.toString()}` : ''}`;
 
   const openSidebar = (item: CashTransaction) => setSelected(item);
 
@@ -238,6 +244,14 @@ export function CashTransactionsTable({
             </p>
           </div>
           <span className="row-actions" style={{alignItems: 'center'}}>
+            {canManage ? (
+              <CsvImportDialog
+                title="Import Cash CSV"
+                endpoint="/api/cash/import"
+                templateHint="Required: Employee Mobile, Amount. Optional: Employee Name, Date, Description, Method. Import posts through the normal approve/post services."
+                onImported={() => void load(1, limit, appliedSearch, stateFilter, employeeFilter)}
+              />
+            ) : null}
             <RealtimeIndicator status={realtime.status} />
             <span className="muted" aria-live="polite">
               {loading ? 'Refreshing…' : updatedAt ? 'Updated just now' : 'Live data'}
@@ -284,6 +298,7 @@ export function CashTransactionsTable({
             columns={columns}
             rows={exportRows}
             fetchAll={fetchAllForExport}
+            exportHref={exportHref}
             filterSummary={filterSummary}
             disabled={loading}
           />

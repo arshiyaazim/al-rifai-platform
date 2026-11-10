@@ -5,6 +5,7 @@ import {Eye, Plus} from 'lucide-react';
 import {toast} from 'sonner';
 import {AppToaster} from '@/components/standalone/app-toaster';
 import {ChatImportDialog} from '@/components/standalone/chat-import-dialog';
+import {CsvImportDialog} from '@/components/standalone/csv-import-dialog';
 import {DetailSidebar} from '@/components/standalone/detail-sidebar';
 import {TableExportControls} from '@/components/standalone/export-controls';
 import {RealtimeIndicator} from '@/components/standalone/realtime-refresher';
@@ -268,6 +269,16 @@ export function VesselRegisterClient({
     toDate && `To: ${toDate}`,
   ].filter(Boolean) as string[];
 
+  const exportParams = new URLSearchParams();
+  if (escortMobileFilter) exportParams.set('escort_mobile', escortMobileFilter);
+  if (motherFilter) exportParams.set('mother', motherFilter);
+  if (lighterFilter) exportParams.set('lighter', lighterFilter);
+  if (fromDate) exportParams.set('date_from', fromDate);
+  if (toDate) exportParams.set('date_to', toDate);
+  if (statusFilter) exportParams.set('status', statusFilter);
+  if (clientFilter) exportParams.set('client', clientFilter);
+  const exportHref = `/api/vessel/export${exportParams.size ? `?${exportParams.toString()}` : ''}`;
+
   function clearFilters() {
     setMotherFilter(fixedMother ?? '');
     setLighterFilter('');
@@ -357,6 +368,14 @@ export function VesselRegisterClient({
               <ChatImportDialog onImported={() => void loadAll(true)} />
             ) : null}
             {showNew && canCommand ? (
+              <CsvImportDialog
+                title="Import Vessel CSV"
+                endpoint="/api/vessel/import"
+                templateHint="Required: Mother Vessel, Lighter Vessel, Start Date. Optional: Master Mobile, Escort Name, Escort Mobile, End Date, Notes."
+                onImported={() => void loadAll(true)}
+              />
+            ) : null}
+            {showNew && canCommand ? (
               <Button type="button" size="sm" onClick={() => setNewOpen(true)}><Plus className="size-4" />New Program</Button>
             ) : null}
           </div>
@@ -431,6 +450,7 @@ export function VesselRegisterClient({
             columns={columns}
             rows={exportRows}
             fetchAll={fetchAllForExport}
+            exportHref={exportHref}
             filterSummary={filterSummary}
             disabled={loading}
           />

@@ -15,12 +15,14 @@ type Props<T> = {
   rows: T[];
   /** Fetch the full filtered result set for "Export all pages". */
   fetchAll?: () => Promise<T[]>;
+  /** When set, Export CSV downloads this server-rendered CSV instead. */
+  exportHref?: string;
   filterSummary?: Array<string | null | undefined>;
   disabled?: boolean;
 };
 
 export function TableExportControls<T>({
-  title, filenamePrefix, columns, rows, fetchAll, filterSummary = [], disabled = false,
+  title, filenamePrefix, columns, rows, fetchAll, exportHref, filterSummary = [], disabled = false,
 }: Props<T>) {
   const [exportAll, setExportAll] = useState(false);
   const [busy, setBusy] = useState<'csv' | 'print' | null>(null);
@@ -28,6 +30,10 @@ export function TableExportControls<T>({
   async function exportCsv() {
     setBusy('csv');
     try {
+      if (exportHref) {
+        window.open(exportHref, '_blank', 'noopener,noreferrer');
+        return;
+      }
       const source = exportAll && fetchAll ? await fetchAll() : rows;
       downloadCsv(`${filenamePrefix}_${todayStamp()}.csv`, source, columns);
       toast.success(`Exported ${source.length.toLocaleString()} row(s) to CSV.`);
