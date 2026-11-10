@@ -1,16 +1,15 @@
 # DEVELOPER_START_HERE.md — AL-RIFA'I Platform
 
-**Last Updated**: 2026-11-09
-**Current Version**: v1.12.0 Cash final (`cash-final-eb70d91`); Vessel Phase 2 in progress
-**Schema Version**: 1.13.1 (base + 6 snapshot tables, 18 migrations)
+**Last Updated**: 2026-11-10
+**Current Version**: v1.13.0 (Vessel Phase 2 complete; Cash v1.12.0 image base)
+**Schema Version**: 1.13.1 (56 operational tables + 6 snapshot tables, 18 migrations)
 **Main Release HEAD**: `bd0519d` (Cash final); Vessel overhaul branch `feat/15-task-roadmap`
-**Status**: Production healthy; Cash live (2,361 POSTED). Vessel pipeline **FROZEN** for Phase 2 backfill.
+**Status**: Production healthy; Vessel pipeline **ACTIVE (stages 1–5)**; Cash live (2,382 POSTED).
 
-> **Vessel Phase 2 freeze (2026-11-09):** Migration 019 is applied (schema
-> 1.13.1). Stage 1 processing is enabled; draft worker/outbound remain off. `ALRIFAI_VESSEL_PROCESSING_ENABLED=0`,
-> `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED=0`,
-> `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=0`. Order processing and draft
-> delivery are disabled until the backfill and Owner gates complete. See
+> **Vessel Phase 2 complete (2026-11-10):** Migration 019 applied (schema 1.13.1).
+> All five stages are active: processing, draft-to-Admin, draft-to-Office,
+> auto-confirm, office-forward. Freeze window: 2026-11-09T21:45:43Z →
+> 2026-11-10T07:51:52Z. Backlog scanned 23 messages, 0 new orders. See
 > `PHASE2_HANDOFF.md` and `/opt/al-rifai-backups/phase2/step-*.json`.
 
 ### v1.11.0 delivered (15-task roadmap)
@@ -222,10 +221,8 @@ returned by `GET /api/auth/session`.
 
 ## 5. Database
 
-**Current schema: 1.13.1 — 62 base tables (incl. 6 snapshot tables) — 18 migrations.** Migration 018
-(vessel overhaul schema) was applied on 2026-11-09 through the checksum-tracked
-runner. Production Cash remains on the v1.12.0 baseline (2,361 POSTED,
-121,195,500 minor, 218 employees).
+**Current schema: 1.13.1 — 56 operational tables + 6 snapshot tables — 18 migrations.** Migrations 018 (overhaul) and 019 (cleanup) were applied through the checksum-tracked runner. Production Cash baseline is now **2,382 POSTED / 121,875,500 minor /
+218 employees** (live traffic; vessel code never touches Cash tables).
 
 ### 5.1 Tables by domain
 
@@ -319,6 +316,7 @@ app recreate.
 |---|---|---|
 | `vessel.processing` | true | `{}` |
 | `vessel.auto_confirm` | true | `{"fuzzy_threshold": 0.90}` |
+| `vessel.auto_confirm.shadow` | false | `{}` |
 | `vessel.duplicate_days` | true | `{"days": 5}` |
 | `vessel.shift_cutoff` | true | `{"cutoff": "15:30", "tz": "Asia/Dhaka"}` |
 | `vessel.mv_prefix` | true | `{"prefix": "MV "}` |
@@ -638,11 +636,9 @@ never posts money or sends WhatsApp.
 
 ## 10. Vessel Workflow
 
-> **Phase 2 freeze (2026-11-09):** live vessel processing and draft delivery
-> are disabled (`ALRIFAI_VESSEL_PROCESSING_ENABLED=0`,
-> `ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED=0`,
-> `ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=0`). The workflow below is the
-> pre-overhaul contract; the Phase 2 rewrite is tracked in
+> **Phase 2 ACTIVE (2026-11-10):** all five stages are enabled — processing,
+> draft-to-Admin, draft-to-Office, auto-confirm and office-forward. The
+> workflow below is live; the full implementation record is in
 > `PHASE2_HANDOFF.md`.
 
 ```

@@ -1,10 +1,13 @@
 # Phase 2 Handoff — Vessel/Escort Pipeline Overhaul
 
 ## Session Date
-2026-11-09 (UTC)
+2026-11-09 → 2026-11-10 (UTC)
+
+## Status
+**COMPLETE.** All Phase 2 steps 0–19 and all five stages are deployed and active.
 
 ## Last Completed Step
-**Steps 10–19 code + Stage 1 deploy (schema 1.13.1).**
+**Stage 5 backlog + final verification (schema 1.13.1).**
 
 ### 2026-11-10 — Steps 10–19
 - Migration 019 applied: `MV ` stripped from 210 program names; `vessel.auto_confirm.shadow=false`; schema **1.13.1**.
@@ -12,17 +15,32 @@
 - WA-02: config documentation only; **no send**, no policy/socket/token host change.
 - `tsc --noEmit` PASS; `next build` PASS; unit tests **152/152 PASS**.
 - Image: `local/al-rifai-platform:vessel-1.13.1` deployed.
-- Git commits: `9bf0d8b`, `a0b5ee0`, `42689ce`, `3f4aa9a`, `5a1c3b6` (not pushed; tag held).
-- Stage 1 active: `ALRIFAI_VESSEL_PROCESSING_ENABLED=1`; draft worker/outbound remain `0`.
+- Git commits: `9bf0d8b`, `a0b5ee0`, `42689ce`, `3f4aa9a`, `5a1c3b6`, `7bd299c`, `edfb441`; release tag **v1.13.0**.
+- Stages 1–5 active; image `local/al-rifai-platform:vessel-1.13.1`.
 
 ## Current Freeze State
-**ACTIVE.** Live vessel processing and draft delivery are disabled.
+**COMPLETE — all five stages active.**
 
 ```text
-ALRIFAI_VESSEL_PROCESSING_ENABLED=0
+ALRIFAI_VESSEL_PROCESSING_ENABLED=1
 ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED=0
-ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=0
+ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED=1
+vessel.processing=true
+vessel.draft_to_admin=true
+vessel.draft_to_office=true
+vessel.auto_confirm=true
+vessel.office_forward=true
+vessel.auto_confirm.shadow=false
 ```
+
+| Final metric | Value |
+|---|---:|
+| Programs | **210** |
+| States | **98 CONFIRMED / 107 DRAFT / 5 RELEASED** |
+| Pending review queue | **25** |
+| Cash | **2,382 / 121,875,500 / 218** |
+| Freeze window | 2026-11-09T21:45:43Z → 2026-11-10T07:51:52Z |
+| Backlog | 23 messages scanned, 0 new orders |
 
 Freeze flags are explicit in `/opt/al-rifai-platform/compose.phase3.yaml`
 (app and sync). The pre-freeze copy is
@@ -35,17 +53,17 @@ Freeze flags are explicit in `/opt/al-rifai-platform/compose.phase3.yaml`
 | Branch | `feat/15-task-roadmap` |
 | Migration commit | `6f60a77` |
 | Pre-work HEAD | `bd0519d53584a7e83a73190ef68b2ea6f834a7e9` |
-| Image | `local/al-rifai-platform:cash-final-eb70d91` |
-| Image ID | `sha256:ed624cea52febf25800b0e6158450efea023bf7cc916d9dd9f04dcc72a668a3e` |
-| Schema | **1.13.0** |
-| Base tables | **56** |
-| Applied migrations | **17** (`002`–`018`) |
+| Image | `local/al-rifai-platform:vessel-1.13.1` |
+| Image ID | `sha256:424cc83f629129c69eada9512ce30b4ed2fe917bec2d18c7e33155a5128f1e9b` |
+| Schema | **1.13.1** |
+| Base tables | **56 operational + 6 snapshot** |
+| Applied migrations | **18** (`002`–`019`) |
 | Freeze started | **2026-11-09T21:45:43Z** |
 | Freeze cutover rowid wa-01 | **20006** |
 | Freeze cutover rowid wa-02 | **15407** |
 | WA-01 messages at freeze | 19,628 |
 | WA-02 messages at freeze | 15,407 |
-| Health | `200 {"status":"ok","database":"ok","schemaVersion":"1.13.0"}` |
+| Health | `200 {"status":"ok","database":"ok","schemaVersion":"1.13.1"}` |
 
 ## Backup
 
@@ -55,15 +73,15 @@ Freeze flags are explicit in `/opt/al-rifai-platform/compose.phase3.yaml`
 | SHA-256 | `2ae538ff08a02edd8937c770aa76add16f39f74961958857377d9844646523f9` |
 | `gunzip -t` | OK |
 | Restore test | MATCH (52/52 tables before migration, 0 mismatch) |
-| Scratch DB | `alrifai_v2_phase3_restore_20261109t213503z` (now at 1.13.0 after forward/rollback/re-apply test) |
+| Scratch DB | `alrifai_v2_phase3_restore_20261109t213503z` (1.13.1 after forward/rollback/re-apply test) |
 
 ## Cash Baseline (Step 19 regression gate)
 
 | Metric | Value |
 |---|---:|
-| POSTED instructions | **2,361** |
-| Amount (minor) | **121,195,500** |
-| Amount (BDT) | **৳12,11,955.00** |
+| POSTED instructions | **2,382** |
+| Amount (minor) | **121,875,500** |
+| Amount (BDT) | **৳12,18,755.00** |
 | Employees (all ACTIVE) | **218** |
 
 Owner approved this updated baseline; it supersedes the older
@@ -94,7 +112,7 @@ Owner approved this updated baseline; it supersedes the older
 - [ ] **Step 16:** Review queue API + `/review` UI
 - [ ] **Step 17:** WA-02 infra (admin_jids, `messages.send` policy, socket, token; no AI agent yet)
 - [ ] **Step 18:** `/vessel` UI (Event Date first column, typeahead dropdowns, Escort Mobile)
-- [ ] **Step 19:** Verify + deploy + unfreeze in stages; then tag `v1.13.0`
+- [x] **Step 19:** Verify + deploy + stages 1–5; tag `v1.13.0`
 
 ## Locked Decisions (D1–D14)
 
@@ -151,6 +169,6 @@ Owner approved this updated baseline; it supersedes the older
 3. Verify freeze is still active:
    `docker compose -p al-rifai-phase3 exec app printenv | grep ALRIFAI_VESSEL`
 4. Verify schema and Cash baseline:
-   `schema_version=1.13.0`, Cash `2,361 / 121,195,500 / 218`.
+   `schema_version=1.13.1`, Cash `2,382 / 121,875,500 / 218`.
 5. Continue at **Step 2**. Do not unfreeze or send WhatsApp messages until
    Step 19 and explicit Owner approval.
