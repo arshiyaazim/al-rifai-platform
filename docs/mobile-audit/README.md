@@ -47,4 +47,6 @@ then rendered as a shrunken desktop layout.
 
 `before/` and `after/` contain 375 × 812 screenshots for login, dashboard,
 review, cash, employees, messages, vessel drafts, payroll and settings.
-`review-full.jpg` is the full-page before/after comparison.
+`review-full.jpg` is the full-page before/after comparison. `after/detail-*.jpg`
+cover the cash-instruction, review-item, vessel-program, employee and employee
+directory detail routes.
