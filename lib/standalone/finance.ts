@@ -1308,8 +1308,6 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
   assertCapability(actor, 'cash.review');
   if (actor.role !== 'ADMIN') throw new DomainError('ADMIN_REQUIRED', 403);
   const why = optionalText(reason, 'reason', 500);
-  // Feature flag: Business Paid Event creation is opt-in. Default disabled.
-  const paidEventsEnabled = process.env.PHASE3_PAID_EVENTS_ENABLED === '1';
   return tx(async (client) => {
     const found = await client.query<{
       id: string; submitted_by: string; state: string; payload: InstructionInput;
@@ -1380,7 +1378,7 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
       // This creates a verified business-layer payment event, distinct from financial POSTED.
       // Never automatically creates a financial ledger posting (cash_postings); that requires
       // explicit postInstruction() with cash.post capability.
-      if (paidEventsEnabled) {
+      if (paidEventsEnabled()) {
         const sourceCategory = submission.source_message_id ? 'WHATSAPP' : 'OFFICE';
         const sourceMessageId = submission.source_message_id ?? null;
         const employeeMobile = mobile(instruction.employee_mobile, 'employeeMobile');
@@ -1399,7 +1397,7 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
         const registered = await client.query(
           'SELECT 1 FROM employees WHERE employee_mobile = $1', [employeeMobile],
         );
-        await client.query(
+        const createdPaymentEvent = await client.query<{id: string}>(
           `INSERT INTO cash_payment_events
              (id, event_type, instruction_id, source_submission_id, employee_mobile, payout_mobile,
               employee_name, employee_link_status, amount_minor, method, source_category,
@@ -1413,8 +1411,11 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
             sourceMessageId, sourceBlockKey,
             new Date().toISOString(), actor.id],
         );
-        await recordAudit({actor, action: 'CASH_PAYMENT_EVENT_CREATED', entity: 'cash_payment_events',
-          entityId: instruction.id, detail: {instructionId, sourceCategory, sourceMessageId}});
+        paidEventId = createdPaymentEvent.rows[0]?.id ?? null;
+        if (paidEventId) {
+          await recordAudit({actor, action: 'CASH_PAYMENT_EVENT_CREATED', entity: 'cash_payment_events',
+            entityId: paidEventId, detail: {instructionId, sourceCategory, sourceMessageId}});
+        }
       }
     } else {
       await client.query(
