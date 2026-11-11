@@ -1,6 +1,23 @@
 # AL-RIFA'I — Standalone Business Management Application
 
-## Release status (verified 2026-11-08)
+## Current release (verified 2026-11-11)
+
+| Category | Value |
+|---|---|
+| **Canonical URL** | `https://app.al-rifai.iamazim.com` |
+| **Branch** | `feat/15-task-roadmap` |
+| **Deployed image** | `local/al-rifai-platform:v2.7.0-phase4e` |
+| **DB schema** | **1.13.7** (migrations through 026; no schema change in this release) |
+| **Auth** | Application login/session. Fresh API requests return JSON `401` without a `WWW-Authenticate` challenge; document navigations redirect to `/login`. |
+| **Recruitment AI** | Separate app `/opt/al-rifai-recruitment-ai`; `DRY_RUN=1`, `SEND_ENABLED=0`, `ALLOW_SEND_STEP3=0`. |
+| **Known blockers** | Saved Gemini model `gemini-flash-latest` is slow (≈46–62s; the 10s Test button can time out); WA-02 consumer send token is not registered; decrypted media is not mounted; live send remains disabled. |
+
+> **Superseded:** the “Release status (verified 2026-11-08)” section below and the
+> “Active goal: Authenticated Production UI Verification” paragraph are
+> historical. They describe schema 1.6.0 and a pre-login state; do not use them
+> as current deployment instructions.
+
+## Release status (verified 2026-11-08) — HISTORICAL, SUPERSEDED
 
 | Category | Value |
 |---|---|

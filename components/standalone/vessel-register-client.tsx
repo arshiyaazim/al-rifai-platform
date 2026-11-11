@@ -112,15 +112,17 @@ function LookupFilter({
   placeholder: string;
 }) {
   return (
-    <Combobox items={items} value={value} onValueChange={(next) => onChange(typeof next === 'string' ? next : '')}>
-      <ComboboxInput placeholder={placeholder} showClear />
-      <ComboboxContent>
-        <ComboboxList>
-          {(item: string) => <ComboboxItem key={item} value={item}>{item}</ComboboxItem>}
-        </ComboboxList>
-        <ComboboxEmpty>No match</ComboboxEmpty>
-      </ComboboxContent>
-    </Combobox>
+    <div className="vessel-lookup">
+      <Combobox items={items} value={value} onValueChange={(next) => onChange(typeof next === 'string' ? next : '')}>
+        <ComboboxInput placeholder={placeholder} />
+        <ComboboxContent>
+          <ComboboxList>
+            {(item: string) => <ComboboxItem key={item} value={item}>{item}</ComboboxItem>}
+          </ComboboxList>
+          <ComboboxEmpty>No match</ComboboxEmpty>
+        </ComboboxContent>
+      </Combobox>
+    </div>
   );
 }
 
@@ -388,16 +390,16 @@ export function VesselRegisterClient({
             <span className="muted" style={{fontSize: 12}}>{filteredRows.length.toLocaleString()} matching programs</span>
           </div>
           <div className="vessel-filter-grid">
-            <label>Mother Vessel
+            <label>{"\u00A0"}Mother Vessel
               <LookupFilter id="filter-mothers" value={motherFilter} onChange={setMotherFilter} items={initialMothers} placeholder="All mothers" />
             </label>
-            <label>Lighter Vessel
+            <label>{"\u00A0"}Lighter Vessel
               <LookupFilter id="filter-lighters" value={lighterFilter} onChange={setLighterFilter} items={initialLighters} placeholder="All lighters" />
             </label>
-            <label>Escort Name
+            <label>{"\u00A0"}Escort Name
               <LookupFilter id="filter-escort-names" value={escortNameFilter} onChange={setEscortNameFilter} items={initialEscortNames} placeholder="All escorts" />
             </label>
-            <label>Escort Mobile
+            <label>{"\u00A0"}Escort Mobile
               <LookupFilter id="filter-escort-mobiles" value={escortMobileFilter} onChange={setEscortMobileFilter} items={initialEscortMobiles} placeholder="All mobiles" />
             </label>
 

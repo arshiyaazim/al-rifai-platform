@@ -86,6 +86,7 @@ export async function approveMessageReviewQueue(
 ): Promise<{id: string; status: string; programId: string | null}> {
   const {tx} = await import('./db.ts');
   const {vesselKey, programIdFor} = await import('../vessel-match.ts');
+  const {resolveMotherVesselAlias} = await import('../vessel-alias.ts');
   const {normalizeDraftDate, normalizeDraftShift} = await import('../order-draft-from-record.ts');
   const {orderIntakeDateAndShift} = await import('../order-intake-shift.ts');
   const {renderOwnerDraftFields} = await import('../order-draft-template.ts');
@@ -129,6 +130,7 @@ export async function approveMessageReviewQueue(
         requestedShift = requestedShift || normalizeDraftShift(block?.shift);
       }
       if (!mother || !lighter || !master) throw new Error('REVIEW_VESSEL_FIELDS_REQUIRED');
+      mother = await resolveMotherVesselAlias(mother, client);
 
       const lookupDate = requestedStart || fallback?.date || eventAt.slice(0, 10);
       const confirmed = Boolean(escortName && escortMobile);

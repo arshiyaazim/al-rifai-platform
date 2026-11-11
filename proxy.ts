@@ -19,6 +19,12 @@ const passwordChangeRequired=()=>new NextResponse(
  JSON.stringify({error:"PASSWORD_CHANGE_REQUIRED"}),
  {status:403,headers:{"Cache-Control":"no-store","Content-Type":"application/json"}},
 );
+// Unified-auth denial must never trigger a browser Basic credential dialog.
+// API/subresource callers get JSON 401; document navigations are redirected.
+const jsonUnauthorized=()=>new NextResponse(
+ JSON.stringify({error:"AUTHENTICATION_REQUIRED"}),
+ {status:401,headers:{"Cache-Control":"no-store","Content-Type":"application/json"}},
+);
 
 export async function proxy(request:NextRequest){
  const pathname=request.nextUrl.pathname;
@@ -67,6 +73,9 @@ export async function proxy(request:NextRequest){
    url.search=`?next=${encodeURIComponent(target)}`;
    return NextResponse.redirect(url,302);
   }
+  // The application has its own login/session. Do not emit a competing Basic
+  // challenge for API and background requests.
+  return jsonUnauthorized();
  }
  // Everything else keeps the fail-closed 401 so no client silently proceeds
  // unauthenticated, and so the legacy Basic credential can still be supplied.

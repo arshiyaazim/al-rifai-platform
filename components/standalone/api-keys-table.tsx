@@ -4,6 +4,7 @@ import {useEffect, useMemo, useState} from 'react';
 import {toast} from 'sonner';
 import {Button} from '@/components/ui/button';
 import {ApiKeyForm} from '@/components/standalone/api-key-form';
+import {RowActionsMenu} from '@/components/standalone/row-actions-menu';
 
 type KeyRow = {
   id: string; provider: string; key_name: string; masked_key: string; model: string | null;
@@ -97,6 +98,15 @@ export function ApiKeysTable() {
       <section className="card">
         <div className="table-wrap" style={{overflowX: 'auto'}}>
           <table className="cash-payment-table" style={{minWidth: 900}}>
+            <colgroup>
+              <col style={{width: 12}} />
+              <col style={{width: 160}} />
+              <col style={{width: 100}} />
+              <col style={{width: 190}} />
+              <col style={{width: 220}} />
+              <col style={{width: 110}} />
+              <col style={{width: 70}} />
+            </colgroup>
             <thead><tr><th>#</th><th>Key Name</th><th>Provider</th><th>Model</th><th>Masked Key</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
               {loading ? <tr><td colSpan={7} className="muted">Loading keys…</td></tr> : null}
@@ -104,7 +114,7 @@ export function ApiKeysTable() {
                 const left = cooldownLeft(row.cooldown_until);
                 return (
                   <tr key={row.id}>
-                    <td>{(safePage - 1) * limit + index + 1}</td>
+                    <td style={{width: 12, padding: '2px 0', fontSize: 10, textAlign: 'center'}}>{(safePage - 1) * limit + index + 1}</td>
                     <td>{row.key_name}</td>
                     <td><span className="pill">{providerBadge(row.provider)}</span></td>
                     <td>{row.model ?? '—'}</td>
@@ -116,12 +126,14 @@ export function ApiKeysTable() {
                             : <span className="pill ok">🟢 OK</span>}
                     </td>
                     <td>
-                      <div className="row-actions" style={{flexWrap: 'wrap'}}>
-                        <Button type="button" size="sm" variant="outline" onClick={() => void action(row, {action: 'test'})}>Test</Button>
-                        <Button type="button" size="sm" variant="outline" onClick={() => setEditing(row)}>Edit</Button>
-                        <Button type="button" size="sm" variant="outline" onClick={() => void action(row, {action: 'update', isActive: !row.is_active})}>{row.is_active ? 'Disable' : 'Enable'}</Button>
-                        <Button type="button" size="sm" variant="outline" onClick={() => { if (window.confirm(`Delete ${row.key_name}?`)) void action(row, {action: 'delete'}); }}>Delete</Button>
-                      </div>
+                      <RowActionsMenu items={[
+                        {label: 'Test', onClick: () => void action(row, {action: 'test'})},
+                        {label: 'Edit', onClick: () => setEditing(row)},
+                        {label: row.is_active ? 'Disable' : 'Enable', onClick: () => void action(row, {action: 'update', isActive: !row.is_active})},
+                        {label: 'Delete', danger: true, onClick: () => {
+                          if (window.confirm(`Delete ${row.key_name}?`)) void action(row, {action: 'delete'});
+                        }},
+                      ]} label={`Actions for ${row.key_name}`} />
                     </td>
                   </tr>
                 );

@@ -6,6 +6,7 @@ import {vesselKey} from '../vessel-match.ts';
 import {evaluateSixFieldDedup, type SixFieldCandidate} from '../pipelines/vessel/six-field-dedup.ts';
 import {ensureVessel} from '../pipelines/vessel/vessels.ts';
 import {handleEscortChangeOn} from '../pipelines/vessel/escort-change.ts';
+import {resolveMotherVesselAlias} from '../vessel-alias.ts';
 import {emitDomainEvent} from '../realtime/server.ts';
 
 export type ProgramInput = {
@@ -134,7 +135,7 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
   const commandKey = source.commandKey ?? null;
   const channel = source.channel ?? 'WEB';
   const sourceType = source.sourceType ?? (channel === 'WHATSAPP' ? 'WHATSAPP_ORDER' : 'MANUAL');
-  const motherVessel = normalizeVesselName(text(input.motherVessel, 'motherVessel', {max: 120}));
+  const motherVessel = await resolveMotherVesselAlias(normalizeVesselName(text(input.motherVessel, 'motherVessel', {max: 120})), client);
   const lighterVessel = normalizeVesselName(text(input.lighterVessel, 'lighterVessel', {max: 120}));
   const startDate = isoDate(input.startDate, 'startDate');
   const startShift = shift(input.startShift, 'startShift');
@@ -525,7 +526,8 @@ export async function updateProgram(actor: Actor, programIdValue: string, input:
     if (current.state === 'VOIDED') throw new DomainError('PROGRAM_VOIDED', 409);
     if (current.state === 'COMPLETED') throw new DomainError('PROGRAM_COMPLETED', 409);
 
-    const motherVessel = input.motherVessel === undefined ? current.mother_vessel : normalizeVesselName(text(input.motherVessel, 'motherVessel', {max: 120}));
+    const motherVessel = input.motherVessel === undefined ? current.mother_vessel
+      : await resolveMotherVesselAlias(normalizeVesselName(text(input.motherVessel, 'motherVessel', {max: 120})), client);
     const lighterVessel = input.lighterVessel === undefined ? current.lighter_vessel : normalizeVesselName(text(input.lighterVessel, 'lighterVessel', {max: 120}));
     const startDate = input.startDate === undefined ? current.start_date : isoDate(input.startDate, 'startDate');
     const startShift = input.startShift === undefined ? current.start_shift : shift(input.startShift, 'startShift');
@@ -655,7 +657,10 @@ function programFilterSql(filters: ProgramListFilters): {clause: string; values:
 export async function listPrograms(filters: ProgramListFilters = {}) {
   const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 10000);
   const offset = Math.max(Number(filters.offset) || 0, 0);
-  const {clause, values} = programFilterSql(filters);
+  const resolved = filters.mother
+    ? {...filters, mother: await resolveMotherVesselAlias(normalizeVesselName(filters.mother))}
+    : filters;
+  const {clause, values} = programFilterSql(resolved);
   return rows<ProgramListRow>(
     `SELECT p.*, p.start_date::text AS start_date, p.end_date::text AS end_date,
             pp.state AS pay_state, pp.shifts, pp.total_minor::text, pp.salary_minor::text, pp.conveyance_minor::text
@@ -668,7 +673,10 @@ export async function listPrograms(filters: ProgramListFilters = {}) {
 }
 
 export async function countPrograms(filters: ProgramListFilters = {}) {
-  const {clause, values} = programFilterSql(filters);
+  const resolved = filters.mother
+    ? {...filters, mother: await resolveMotherVesselAlias(normalizeVesselName(filters.mother))}
+    : filters;
+  const {clause, values} = programFilterSql(resolved);
   const counted = await row<{count: string}>(
     `SELECT count(*)::text AS count FROM programs p ${clause}`,
     values,

@@ -14,6 +14,7 @@ import {recordAudit, stableId} from './audit.ts';
 import {vesselKey} from '../vessel-match.ts';
 import {renderOwnerDraftFields} from '../order-draft-template.ts';
 import {approveMessageReviewQueue, resolveMessageReviewQueue} from './message-review-queue.ts';
+import {resolveMotherVesselAlias} from '../vessel-alias.ts';
 import {correctReviewItem} from './review.ts';
 
 export type ReviewFields = {
@@ -176,6 +177,7 @@ async function decideItem(actor: Actor, id: string, decision: string,
       if (!fields.motherVessel || !fields.lighterVessel || !fields.masterMobile) {
         throw new Error('REVIEW_VESSEL_FIELDS_REQUIRED');
       }
+      fields.motherVessel = await resolveMotherVesselAlias(fields.motherVessel, client);
       const date = fields.startDate || String(item.created_at ?? '').slice(0, 10);
       const shift = fields.shift || 'D';
       const escortMobile = digits(fields.escortMobile);
