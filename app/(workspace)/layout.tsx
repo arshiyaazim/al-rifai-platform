@@ -21,7 +21,11 @@ const NAV = [
   {href: '/reports', label: 'Reports & Archive'},
   {href: '/audit', label: 'Audit Trail'},
   {href: '/settings', label: 'Settings / Integrations'},
+  {href: '/settings/api-keys', label: 'API Keys'},
+  {href: '/settings/recruitment', label: 'Recruitment AI'},
 ];
+
+const ADMIN_ONLY_NAV = new Set(['/audit', '/settings/api-keys', '/settings/recruitment']);
 
 export default async function WorkspaceLayout({children}: {children: ReactNode}) {
   const user = await pageUser();
@@ -29,7 +33,7 @@ export default async function WorkspaceLayout({children}: {children: ReactNode})
   const pendingReviews = reviewCounts.pending + reviewCounts.cashPending;
   return (
     <WorkspaceSidebar
-      navItems={user.role === 'ADMIN' ? NAV : NAV.filter((item) => item.href !== '/audit')}
+      navItems={user.role === 'ADMIN' ? NAV : NAV.filter((item) => !ADMIN_ONLY_NAV.has(item.href))}
       pendingReviews={pendingReviews}
       user={{displayName: user.displayName, role: user.role}}
     >

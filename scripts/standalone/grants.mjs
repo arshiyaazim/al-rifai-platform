@@ -34,6 +34,8 @@ const READ_WRITE = [
   'vessel_backlog_progress',
   // Phase 3 vessel reference directory (migration 020).
   'vessels',
+  // Phase 4E AI key registry + recruitment audit (migrations 025/026).
+  'api_keys', 'recruitment_reply_log',
 ];
 
 const APPEND_ONLY = [
@@ -69,6 +71,7 @@ export async function grantRuntime(client, {schema, runtimeUser}) {
   await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".compute_program_pay(text) TO "${runtimeUser}"`);
   await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".normalize_mobile(text) TO "${runtimeUser}"`);
   await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".normalize_vessel_name(text) TO "${runtimeUser}"`);
+  await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".reset_daily_api_usage() TO "${runtimeUser}"`);
 }
 
 export const GRANT_TABLES = {READ_WRITE, APPEND_ONLY, DELETE_ONLY, READ_ONLY_VIEWS};

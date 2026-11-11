@@ -69,6 +69,7 @@ export const CAPABILITIES = [
   'ai.send',
   'user.manage',
   'workspace.admin',
+  'settings.manage',
 ] as const;
 
 export type Capability = (typeof CAPABILITIES)[number];
@@ -95,6 +96,7 @@ export const ADMIN_ONLY_CAPABILITIES: readonly Capability[] = [
   'ai.admin',
   'ai.send',
   'user.manage',
+  'settings.manage',
 ];
 
 /**
@@ -113,6 +115,7 @@ const ROLE_CAPABILITIES: Record<AuthRole, readonly Capability[]> = {
     'payroll.read', 'payroll.manage', 'review.decide',
     'whatsapp.read', 'whatsapp.manage', 'whatsapp.route',
     'audit.read', 'ai.read', 'ai.use', 'ai.admin', 'ai.send', 'user.manage',
+    'settings.manage',
   ],
   // USER may read and stage work for review but never writes a financial or
   // operational fact directly. Admin-only capabilities stay out of this list.
