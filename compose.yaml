@@ -5,11 +5,16 @@ name: al-rifai-v2
 #   sync  WhatsApp store importer/tailer (reads the bridge SQLite, never writes it)
 services:
   app:
-    image: local/al-rifai-platform:${ALRIFAI_TAG:-latest}
+    image: local/al-rifai-platform:${ALRIFAI_TAG:-v2.8.0-mobile-fix}
     command: ["node", "deploy/tls-entry.mjs"]
     init: true
     restart: unless-stopped
     user: "10001:10001"
+    # The WA-01 bridge socket is group-owned by the bridge account (GID 10002).
+    # A supplementary group gives the nonroot app read/write access without
+    # changing the socket's 0660 permissions.
+    group_add:
+      - "10002"
     # One configuration file for the whole installation. It is the source of
     # truth for the web app, the installer, the importer and the sync worker.
     env_file:
@@ -36,6 +41,16 @@ services:
         source: /var/lib/vps/al-rifai/media
         target: /media
         read_only: true
+      # WA-01 bridge control socket (0660 bridge group) and the narrow outbound
+      # token. Both read-only; the app never writes the bridge store.
+      - type: bind
+        source: /var/lib/vps/whatsapp/wa-01/control
+        target: /wa-01-control
+        read_only: true
+      - type: bind
+        source: /etc/vps/apps/al-rifai/auth/wa-01-send.token
+        target: /etc/alrifai/wa-01-send.token
+        read_only: true
     networks: [backend]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -54,7 +69,7 @@ services:
       options: {max-size: "10m", max-file: "3"}
 
   sync:
-    image: local/al-rifai-platform:${ALRIFAI_TAG:-latest}
+    image: local/al-rifai-platform:${ALRIFAI_TAG:-v2.8.0-mobile-fix}
     command: ["node", "scripts/sync-worker.mjs", "--mode=tail"]
     init: true
     restart: unless-stopped

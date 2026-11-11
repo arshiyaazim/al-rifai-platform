@@ -1,5 +1,5 @@
 import type {PoolClient} from 'pg';
-import {rows, row, tx, text, optionalText, optionalMobile, isoDate, moneyMinor, DomainError, type Actor} from './db.ts';
+import {rows, row, tx, text, optionalText, optionalMobile, mobile, isoDate, moneyMinor, DomainError, type Actor} from './db.ts';
 import {recordAudit, stableId, newId} from './audit.ts';
 import {assertCapability} from './authz.ts';
 
@@ -465,6 +465,8 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
   assertCapability(actor, 'cash.review');
   if (actor.role !== 'ADMIN') throw new DomainError('ADMIN_REQUIRED', 403);
   const why = optionalText(reason, 'reason', 500);
+  // Feature flag: Business Paid Event creation is opt-in. Default disabled.
+  const paidEventsEnabled = process.env.PHASE3_PAID_EVENTS_ENABLED === '1';
   return tx(async (client) => {
     const found = await client.query<{
       id: string; submitted_by: string; state: string; payload: InstructionInput;
@@ -487,6 +489,10 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
       // reviewer. Otherwise a sole human Admin would be blocked by the
       // self-review rule immediately after approving the candidate.
       const originator = {...actor, id: submission.submitted_by, displayName: undefined};
+      const sourceBlockKey = (payload.sourceBlockKey as string | null | undefined)
+        ?? (payload.blockKey as string | null | undefined)
+        ?? (payloadFields.blockKey as string | null | undefined)
+        ?? null;
       const instruction = await insertInstruction(client, originator, {
         employeeName: String(field('employeeName') ?? 'Unknown'),
         employeeMobile: (field('employeeMobile') as string | null | undefined) ?? null,
@@ -497,10 +503,7 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
         accountId: (field('accountId') as string | null | undefined) ?? null,
         sourceChannel: submission.source_message_id ? 'WHATSAPP' : 'WEB',
         sourceMessageId: submission.source_message_id ?? (payload.sourceMessageId as string | null | undefined) ?? null,
-        sourceBlockKey: (payload.sourceBlockKey as string | null | undefined)
-          ?? (payload.blockKey as string | null | undefined)
-          ?? (payloadFields.blockKey as string | null | undefined)
-          ?? null,
+        sourceBlockKey,
         sourceHash: (payload.sourceHash as string | null | undefined) ?? null,
         sourceChatJid: submission.source_chat_jid,
         sourceAccountId: submission.source_account_id,
@@ -517,6 +520,46 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
           WHERE id=$1`,
         [id, instructionId, actor.id, why],
       );
+      // ── Business Paid Event creation (opt-in, feature-gated) ──────────────────────
+      // This creates a verified business-layer payment event, distinct from financial POSTED.
+      // Never automatically creates a financial ledger posting (cash_postings); that requires
+      // explicit postInstruction() with cash.post capability.
+      if (paidEventsEnabled) {
+        const sourceCategory = submission.source_message_id ? 'WHATSAPP' : 'OFFICE';
+        const sourceMessageId = submission.source_message_id ?? null;
+        const employeeMobile = mobile(instruction.employee_mobile, 'employeeMobile');
+        // Owner single-mobile rule: one identifiable mobile is both identity
+        // and payout destination.
+        const payoutMobile = mobile(instruction.payout_mobile ?? instruction.employee_mobile, 'payoutMobile');
+        const employeeName = text(instruction.employee_name, 'employeeName', {max: 150});
+        // Owner rule Q: a cash payment for an unknown mobile creates the employee
+        // identity. The cash tables are untouched; only the shared directory grows.
+        await client.query(
+          `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
+           VALUES ($1,$2,'other','other','system')
+           ON CONFLICT (employee_mobile) DO NOTHING`,
+          [employeeMobile, employeeName || `Unknown-${employeeMobile.slice(-4)}`],
+        );
+        const registered = await client.query(
+          'SELECT 1 FROM employees WHERE employee_mobile = $1', [employeeMobile],
+        );
+        await client.query(
+          `INSERT INTO cash_payment_events
+             (id, event_type, instruction_id, source_submission_id, employee_mobile, payout_mobile,
+              employee_name, employee_link_status, amount_minor, method, source_category,
+              source_message_id, source_block_key, status, paid_at, created_by)
+           VALUES ($1,'PAYMENT',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'PAID',$13,$14)
+           ON CONFLICT DO NOTHING
+           RETURNING id`,
+          [newId('pe'), instructionId, submission.id, employeeMobile, payoutMobile,
+            employeeName, registered.rowCount ? 'REGISTERED' : 'UNREGISTERED',
+            instruction.amount_minor, instruction.method, sourceCategory,
+            sourceMessageId, sourceBlockKey,
+            new Date().toISOString(), actor.id],
+        );
+        await recordAudit({actor, action: 'CASH_PAYMENT_EVENT_CREATED', entity: 'cash_payment_events',
+          entityId: instruction.id, detail: {instructionId, sourceCategory, sourceMessageId}});
+      }
     } else {
       await client.query(
         `UPDATE cash_submissions

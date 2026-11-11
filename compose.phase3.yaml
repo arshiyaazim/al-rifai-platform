@@ -14,9 +14,15 @@ services:
     environment:
       PGDATABASE: alrifai_v2_phase3
       PHASE3_ROUTER_WORKER_ENABLED: "${PHASE3_ROUTER_WORKER_ENABLED:-0}"
-      ALRIFAI_VESSEL_PROCESSING_ENABLED: "${ALRIFAI_VESSEL_PROCESSING_ENABLED:-0}"
+      # Phase 2 vessel-overhaul freeze (explicit, not env_file interpolation).
+      ALRIFAI_VESSEL_PROCESSING_ENABLED: "1"
+      ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED: "0"
+      ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED: "1"
   sync:
     environment:
       PGDATABASE: alrifai_v2_phase3
       PHASE3_ROUTER_WORKER_ENABLED: "${PHASE3_ROUTER_WORKER_ENABLED:-0}"
-      ALRIFAI_VESSEL_PROCESSING_ENABLED: "${ALRIFAI_VESSEL_PROCESSING_ENABLED:-0}"
+      # Phase 2 vessel-overhaul freeze (sync must never send during backfill).
+      ALRIFAI_VESSEL_PROCESSING_ENABLED: "1"
+      ALRIFAI_VESSEL_DRAFT_WORKER_ENABLED: "0"
+      ALRIFAI_VESSEL_DRAFT_OUTBOUND_ENABLED: "1"
