@@ -1,5 +1,22 @@
 # Phase 3 VPS Release Checklist
 
+> **Superseded status (2026-11-08):** this file records the executed 2026-11-06
+> release (`1.4.0`). The current release candidate is
+> `feature/phase3-010-011-release` @ `8a6c2c6ae8d082fc15235bd37e126117ad06f8c7`,
+> target schema **`1.6.0`** (migrations **010 + 011**). Use
+> `docs/PHASE3_PRODUCTION_RELEASE_AUDIT_20261108.md` as the current runbook.
+> Production migrations 010 and 011 were applied in stages on 2026-11-08 and
+> verified (`1.6.0`, 49 tables). Application image deployment/final verification
+> is recorded in the handoff; Paid Events remains OFF.
+>
+> Current release gates: fresh verified backup; apply 010 then 011 **before**
+> starting the new image; keep `PHASE3_PAID_EVENTS_ENABLED=0` at first deploy;
+> pause the router worker during the deploy window; health/schema/grants/flag-off
+> parity checks; Owner approval before any flag activation.
+>
+> **Do NOT migrate, rebuild, restart or deploy production from this checklist
+> until the Owner has approved the exact commit SHA, migration window and backup.**
+
 **Release candidate:** `feature/phase3-router-cash-vessel`
 **Target schema:** `1.4.0` (migrations 002–008)
 **Status:** EXECUTED 2026-11-06 18:14 UTC — see `docs/PHASE3_DEPLOYMENT_LOG.md`.

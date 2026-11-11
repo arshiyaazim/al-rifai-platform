@@ -9,15 +9,17 @@ const NAV = [
   {href: '/dashboard', label: 'Dashboard'},
   {href: '/insights', label: 'Insights'},
   {href: '/assistant', label: 'AI Assistant'},
-  {href: '/employees', label: 'Employees'},
+  {href: '/employees', label: 'Employees / Escorts'},
   {href: '/vessel', label: 'Vessel Register'},
   {href: '/vessel/drafts', label: 'Order Drafts'},
   {href: '/attendance', label: 'Attendance'},
   {href: '/cash', label: 'Cash & Accounts'},
+  {href: '/cash/paid', label: 'Business Paid'},
   {href: '/payroll', label: 'Payroll'},
   {href: '/review', label: 'Review Queue'},
   {href: '/messages', label: 'WhatsApp Inbox'},
   {href: '/reports', label: 'Reports & Archive'},
+  {href: '/audit', label: 'Audit Trail'},
   {href: '/settings', label: 'Settings / Integrations'},
 ];
 
@@ -27,7 +29,7 @@ export default async function WorkspaceLayout({children}: {children: ReactNode})
   const pendingReviews = reviewCounts.pending + reviewCounts.cashPending;
   return (
     <WorkspaceSidebar
-      navItems={NAV}
+      navItems={user.role === 'ADMIN' ? NAV : NAV.filter((item) => item.href !== '/audit')}
       pendingReviews={pendingReviews}
       user={{displayName: user.displayName, role: user.role}}
     >

@@ -11,8 +11,9 @@ import {
 } from '../../lib/standalone/cash-dashboard.ts';
 import {createEmployee, searchEmployees} from '../../lib/standalone/employees.ts';
 import {
-  approveInstruction, createAccount, createInstruction, listAccounts,
-  postInstruction, reversePosting,
+  approveInstruction, cashTransactionView, countCashTransactions, createAccount, createInstruction,
+  getCashEmployeeSummary, listAccounts, listCashTransactions, postInstruction, reversePosting, updateCashTransaction,
+  correctCashTransaction, reverseCashTransaction,
 } from '../../lib/standalone/finance.ts';
 import {resetBusinessState} from './reset.mjs';
 
@@ -36,8 +37,8 @@ async function insertPosted(accountId, {
   await row(
     `INSERT INTO cash_instructions
        (id, employee_mobile, employee_name, payout_mobile, method, amount_minor, state,
-        source_channel, source_message_id, source_block_key, account_id, posted_at, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'test')`,
+        source_channel, source_message_id, source_block_key, account_id, posted_at, event_at, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,'test')`,
     [
       id, employeeMobile, employeeName, payoutMobile, method, amountMinor, state,
       source, sourceMessageId, sourceBlockKey, accountId, postedAt,
@@ -228,4 +229,121 @@ test('employee lookup: name, alias and mobile search are capped at ten', async (
   const capped = await searchEmployees('Lookup Limit', 50);
   assert.equal(capped.length, 10, 'the server never returns more than ten suggestions');
   assert.equal((await searchEmployees('   ')).length, 0);
+});
+
+test('cash transactions: 8-column read model, cumulative total, search and pagination', async () => {
+  const mobile = '01755550999';
+  await createEmployee(adminA, {
+    employeeMobile: mobile,
+    preferredName: 'Tx Target',
+    designation: 'Loader',
+    joinedOn: '2024-02-03',
+  });
+  const insert = (id, amountMinor, state, createdAt) => row(
+    `INSERT INTO cash_instructions
+       (id, employee_mobile, employee_name, method, amount_minor, state,
+        source_channel, source_message_id, source_block_key, created_by, created_at, event_at)
+     VALUES ($1,$2,'Tx Target','bkash',$3,$4,'WHATSAPP',$1,'b-'||$1,'test',$5,$5)`,
+    [id, `+88${mobile}`, amountMinor, state, createdAt],
+  );
+  await insert('tx-a', 1000, 'REVIEW', '2026-10-01T10:00:00+06:00');
+  await insert('tx-b', 2000, 'APPROVED', '2026-10-02T10:00:00+06:00');
+  await insert('tx-c', 5000, 'VOID', '2026-10-03T10:00:00+06:00');
+
+  const all = await listCashTransactions({q: 'Tx Target'});
+  assert.equal(all.length, 2, 'VOID rows are excluded');
+  assert.equal(all[0].id, 'tx-b');
+  assert.equal(all[0].payout_number, '2');
+  assert.equal(all[0].total_paid_minor, '3000');
+  assert.equal(all[0].name_of_employee, 'Tx Target');
+  assert.equal(all[0].designation, 'Loader');
+  assert.equal(all[0].date_of_join, '2024-02-03');
+  assert.equal(all[1].payout_number, '1');
+  assert.equal(all[1].total_paid_minor, '1000');
+
+  assert.equal(await countCashTransactions({q: 'Tx Target'}), 2);
+  assert.equal((await listCashTransactions({q: mobile})).length, 2, 'search by employee mobile digits');
+
+  const page = await listCashTransactions({q: 'Tx Target', limit: 1, offset: 1});
+  assert.equal(page.length, 1);
+  assert.equal(page[0].id, 'tx-a');
+
+  const view = cashTransactionView(all[0]);
+  assert.equal(view.employeeId, `+88${mobile}`);
+  assert.equal(view.nameOfEmployee, 'Tx Target');
+  assert.equal(view.payoutNumber, 2);
+  assert.equal(view.amountMinor, '2000');
+  assert.equal(view.totalPaidMinor, '3000');
+});
+
+test('cash transaction edit and employee history summary are audited', async () => {
+  const mobile = '01755550999';
+  const updated = await updateCashTransaction(adminA, 'tx-b', {
+    designation: 'Senior Loader',
+    amount: 2500,
+    notes: 'corrected by admin',
+  });
+  assert.equal(updated?.designation, 'Senior Loader');
+  assert.equal(updated?.amount_minor, '2500');
+  assert.equal(updated?.notes, 'corrected by admin');
+
+  const summary = await getCashEmployeeSummary(mobile);
+  assert.equal(summary?.total_payouts, 2);
+  assert.equal(summary?.total_paid_minor, '3500');
+  assert.equal(summary?.name_of_employee, 'Tx Target');
+
+  const audit = await row(
+    "SELECT action FROM audit_events WHERE entity='cash_instruction' AND entity_id='tx-b' AND action='CASH_TRANSACTION_UPDATED'",
+  );
+  assert.ok(audit, 'the edit is recorded in audit_events');
+});
+
+test('cash correction keeps the posted original untouched and records an effective amount', async () => {
+  const acc = await account();
+  await insertPosted(acc.id, {
+    id: 'corr-1', employeeMobile: '+8801755551111', employeeName: 'Correction Target',
+    amountMinor: 5000, method: 'bkash', source: 'WHATSAPP', postedAt: new Date(),
+  });
+  const corrected = await correctCashTransaction(adminA, 'corr-1', {
+    correctedAmount: 4500,
+    reason: 'Amount corrected to match the receipt',
+  });
+  assert.equal(corrected?.original_amount_minor, '5000');
+  assert.equal(corrected?.amount_minor, '4500');
+  assert.equal(corrected?.adjustment_minor, '-500');
+  assert.equal(corrected?.correction_count, 1);
+  const original = await row("SELECT state, amount_minor FROM cash_instructions WHERE id='corr-1'");
+  assert.equal(original.state, 'POSTED');
+  assert.equal(original.amount_minor, '5000');
+  const adjustment = await row("SELECT * FROM cash_transaction_adjustments WHERE correction_of='corr-1'");
+  assert.equal(adjustment.amount_minor, '4500');
+  assert.equal(adjustment.adjustment_minor, '-500');
+  const audit = await row("SELECT action FROM audit_events WHERE entity_id='corr-1' AND action='CASH:CORRECTION'");
+  assert.ok(audit);
+});
+
+test('cash reversal marks the original REVERSED and creates a new POSTED replacement', async () => {
+  const acc = await account();
+  await insertPosted(acc.id, {
+    id: 'rev-1', employeeMobile: '+8801755552222', employeeName: 'Reversal Target',
+    amountMinor: 7000, method: 'bkash', source: 'WHATSAPP', postedAt: new Date(),
+  });
+  const result = await reverseCashTransaction(adminA, 'rev-1', {
+    amount: 6500,
+    method: 'nagad',
+    notes: 'Re-posted after method correction',
+    reason: 'Wrong payment method on the original posting',
+  });
+  assert.equal(result.original?.state, 'REVERSED');
+  assert.equal(result.original?.original_amount_minor, '7000');
+  assert.equal(result.replacement?.state, 'POSTED');
+  assert.equal(result.replacement?.amount_minor, '6500');
+  assert.equal(result.replacement?.reversal_of, 'rev-1');
+  const original = await row("SELECT state, amount_minor FROM cash_instructions WHERE id='rev-1'");
+  assert.equal(original.state, 'REVERSED');
+  assert.equal(original.amount_minor, '7000');
+  const postings = await row("SELECT count(*)::int AS n FROM cash_postings WHERE instruction_id IN ('rev-1',$1)", [result.replacement?.id]);
+  assert.equal(postings.n, 2);
+  const audit = await row("SELECT action FROM audit_events WHERE entity_id='rev-1' AND action='CASH:REVERSAL'");
+  assert.ok(audit);
 });

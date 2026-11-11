@@ -1,8 +1,12 @@
 import Link from 'next/link';
-import {listPrograms} from '@/lib/standalone/programs';
+import {countPrograms, listPrograms, motherFacets} from '@/lib/standalone/programs';
+import {listEmployees} from '@/lib/standalone/employees';
+import {rows} from '@/lib/standalone/db';
 import {listProgramSourcesForPrograms, listReviewQueue} from '@/lib/standalone/review';
-import {money} from '@/lib/standalone/session';
+import {pageUser} from '@/lib/standalone/session';
+import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
+import {VesselRegisterClient} from '@/components/standalone/vessel-register-client';
 import {
   formatReviewTimestamp,
   reviewCategoryLabel,
@@ -15,15 +19,23 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-export default async function VesselPage({searchParams}: {searchParams: Promise<{q?: string; state?: string}>}) {
+export default async function VesselPage({searchParams}: {searchParams: Promise<{q?: string; state?: string; page?: string; mother?: string}>}) {
   const filters = await searchParams;
+  const user = await pageUser();
+  const canCommand = can(user as never, 'vessel.command');
+  const canRelease = can(user as never, 'vessel.release');
   const q = (filters.q ?? '').trim();
   const state = filters.state ?? '';
-  const [programs, vesselReviews] = await Promise.all([
-    listPrograms({q, state: state || undefined}),
+  const mother = filters.mother ?? '';
+  const [initialPrograms, tableTotal, programs, vesselReviews, escorts, motherRows, motherCounts] = await Promise.all([
+    listPrograms({q, state: state || undefined, mother: mother || undefined, limit: 20, offset: 0}),
+    countPrograms({q, state: state || undefined, mother: mother || undefined}),
+    listPrograms({q, state: state || undefined, mother: mother || undefined, limit: 200, offset: 0}),
     listReviewQueue({domain: 'PROGRAM', state: 'PENDING', limit: 100}),
+    listEmployees({state: 'ACTIVE', limit: 500}),
+    rows<{mother_vessel: string}>('SELECT DISTINCT mother_vessel FROM programs WHERE state <> \'VOIDED\' ORDER BY mother_vessel'),
+    motherFacets({q, state: state || undefined}),
   ]);
-  const active = programs.filter((program) => !['VOIDED', 'COMPLETED'].includes(program.state));
   const programSources = await listProgramSourcesForPrograms(programs.map((program) => program.id));
   const sourcesByProgram = new Map<string, typeof programSources>();
   for (const source of programSources) {
@@ -46,64 +58,23 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
         </div>
       </div>
 
-      <form method="get" className="card form compact" style={{marginBottom: 18}}>
-        <div className="grid">
-          <label><span>Search</span><input name="q" defaultValue={q} placeholder="Mother, lighter or escort" /></label>
-          <label><span>State</span>
-            <select name="state" defaultValue={state}>
-              <option value="">All states</option>
-              {['DRAFT','ASSIGNED','IN_DUTY','RELEASED','COMPLETED','VOIDED'].map((value) => (
-                <option key={value} value={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <button type="submit">Filter programs</button>
-      </form>
-
-      <ActionForm
-        title="New program (one row per lighter)"
-        endpoint="/api/programs"
-        action="create"
-        submitLabel="Create program"
-        fields={[
-          {name: 'motherVessel', label: 'Mother vessel', required: true},
-          {name: 'lighterVessel', label: 'Lighter vessel', required: true},
-          {name: 'masterMobile', label: 'Master mobile', placeholder: '01712345678'},
-          {name: 'destination', label: 'Destination'},
-          {name: 'escortName', label: 'Escort name'},
-          {name: 'escortMobile', label: 'Escort mobile', placeholder: '01812345678'},
-          {name: 'startDate', label: 'Start date', type: 'date', required: true},
-          {name: 'startShift', label: 'Shift', type: 'select', options: [
-            {value: 'D', label: 'Day (D)'}, {value: 'N', label: 'Night (N)'},
-          ]},
-          {name: 'endDate', label: 'End date (release)', type: 'date'},
-          {name: 'endShift', label: 'End shift', type: 'select', options: [
-            {value: '', label: '—'}, {value: 'D', label: 'Day (D)'}, {value: 'N', label: 'Night (N)'},
-          ]},
-          {name: 'notes', label: 'Notes', type: 'textarea'},
-        ]}
+      <VesselRegisterClient
+        initial={{
+          rows: initialPrograms,
+          total: tableTotal,
+          page: 1,
+          limit: 20,
+          totalPages: Math.max(1, Math.ceil(tableTotal / 20)),
+          mothers: motherCounts,
+        }}
+        escorts={escorts.map((employee) => ({mobile: employee.employee_mobile, name: employee.preferred_name}))}
+        mothers={motherRows.map((row) => row.mother_vessel)}
+        initialQ={q}
+        initialState={state}
+        initialMother={mother}
+        canCommand={canCommand}
+        canRelease={canRelease}
       />
-
-      <section className="card">
-        <h3>Programs ({programs.length} · {active.length} active)</h3>
-        <table>
-          <thead><tr><th>Mother → Lighter</th><th>Escort</th><th>Start</th><th>End</th><th>State</th><th>Pay</th></tr></thead>
-          <tbody>
-            {programs.map((program) => (
-              <tr key={program.id}>
-                <td><Link href={`/vessel/${encodeURIComponent(program.id)}`}>{program.mother_vessel} → {program.lighter_vessel}</Link><div className="muted" style={{fontFamily: 'ui-monospace, monospace'}}>{program.id}</div></td>
-                <td>{program.escort_name ?? '—'}<div className="muted">{program.escort_mobile ?? ''}</div></td>
-                <td>{program.start_date} · {program.start_shift}</td>
-                <td>{program.end_date ? `${program.end_date} · ${program.end_shift}` : '—'}</td>
-                <td><span className={`pill ${['RELEASED','COMPLETED'].includes(program.state) ? 'ok' : program.state === 'VOIDED' ? 'bad' : ''}`}>{program.state}</span></td>
-                <td>{money(program.total_minor)}{program.pay_state === 'UNRESOLVED' ? <div className="muted">unresolved</div> : null}</td>
-              </tr>
-            ))}
-            {!programs.length ? <tr><td colSpan={6} className="muted">No programs yet.</td></tr> : null}
-          </tbody>
-        </table>
-      </section>
 
       <section className="card" style={{marginBottom: 18}}>
         <div className="page-head" style={{marginBottom: 8}}>
@@ -268,26 +239,32 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
       </div>
 
       <div className="split">
-        <ActionForm title="Assign / replace escort" endpoint="/api/programs" action="assign" submitLabel="Assign"
-          fields={[
-            {name: 'programId', label: 'Program id', required: true},
-            {name: 'employeeMobile', label: 'Escort mobile', required: true},
-            {name: 'employeeName', label: 'Escort name'},
-            {name: 'startDate', label: 'Start date', type: 'date'},
-            {name: 'startShift', label: 'Shift', type: 'select', options: [{value: 'D', label: 'Day'}, {value: 'N', label: 'Night'}]},
-          ]} />
-        <ActionForm title="Release" endpoint="/api/programs" action="release" submitLabel="Release"
-          fields={[
-            {name: 'programId', label: 'Program id', required: true},
-            {name: 'endDate', label: 'End date', type: 'date', required: true},
-            {name: 'endShift', label: 'End shift', type: 'select', options: [{value: 'D', label: 'Day'}, {value: 'N', label: 'Night'}]},
-            {name: 'note', label: 'Note'},
-          ]} />
-        <ActionForm title="Void" endpoint="/api/programs" action="void" submitLabel="Void program"
-          fields={[
-            {name: 'programId', label: 'Program id', required: true},
-            {name: 'reason', label: 'Reason', required: true},
-          ]} />
+        {canCommand ? (
+          <ActionForm title="Assign / replace escort" endpoint="/api/programs" action="assign" submitLabel="Assign"
+            fields={[
+              {name: 'programId', label: 'Program id', required: true},
+              {name: 'employeeMobile', label: 'Escort mobile', required: true},
+              {name: 'employeeName', label: 'Escort name'},
+              {name: 'startDate', label: 'Start date', type: 'date'},
+              {name: 'startShift', label: 'Shift', type: 'select', options: [{value: 'D', label: 'Day'}, {value: 'N', label: 'Night'}]},
+            ]} />
+        ) : null}
+        {canRelease ? (
+          <ActionForm title="Release" endpoint="/api/programs" action="release" submitLabel="Release"
+            fields={[
+              {name: 'programId', label: 'Program id', required: true},
+              {name: 'endDate', label: 'End date', type: 'date', required: true},
+              {name: 'endShift', label: 'End shift', type: 'select', options: [{value: 'D', label: 'Day'}, {value: 'N', label: 'Night'}]},
+              {name: 'note', label: 'Note'},
+            ]} />
+        ) : null}
+        {canCommand ? (
+          <ActionForm title="Void" endpoint="/api/programs" action="void" submitLabel="Void program"
+            fields={[
+              {name: 'programId', label: 'Program id', required: true},
+              {name: 'reason', label: 'Reason', required: true},
+            ]} />
+        ) : null}
       </div>
     </>
   );

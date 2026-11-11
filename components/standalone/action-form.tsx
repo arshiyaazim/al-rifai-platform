@@ -2,6 +2,7 @@
 
 import {useRouter} from 'next/navigation';
 import {useState} from 'react';
+import {buildActionFormRequest, type ActionFormMethod, type ActionFormRequestInput} from '@/lib/action-form-request';
 
 export type Field = {
   name: string;
@@ -17,6 +18,8 @@ type Props = {
   title?: string;
   endpoint: string;
   action?: string;
+  /** Defaults to POST. Use PATCH/DELETE for routes that require them. */
+  method?: ActionFormMethod;
   fields: Field[];
   submitLabel: string;
   hidden?: Record<string, string>;
@@ -27,7 +30,7 @@ type Props = {
  * Minimal, real form: posts JSON to an authenticated API with the session CSRF
  * token, surfaces the API error, and refreshes server data on success.
  */
-export function ActionForm({title, endpoint, action, fields, submitLabel, hidden = {}, compact}: Props) {
+export function ActionForm({title, endpoint, action, method, fields, submitLabel, hidden = {}, compact}: Props) {
   const router = useRouter();
   const [state, setState] = useState<{busy: boolean; error?: string; ok?: string}>({busy: false});
 
@@ -48,11 +51,13 @@ export function ActionForm({title, endpoint, action, fields, submitLabel, hidden
       const session = await fetch('/api/auth/session', {credentials: 'same-origin', cache: 'no-store'});
       if (!session.ok) throw new Error('SESSION_EXPIRED');
       const {csrf} = (await session.json()) as {csrf: string};
+      const request: ActionFormRequestInput = {action, method, values, csrf};
+      const init = buildActionFormRequest(request);
       const response = await fetch(endpoint, {
-        method: 'POST',
+        method: init.method,
         credentials: 'same-origin',
-        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
-        body: JSON.stringify(action ? {action, ...values} : values),
+        headers: init.headers,
+        body: init.body,
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);

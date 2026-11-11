@@ -36,6 +36,13 @@ class MigrationError extends Error {
 
 const env = (name) => (process.env[name] ?? '').trim();
 const flag = (name) => process.argv.includes(`--${name}`);
+const arg = (name) => {
+  const prefix = `--${name}=`;
+  const inline = process.argv.find((value) => value.startsWith(prefix));
+  if (inline) return inline.slice(prefix.length);
+  const index = process.argv.indexOf(`--${name}`);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+};
 
 function connection(role) {
   const host = env('PGHOST');
@@ -60,9 +67,14 @@ function connection(role) {
 }
 
 function migrationFiles() {
+  const through = (arg('through') ?? '').trim();
+  if (through && !/^\d{3}$/.test(through)) {
+    throw new MigrationError('MIGRATION_THROUGH_INVALID', through);
+  }
   return readdirSync(MIGRATION_DIR)
     .filter((name) => /^\d{3}_.+\.sql$/.test(name))
     .filter((name) => !name.startsWith('001_'))
+    .filter((name) => !through || name.slice(0, 3) <= through)
     .sort()
     .map((name) => ({
       name,

@@ -1,5 +1,5 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../_shared';
-import {assignEscort, completeProgram, createProgram, getProgram, listPrograms, releaseProgram, startProgramDuty, updateProgram, voidProgram} from '@/lib/standalone/programs';
+import {assignEscort, completeProgram, countPrograms, createProgram, getProgram, listPrograms, releaseProgram, startProgramDuty, updateProgram, voidProgram} from '@/lib/standalone/programs';
 import {assertCapability, can} from '@/lib/standalone/authz';
 import {submitForReview} from '@/lib/standalone/review';
 
@@ -13,11 +13,17 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const id = url.searchParams.get('id');
     if (id) return ok(await getProgram(id));
-    return ok({rows: await listPrograms({
+    const filters = {
       q: url.searchParams.get('q') ?? '',
       state: url.searchParams.get('state') ?? undefined,
       escort: url.searchParams.get('escort') ?? undefined,
-    })});
+      from: url.searchParams.get('from') ?? undefined,
+      to: url.searchParams.get('to') ?? undefined,
+      limit: Number(url.searchParams.get('limit') ?? 200),
+      offset: Number(url.searchParams.get('offset') ?? 0),
+    };
+    const [rows, total] = await Promise.all([listPrograms(filters), countPrograms(filters)]);
+    return ok({rows, total, limit: filters.limit, offset: filters.offset});
   } catch (error) {
     return errorResponse(error);
   }

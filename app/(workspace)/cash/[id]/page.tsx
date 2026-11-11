@@ -2,6 +2,7 @@ import Link from 'next/link';
 import {notFound} from 'next/navigation';
 import {getInstructionDetail} from '@/lib/standalone/finance';
 import {DomainError} from '@/lib/standalone/db';
+import {cleanEmployeeName} from '@/lib/display-name';
 import {money, when} from '@/lib/standalone/session';
 
 export const dynamic = 'force-dynamic';
@@ -58,7 +59,7 @@ export default async function CashInstructionPage({params}: {params: Promise<{id
           <h3>Instruction</h3>
           <table>
             <tbody>
-              <tr><th>Payee</th><td>{instruction.employee_name}</td></tr>
+              <tr><th>Payee</th><td>{cleanEmployeeName(instruction.employee_name)}</td></tr>
               <tr><th>Employee mobile</th><td>{instruction.employee_mobile ?? '—'}</td></tr>
               <tr><th>Payout mobile</th><td>{instruction.payout_mobile ?? '—'}</td></tr>
               <tr><th>Purpose</th><td>{instruction.purpose ?? '—'}</td></tr>

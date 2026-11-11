@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test, {before} from 'node:test';
 import {rows, row} from '../../lib/standalone/db.ts';
-import {createEmployee, listEmployees} from '../../lib/standalone/employees.ts';
+import {createEmployee, listEmployees, updateEmployee} from '../../lib/standalone/employees.ts';
 import {createProgram, assignEscort, releaseProgram, listPrograms, updateProgram, startProgramDuty, completeProgram} from '../../lib/standalone/programs.ts';
 import {recordAttendance, attendanceSummary, listAttendance} from '../../lib/standalone/attendance.ts';
 import {resolveEmployeeIdentity} from '../../lib/employee-identity.ts';
@@ -50,6 +50,21 @@ test('employees: create, alias merge, duplicate prevention', async () => {
   assert.equal((await listEmployees({q: 'rahim'})).length, 1);
 });
 
+test('employees: PATCH update applies fields and enforces employee.manage', async () => {
+  const created = await createEmployee(adminA, {employeeMobile: '01722222222', preferredName: 'Before Patch', dutyType: 'escort'});
+  await updateEmployee(adminA, created.employeeMobile, {
+    preferredName: 'After Patch', designation: 'Senior escort', state: 'ACTIVE', notes: 'clone regression',
+  });
+  const stored = await row('SELECT preferred_name, designation, notes FROM employees WHERE employee_mobile = $1', [created.employeeMobile]);
+  assert.equal(stored.preferred_name, 'After Patch');
+  assert.equal(stored.designation, 'Senior escort');
+  assert.equal(stored.notes, 'clone regression');
+  await assert.rejects(
+    () => updateEmployee(user, created.employeeMobile, {preferredName: 'Not Allowed'}),
+    /CAPABILITY_REQUIRED/,
+  );
+});
+
 test('programs: create, duplicate, assignment, release, pay', async () => {
   const program = await createProgram(adminA, {
     motherVessel: 'MV Test', lighterVessel: 'Lighter-1', startDate: '2026-11-01', startShift: 'D',
@@ -87,6 +102,10 @@ test('programs: create, duplicate, assignment, release, pay', async () => {
   await assignEscort(adminA, assigned.program.id, {employeeMobile: '01712345678', employeeName: 'Rahim Uddin'});
   const assignment = await row('SELECT * FROM program_assignments WHERE program_id = $1 AND end_date IS NULL', [assigned.program.id]);
   assert.ok(assignment);
+  // Assigning by mobile alone resolves the directory name instead of storing the number.
+  await assignEscort(adminA, sibling.program.id, {employeeMobile: '01712345678'});
+  const resolvedName = await row('SELECT escort_name FROM programs WHERE id = $1', [sibling.program.id]);
+  assert.equal(resolvedName.escort_name, 'Rahim Uddin');
   assert.equal((await listPrograms({})).length, 4);
 });
 

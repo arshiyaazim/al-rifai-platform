@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import {cleanEmployeeName} from '@/lib/display-name';
 import {ReviewActionsPanel} from '@/components/standalone/review-actions';
 import {SourceEvidencePanel} from '@/components/standalone/source-evidence';
 import {AuditHistory} from '@/components/standalone/audit-history';
@@ -107,7 +108,7 @@ function RelatedInstruction({instruction}: {instruction: Record<string, unknown>
       <table>
         <tbody>
           <tr><th style={{width: 180}}>Instruction ID</th><td style={{fontFamily: 'ui-monospace, monospace', fontSize: 12}}>{String(instruction.id)}</td></tr>
-          <tr><th>Payee</th><td>{String(instruction.employee_name ?? '—')}<div className="muted">{String(instruction.employee_mobile ?? '')}</div></td></tr>
+          <tr><th>Payee</th><td>{cleanEmployeeName(instruction.employee_name)}<div className="muted">{String(instruction.employee_mobile ?? '')}</div></td></tr>
           <tr><th>Method</th><td>{String(instruction.method ?? '—')}</td></tr>
           <tr><th>Amount</th><td>{formatReviewAmount(instruction.amount_minor as string | number | null)}</td></tr>
           <tr><th>State</th><td><span className="pill">{String(instruction.state ?? '—')}</span></td></tr>

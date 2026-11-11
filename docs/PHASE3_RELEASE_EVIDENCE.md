@@ -149,3 +149,89 @@ containers remain stopped and preserved for rollback.
 3. Production migration window and rollback image retention.
 4. Owner-supplied business chats, group participants and WA-01 Admin JIDs.
 5. Acceptance of local CI evidence while GitHub Actions remains billing-locked.
+
+---
+
+## 2026-11-07 — Isolated integration + Admin Business Paid API/UI
+
+**Branch:** `feature/phase3-integration` (from `a4aabb6`, merged router `4e2e3f4`).
+**Status:** isolated source implementation only; no production migration,
+deployment, flag activation, ledger posting or WhatsApp permission change.
+
+| Check | Result |
+|---|---|
+| Typecheck / lint | 0 errors |
+| Unit | 147/147 |
+| Integration | 163/163 |
+| Next.js build | pass, `/cash/paid` and `/cash/paid/[id]` emitted |
+| Fresh install | schema `1.6.0`, 49 tables, 10 migration-ledger rows |
+| Incremental 1.5.0 → 1.6.0 | migrations 010 then 011; repeat no-op |
+| Runtime grants | vessel READ_WRITE; Paid events/postings append-only |
+| Production | unchanged |
+
+Added API/UI: Business Paid list/detail, WhatsApp/Office evidence, financial
+posting status, correction/reversal actions, and explicit Business Paid vs
+Financial POSTED reporting basis.
+
+---
+
+## 2026-11-08 — Production release preparation audit (read-only)
+
+Candidate: `feature/phase3-integration` @ `0b691a223949e9a413589db9e5f3dcd3366448e3`.
+
+| Check | Result |
+|---|---|
+| Production image | `phase3-ai-rc-7da17f1`, `sha256:5f3de875…01fa`, healthy |
+| Production schema | `1.5.0`, 46 tables, migrations 002–009 |
+| Restored backup | `phase3-predeploy-7da17f1-20261107T124612Z.dump`, 8.5 MB, SHA-256 `61c73a1a…48aa`, 333 TOC |
+| Production-copy migration | 010+011 applied; schema `1.6.0`, 49 tables, 10 migrations; row counts preserved |
+| Repeat migration | no-op |
+| Failure probe | rollback clean; no probe table/ledger row |
+| Runtime grants | 010 vessel READ_WRITE; 011 events/postings APPEND_ONLY |
+| App startup on restored copy | `/api/health` 200, `1.6.0` |
+| Auth/RBAC | unauth redirect/401; admin routes 200; staff mutation 403; no-CSRF 403; admin correction/reversal 200 with zero posting/ledger rows |
+| UI markers | `/cash/paid`, detail, `/cash/transactions` POSTED basis, Vessel routes 200 |
+| Production changes | **none** |
+
+Critical release dependency: apply 010/011 before starting the new image because
+`/cash/paid` queries the 011 table even when `PHASE3_PAID_EVENTS_ENABLED=0`.
+A fresh backup and Owner approval are still required.
+
+Technical references:
+`docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md`,
+`docs/MIGRATION_011_CASH_PAYMENT_EVENTS.md`,
+`docs/PHASE3_GIT_COMPLETENESS_AUDIT.md`.
+
+---
+
+## 2026-11-08 staged production migration (010 then 011)
+
+| Gate | Result |
+|---|---|
+| Fresh production backup | `phase3-release-010011-20261108T084939Z.dump`, 8.6 MB, SHA-256 `d88b0f0f173732a1ca3cfcb812ed9489aa9d443f4bfc5ed3d3ace0be4c22ae77`, 344 TOC lines |
+| Production-copy rehearsal | 1.5.0/46 → 010-only 1.5.0/47 → 011 1.6.0/49; counts preserved |
+| Migration 010 production | applied, 47 tables, schema 1.5.0; verified before 011 |
+| Migration 011 production | applied, 49 tables, schema 1.6.0; verified |
+| Ledger checksums | 010 `fa299768…17e7c7`; 011 `4203fdbe…4165` |
+| Runtime grants | 010 SELECT/INSERT/UPDATE; 011 SELECT/INSERT |
+| Data counts | unchanged (employees 218, programs 102, attendance 439, instructions 3,840, postings 1,586, ledger 1,586, submissions 117, review 20, messages 34,743) |
+| Paid Events | 0 events, 0 posting links, flag OFF |
+| Outbound | gate/worker OFF; no message sent; delivery mode MANUAL_COPY_ONLY |
+
+---
+
+## 2026-11-08 production deployment and final verification
+
+| Field | Value |
+|---|---|
+| Release source commit | `8a6c2c6ae8d082fc15235bd37e126117ad06f8c7` |
+| Image tag | `local/al-rifai-platform:phase3-ai-rc-8a6c2c6` |
+| Image ID / digest | `sha256:8b7ab534838f670c9b6486015650711e266dea4d3f8b2ac4df287d5be1c3e510` |
+| Containers | `al-rifai-phase3-app-1`, `al-rifai-phase3-sync-1` recreated |
+| Health | `/api/health` 200, DB ok, schema `1.6.0`; app healthy |
+| Flags after deploy | Router worker `1`; Vessel processing `1`; Paid absent/OFF; Vessel draft worker/outbound absent/OFF |
+| Migrations | 010 + 011 applied and verified; 49 tables |
+| Data | 1,586 postings/ledger entries unchanged; 0 Paid Events; 0 posting links; delivery queue 0 |
+| Router | worker started; 147 messages processed, 41 Cash REVIEW, 4 Vessel DRAFT, 0 postings/events/sends |
+| Outbound | no sender JID/recipient/socket/token; no `messages.send`; no message sent |
+| Authenticated production UI | **BLOCKED / NOT VERIFIED** — no authorized plaintext test credential or session was available; isolated HTTP/RBAC evidence remains the verification source |

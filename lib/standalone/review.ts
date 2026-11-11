@@ -1,6 +1,7 @@
 import type {PoolClient} from 'pg';
 import {rows, row, tx, text, optionalText, optionalMobile, isoDate, shift, DomainError, type Actor} from './db.ts';
 import {recordAudit, newId} from './audit.ts';
+import {emitDomainEvent} from '../realtime/server.ts';
 import {assertCapability} from './authz.ts';
 import {createEmployee, updateEmployee} from './employees.ts';
 import {createProgram} from './programs.ts';
@@ -496,6 +497,9 @@ export async function correctReviewItem(actor: Actor, id: string, corrections: R
       detail: {domain: item.domain, corrections: clean, state: 'PENDING'},
     }, client);
     return {id, corrected: true, fields: Object.keys(clean), state: 'PENDING'};
+  }).then((result) => {
+    emitDomainEvent('REVIEW', 'REVIEW_ITEM_CORRECTED', id);
+    return result;
   });
 }
 
@@ -532,6 +536,9 @@ export async function correctCashSubmission(actor: Actor, id: string, correction
       detail: {corrections: clean, state: 'PENDING_REVIEW'},
     }, client);
     return {id, corrected: true, fields: Object.keys(clean), state: 'PENDING_REVIEW'};
+  }).then((result) => {
+    emitDomainEvent('REVIEW', 'CASH_SUBMISSION_CORRECTED', id);
+    return result;
   });
 }
 
@@ -555,6 +562,7 @@ export async function submitForReview(
   );
   if (!created) throw new DomainError('PENDING_REVIEW_EXISTS', 409);
   await recordAudit({actor, action: 'REVIEW_SUBMITTED', entity: 'review_item', entityId: id, detail: {domain, category}});
+  emitDomainEvent('REVIEW', 'REVIEW_SUBMITTED', id);
   return created;
 }
 
@@ -601,6 +609,9 @@ export async function decideReview(actor: Actor, id: string, decision: 'APPROVED
     await recordAudit({actor, action: `REVIEW_${decision}`, entity: 'review_item', entityId: id,
       detail: {domain: item.domain, action: item.action}}, client);
     return {id, state: decision, applied};
+  }).then((result) => {
+    emitDomainEvent('REVIEW', `REVIEW_${decision}`, id);
+    return result;
   });
 }
 
@@ -617,6 +628,9 @@ export async function withdrawReview(actor: Actor, id: string) {
     );
     await recordAudit({actor, action: 'REVIEW_WITHDRAWN', entity: 'review_item', entityId: id}, client);
     return {id, state: 'WITHDRAWN'};
+  }).then((result) => {
+    emitDomainEvent('REVIEW', 'REVIEW_WITHDRAWN', id);
+    return result;
   });
 }
 
