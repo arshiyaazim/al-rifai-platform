@@ -510,3 +510,235 @@ a.cash-dashboard-card:focus-visible { outline: 2px solid var(--accent); outline-
   .cash-payment-summary { flex-direction: column; }
   .cash-payment-total { align-items: flex-start; text-align: left; }
 }
+
+/* ---------- mobile responsiveness (≤768px) ----------
+   Keeps the layout viewport at device width. Wide data tables are contained
+   in their card/panel so they scroll horizontally instead of stretching the
+   whole page (which previously disabled every media query on phones). */
+@media (max-width: 768px) {
+  html, body { max-width: 100%; overflow-x: clip; }
+
+  .wx-workspace,
+  .wx-workspace__content,
+  .wx-page,
+  .content,
+  .shell,
+  .workspace { max-width: 100vw; min-width: 0; }
+
+  /* Table containment: the panel scrolls, the page does not. */
+  .card,
+  .table-panel,
+  .review-panel,
+  .count-ledger,
+  .evidence-panel,
+  .source-breakdown,
+  .ops-card,
+  .cash-table-card,
+  .business-table-scroll,
+  .wx-card {
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Filters stack vertically and controls become full-width touch targets. */
+  .form .grid,
+  .form.compact .grid,
+  .wx-form-row,
+  .wx-filters,
+  .filters,
+  .advanced-filters .filters,
+  .cash-payment-filters .grid {
+    grid-template-columns: 1fr !important;
+  }
+  .inline-filters,
+  .ops-filterbar,
+  .cash-filters {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .inline-filters > label,
+  .ops-filterbar label,
+  .cash-filters label { width: 100%; min-width: 0; }
+
+  .form input,
+  .form select,
+  .form textarea,
+  .wx-field input,
+  .wx-field select,
+  .filters input,
+  .filters .choice,
+  .inline-filters select,
+  .ops-filterbar input,
+  .ops-filterbar select,
+  .wx-search input {
+    width: 100% !important;
+    min-height: 44px;
+  }
+  .form label,
+  .filter-field,
+  .wx-field > label,
+  .ops-filterbar label { font-size: 14px; }
+
+  .form button,
+  .row-actions button,
+  .row-actions a,
+  .table-actions button,
+  .table-actions .choice,
+  .wx-header-actions button,
+  .wx-header-actions a,
+  .paging button,
+  .paging a,
+  .cash-clear-filter,
+  .table-panel button,
+  .card button,
+  .ops-card button {
+    min-height: 44px;
+  }
+  .paging button,
+  .paging a { min-width: 44px; }
+  .form > button[type="submit"],
+  .card form > button[type="submit"] {
+    width: 100%;
+    min-height: 48px;
+  }
+  .row-actions { flex-wrap: wrap; gap: 10px; }
+  .row-actions > * { flex: 1 1 auto; }
+  .row-actions a,
+  .cash-clear-filter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-left: .5rem;
+    padding-right: .5rem;
+  }
+
+  /* Checkbox / radio labels get a full-height tap area inline with the label. */
+  .form label:has(input[type="checkbox"]),
+  .form label:has(input[type="radio"]) {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: .6rem;
+    min-height: 44px;
+  }
+  .form input[type="checkbox"],
+  .form input[type="radio"] {
+    width: 22px !important;
+    height: 22px;
+    min-height: 22px;
+    flex: 0 0 22px;
+  }
+
+  /* Readable table and body type on phones. */
+  .card table,
+  .table-panel table,
+  .ops-card table,
+  .review-panel table,
+  .wx-table { font-size: 14px; }
+  .card table th,
+  .card table td,
+  .table-panel table th,
+  .table-panel table td,
+  .ops-card table th,
+  .ops-card table td,
+  .review-panel table th,
+  .review-panel table td { font-size: 14px !important; }
+
+  small,
+  .muted,
+  .wx-kpi-label,
+  .wx-kpi-hint,
+  .wx-eyebrow,
+  .wx-pill,
+  .stat .label,
+  .pill,
+  .table-footer,
+  .source-note,
+  .workspace-foot,
+  .ops-caption,
+  .ops-card td small,
+  .card h3,
+  th { font-size: 14px; }
+  body { font-size: 16px; }
+
+  .wx-workspace__nav-link,
+  .wx-workspace__mobile-toggle { min-height: 44px; }
+
+  .form .grid { gap: .9rem; }
+  .card { padding: 1rem; }
+}
+
+@media (max-width: 600px) {
+  .page-head { flex-direction: column; align-items: stretch; gap: .75rem; }
+  h1 { font-size: clamp(1.5rem, 7vw, 2rem); }
+}
+
+@media (max-width: 768px) {
+  /* Legacy inline filter rows (e.g. WhatsApp inbox) */
+  form.row { flex-wrap: wrap; gap: .6rem; }
+  form.row input:not([type="hidden"]),
+  form.row select {
+    flex: 1 1 100%;
+    width: 100%;
+    min-height: 44px;
+  }
+  form.row button { min-height: 44px; }
+
+  /* Every interactive button is a touch target on phones. */
+  button,
+  [role="button"] { min-height: 44px; }
+}
+
+@media (max-width: 768px) {
+  /* Submit/action buttons stack and go full-width on phones. */
+  form.row button[type="submit"] {
+    flex: 1 1 100%;
+    width: 100%;
+    min-height: 48px;
+  }
+  .row-actions { flex-direction: column; align-items: stretch; }
+  .row-actions > button,
+  .row-actions > a { width: 100%; min-height: 48px; }
+
+  /* Typography floor: no visible app text below 14px on mobile. */
+  button,
+  [role="button"],
+  .pill,
+  .muted,
+  small,
+  code,
+  li,
+  label,
+  th,
+  td,
+  .label,
+  .hint,
+  .record-id,
+  .cell-sub,
+  .stat .label { font-size: 14px !important; }
+  button * { font-size: inherit !important; }
+  .card table td *,
+  .table-panel table td *,
+  .ops-card table td * { font-size: inherit !important; }
+}
+
+@media (max-width: 768px) {
+  [style*="font-size: 11px"],
+  [style*="font-size:11px"],
+  [style*="font-size: 12px"],
+  [style*="font-size:12px"],
+  [style*="font-size: 13px"],
+  [style*="font-size:13px"] { font-size: 14px !important; }
+}
+
+@media (max-width: 768px) {
+  form.row-actions input,
+  form.row-actions select {
+    width: 100%;
+    min-height: 44px;
+  }
+  button,
+  [role="button"] { min-height: 44px !important; }
+}
