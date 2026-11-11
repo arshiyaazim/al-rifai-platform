@@ -3,8 +3,6 @@
 import {useEffect, useMemo, useState} from 'react';
 import {toast} from 'sonner';
 import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
-import {Textarea} from '@/components/ui/textarea';
 import {ApiKeyForm} from '@/components/standalone/api-key-form';
 
 type KeyRow = {
@@ -22,11 +20,12 @@ async function csrfToken(): Promise<string> {
   return body.csrf;
 }
 
-const fmt = (value: string | null) => value ? new Date(value).toLocaleString('en-GB', {timeZone: 'Asia/Dhaka', dateStyle: 'short', timeStyle: 'short'}) : '—';
 const cooldownLeft = (value: string | null) => {
   if (!value) return 0;
   return Math.max(0, Math.ceil((new Date(value).getTime() - Date.now()) / 1000));
 };
+const providerBadge = (provider: string) => provider === 'gemini' ? '✦ Gemini'
+  : provider === 'openai' ? '◎ OpenAI' : provider === 'anthropic' ? '✳ Anthropic' : '◈ Other';
 
 export function ApiKeysTable() {
   const [keys, setKeys] = useState<KeyRow[]>([]);
@@ -73,7 +72,8 @@ export function ApiKeysTable() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error ?? `HTTP_${response.status}`);
       if (body.action === 'test') {
-        toast[payload.success ? 'success' : 'error'](payload.success ? `Key OK · ${payload.latency_ms} ms` : `Test failed: ${payload.error}`);
+        if (payload.ok) toast.success(`Key OK · ${payload.provider} · ${payload.model} · ${payload.latency_ms} ms`);
+        else toast.error(`Test failed: ${payload.error ?? 'FAILED'}${payload.status ? ` (${payload.status})` : ''}`, {duration: Infinity});
       } else {
         toast.success('Key updated.');
       }
@@ -96,24 +96,19 @@ export function ApiKeysTable() {
 
       <section className="card">
         <div className="table-wrap" style={{overflowX: 'auto'}}>
-          <table className="cash-payment-table" style={{minWidth: 1180}}>
-            <thead><tr><th>#</th><th>Provider</th><th>Name</th><th>Key</th><th>Model</th><th>Purpose</th><th>Active</th><th>Today</th><th>Total</th><th>Last Used</th><th>Status</th><th>Actions</th></tr></thead>
+          <table className="cash-payment-table" style={{minWidth: 900}}>
+            <thead><tr><th>#</th><th>Key Name</th><th>Provider</th><th>Model</th><th>Masked Key</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={12} className="muted">Loading keys…</td></tr> : null}
+              {loading ? <tr><td colSpan={7} className="muted">Loading keys…</td></tr> : null}
               {!loading && pageRows.map((row, index) => {
                 const left = cooldownLeft(row.cooldown_until);
                 return (
                   <tr key={row.id}>
                     <td>{(safePage - 1) * limit + index + 1}</td>
-                    <td>{row.provider}</td>
                     <td>{row.key_name}</td>
-                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{row.masked_key}</td>
+                    <td><span className="pill">{providerBadge(row.provider)}</span></td>
                     <td>{row.model ?? '—'}</td>
-                    <td>{row.purpose}</td>
-                    <td>{row.is_active ? 'yes' : 'no'}</td>
-                    <td>{row.daily_usage}{row.daily_limit ? ` / ${row.daily_limit}` : ''}</td>
-                    <td>{row.usage_count}</td>
-                    <td>{fmt(row.last_used_at)}</td>
+                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{row.masked_key}</td>
                     <td>
                       {!row.is_active ? <span className="pill">⚫ Disabled</span>
                         : left > 0 ? <span className="pill warn">🟡 {left}s</span>
@@ -131,7 +126,7 @@ export function ApiKeysTable() {
                   </tr>
                 );
               })}
-              {!loading && !pageRows.length ? <tr><td colSpan={12} className="muted">No API keys yet.</td></tr> : null}
+              {!loading && !pageRows.length ? <tr><td colSpan={7} className="muted">No API keys yet.</td></tr> : null}
             </tbody>
           </table>
         </div>
@@ -146,29 +141,13 @@ export function ApiKeysTable() {
 
       {editing ? (
         <div role="dialog" aria-modal="true" style={{position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16}}>
-          <div className="card" style={{width: 'min(620px, 100%)', background: 'var(--background, #fff)'}}>
+          <div className="card" style={{width: 'min(560px, 100%)', background: 'var(--background, #fff)'}}>
             <h3>Edit {editing.key_name}</h3>
-            <div className="grid gap-2">
-              <label className="text-sm">Name<Input defaultValue={editing.key_name} id="edit-name" /></label>
-              <label className="text-sm">Model<Input defaultValue={editing.model ?? ''} id="edit-model" /></label>
-              <label className="text-sm">Purpose
-                <select className="vessel-select" defaultValue={editing.purpose} id="edit-purpose">
-                  <option value="recruitment">Recruitment</option><option value="vessel-ai">Vessel AI</option>
-                  <option value="general">General</option><option value="other">Other</option>
-                </select>
-              </label>
-              <label className="text-sm">Daily Limit<Input type="number" defaultValue={editing.daily_limit ?? ''} id="edit-limit" /></label>
-              <label className="text-sm">Notes<Textarea defaultValue={editing.notes ?? ''} id="edit-notes" /></label>
-            </div>
-            <div className="row-actions" style={{marginTop: 10}}>
-              <Button type="button" size="sm" onClick={() => {
-                const value = (id: string) => (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null)?.value ?? '';
-                void action(editing, {action: 'update', keyName: value('edit-name'), model: value('edit-model'),
-                  purpose: value('edit-purpose'), dailyLimit: value('edit-limit') ? Number(value('edit-limit')) : null,
-                  notes: value('edit-notes') || null}).then(() => setEditing(null));
-              }}>Save</Button>
-              <Button type="button" size="sm" variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-            </div>
+            <ApiKeyForm
+              editing={editing}
+              onSaved={() => { setEditing(null); void load(); }}
+              onCancel={() => setEditing(null)}
+            />
           </div>
         </div>
       ) : null}

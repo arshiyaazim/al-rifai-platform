@@ -1,6 +1,8 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../../_shared';
 import {assertCapability} from '@/lib/standalone/authz';
 import {createApiKey, deleteApiKey, listApiKeys, updateApiKey} from '@/lib/standalone/api-keys';
+import {row} from '@/lib/standalone/db';
+import {defaultModel, detectProvider, notesWithBaseUrl} from '@/lib/ai-provider';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,15 +34,24 @@ export async function POST(request: Request) {
     assertCapability(actor as never, 'settings.manage');
     admin(actor);
     const body = await bodyOf<Record<string, unknown>>(request);
+    const apiKey = String(body.apiKey ?? '').trim();
+    const provider = detectProvider(apiKey);
+    const baseUrl = String(body.baseUrl ?? '').trim();
+    if (provider === 'other' && !baseUrl) return ok({error: 'BASE_URL_REQUIRED'}, 400);
+    const model = String(body.model ?? '').trim() || defaultModel(provider);
+    if (!model) return ok({error: 'MODEL_REQUIRED'}, 400);
+    const counted = await row<{count: string}>(
+      'SELECT count(*)::text AS count FROM api_keys WHERE provider = $1', [provider],
+    );
+    const keyName = `${provider}-key-${Number(counted?.count ?? 0) + 1}`;
     return ok(await createApiKey(actor as never, {
-      provider: String(body.provider ?? ''),
-      keyName: String(body.keyName ?? ''),
-      apiKey: String(body.apiKey ?? ''),
-      model: body.model ? String(body.model) : undefined,
-      purpose: body.purpose ? String(body.purpose) : undefined,
-      dailyLimit: body.dailyLimit === null || body.dailyLimit === undefined || body.dailyLimit === ''
-        ? null : Number(body.dailyLimit),
-      notes: body.notes ? String(body.notes) : null,
+      provider,
+      keyName,
+      apiKey,
+      model,
+      purpose: 'recruitment',
+      dailyLimit: null,
+      notes: provider === 'other' ? notesWithBaseUrl(baseUrl) : null,
     }), 201);
   } catch (error) { return errorResponse(error); }
 }
@@ -51,15 +62,12 @@ export async function PATCH(request: Request) {
     assertCapability(actor as never, 'settings.manage');
     admin(actor);
     const body = await bodyOf<Record<string, unknown>>(request);
+    const baseUrl = body.baseUrl === undefined ? undefined : String(body.baseUrl);
     return ok(await updateApiKey(actor as never, {
       id: String(body.id ?? ''),
-      keyName: body.keyName === undefined ? undefined : String(body.keyName),
       model: body.model === undefined ? undefined : String(body.model),
-      purpose: body.purpose === undefined ? undefined : String(body.purpose),
-      dailyLimit: body.dailyLimit === undefined ? undefined
-        : body.dailyLimit === null || body.dailyLimit === '' ? null : Number(body.dailyLimit),
       isActive: body.isActive === undefined ? undefined : Boolean(body.isActive),
-      notes: body.notes === undefined ? undefined : body.notes === null ? null : String(body.notes),
+      notes: baseUrl === undefined ? undefined : notesWithBaseUrl(baseUrl),
     }));
   } catch (error) { return errorResponse(error); }
 }

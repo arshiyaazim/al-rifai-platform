@@ -137,8 +137,8 @@ export function providerDefaultModel(provider: string): string {
 }
 
 export async function getApiKeyForTest(id: string) {
-  return row<{id: string; provider: string; api_key: string; model: string | null}>(
-    'SELECT id, provider, api_key, model FROM api_keys WHERE id = $1', [id],
+  return row<{id: string; provider: string; api_key: string; model: string | null; notes: string | null}>(
+    'SELECT id, provider, api_key, model, notes FROM api_keys WHERE id = $1', [id],
   );
 }
 
