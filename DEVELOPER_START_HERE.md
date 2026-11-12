@@ -193,7 +193,7 @@ the dirty deployment worktree.
 |---|---|
 | Public URL | `https://app.al-rifai.iamazim.com` |
 | TLS entry | container port `3443` → host `443` |
-| Internal app | `127.0.0.1:3001` → container `3000` |
+| Internal app | container port `3000` (not published on the host; healthcheck only) |
 | Health endpoint | `GET /api/health` (public) |
 | Database host | `vps-infra-postgres-1:5432` (Docker network `vps-backend`) |
 | Database name | `alrifai_v2_phase3` |

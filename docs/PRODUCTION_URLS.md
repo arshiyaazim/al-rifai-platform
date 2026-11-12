@@ -23,8 +23,8 @@
 | `alrifai.iamazim.com` | A `5.189.131.48` | 307 → `/dashboard`; `/login` 200; login API accepts origin | valid; SAN app + alrifai | **LEGACY ALIAS — VERIFIED** |
 | `al-rifai.iamazim.com` | CNAME `custom-domains.chatgpt.site` → Cloudflare 104.18.x | **Cloudflare 1014** (observed HTTP 403, body `error code: 1014`) | Cloudflare edge | **BROKEN — DNS REPAIR REQUIRED** |
 
-The origin is this VPS at `5.189.131.48`. The Phase 3 container publishes
-`0.0.0.0:443` and `127.0.0.1:3001`.
+The origin is this VPS at `5.189.131.48`. The Phase 3 container publishes only
+`0.0.0.0:443`; the app's internal port `3000` is not exposed on the host.
 
 ### Error 1014 root cause
 
@@ -102,7 +102,7 @@ No API endpoint is redirected. No state-changing route is redirected.
 | Service | Address |
 |---|---|
 | App container | `al-rifai-phase3-app-1:3000` (TLS proxy `3443`) |
-| Host app | `127.0.0.1:3001` |
+| Host app | none — internal `3000` is container-only |
 | PostgreSQL | `vps-infra-postgres-1:5432`, database `alrifai_v2_phase3` |
 | WA-01 bridge | `vps-whatsapp-wa-01-cap4-20261011`, private network |
 | WA-02 bridge | `vps-whatsapp-wa-02-cap4-20261011`, private network |

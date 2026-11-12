@@ -100,7 +100,7 @@ Application structure inside the repo:
 
 | Service | Command | Ports | Notes |
 |---|---|---|---|
-| `app` | `node deploy/tls-entry.mjs` | `0.0.0.0:443→3443`, `127.0.0.1:3001→3000` | TLS entry + Next.js, non-root, read-only FS |
+| `app` | `node deploy/tls-entry.mjs` | `0.0.0.0:443→3443` | TLS entry + Next.js, non-root, read-only FS |
 | `sync` | `node scripts/sync-worker.mjs --mode=tail` | none | Root, read-only bridge SQLite access |
 | `backend` (infra project) | `postgres:16-alpine` | internal `172.18.0.2:5432` | `vps-infra-postgres-1` |
 
@@ -281,7 +281,7 @@ startup. Full ledger and pending list: `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`
 | `https://alrifai.iamazim.com` | SAN `alrifai.iamazim.com` | Working legacy alias; origin allowed; login returns 401 until credentials exist |
 | `https://al-rifai.iamazim.com` | none | **Broken 1014** (observed as HTTP 403 with body `error code: 1014`); CNAME to a foreign Cloudflare account. Requires Owner DNS decision |
 
-- Origin IP `5.189.131.48`; app publishes `0.0.0.0:443` (TLS entry) and `127.0.0.1:3001`.
+- Origin IP `5.189.131.48`; app publishes only `0.0.0.0:443` (TLS entry); Next.js listens on internal `3000`.
 - Certificates: `/etc/vps/apps/al-rifai/tls/private-entry.{crt,key}`. Certbot uses
   the `standalone` method, so SAN extension needs port 80.
 - Do not change DNS, proxy or certificates without Owner approval.

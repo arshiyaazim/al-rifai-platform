@@ -5,7 +5,7 @@ name: al-rifai-v2
 #   sync  WhatsApp store importer/tailer (reads the bridge SQLite, never writes it)
 services:
   app:
-    image: local/al-rifai-platform:${ALRIFAI_TAG:-v2.8.0-mobile-fix}
+    image: local/al-rifai-platform:${ALRIFAI_TAG:-v2.8.1-port-cleanup}
     command: ["node", "deploy/tls-entry.mjs"]
     init: true
     restart: unless-stopped
@@ -20,7 +20,6 @@ services:
     env_file:
       - /opt/vps/al-rifai-standalone/apps/al-rifai/.env
     ports:
-      - "127.0.0.1:3001:3000"
       - "0.0.0.0:443:3443"
     environment:
       # Captured attachments live outside the image and the Git checkout.
@@ -69,7 +68,7 @@ services:
       options: {max-size: "10m", max-file: "3"}
 
   sync:
-    image: local/al-rifai-platform:${ALRIFAI_TAG:-v2.8.0-mobile-fix}
+    image: local/al-rifai-platform:${ALRIFAI_TAG:-v2.8.1-port-cleanup}
     command: ["node", "scripts/sync-worker.mjs", "--mode=tail"]
     init: true
     restart: unless-stopped
