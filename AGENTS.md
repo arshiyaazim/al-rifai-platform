@@ -148,6 +148,23 @@ in `docs/` and the Phase 3 reports.
   Business processing scope is separate: Vessel/Cash currently processes WA-01
   only; enabling WA-02 is a separate approved workflow.
 
+## Recruitment AI (separate application)
+
+- `/opt/al-rifai-recruitment-ai` is a separate application in its own container
+  (`al-rifai-recruitment-ai`). It is **not** part of this Compose project and
+  must not be started or changed with `docker compose`.
+- It reads the **same** bridge store,
+  `/var/lib/vps/whatsapp/wa-02/store/messages.db`, through a read-only mount
+  (`/wa02/store`). It never writes to the bridge database.
+- It writes only its own local SQLite (`data/recruitment.db`) and mirrors audit
+  rows to PostgreSQL `recruitment_reply_log` in `alrifai_v2_phase3`.
+- Its WhatsApp DB path inside the container is `/wa02/store/messages.db`; the
+  send transport is the WA-02 MCP control socket, not the mirror tables.
+- Deployment is a manual `docker run`; `docker-compose.yml` in that repository is
+  stale and must not be used. See its `README.md` for the exact command.
+- Both applications share the WA-02 bridge schema, so a bridge schema change
+  requires reviewing and updating both. Recruitment AI never reads
+  `whatsapp_messages` and never creates Cash, Vessel or mirror rows.
 
 ## WhatsApp message intelligence
 
