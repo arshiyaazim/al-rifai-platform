@@ -10,6 +10,11 @@
 > Do not execute this runbook without explicit Owner approval. It stops the
 > production app and switches the public HTTPS endpoint to a new stack.
 
+> **Historical record (2026-11-12):** the Phase 3 deployment no longer publishes
+> `127.0.0.1:3001`. Only `0.0.0.0:443 -> 3443` is mapped; the app listens on
+> internal `3000` for its healthcheck. The 3001 references below describe the
+> cutover as it was executed on 2026-11-06.
+
 ---
 
 ## 1. Verified architecture
