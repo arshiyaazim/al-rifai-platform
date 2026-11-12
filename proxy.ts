@@ -29,8 +29,9 @@ export async function proxy(request:NextRequest){
  // The public company site is reachable without a credential; it carries no
  // client, personnel or financial data.
  if(PUBLIC_SITE_PATHS.has(pathname))return pass();
- // The legacy Basic guard is evaluated first and is never removed by the
- // unified path, so a working credential always remains usable.
+ // Basic credentials are for API/machine access. A valid Basic header passes
+ // this proxy, but workspace pages call pageUser() and still require a unified
+ // session, so a Basic credential alone does not open them.
  if(validationIdentity(request.headers.get("authorization")))return pass();
  const mode=unifiedAuthMode(process.env.ALRIFAI_UNIFIED_AUTH_MODE);
  // Keep the existing Cash Portal boundary when unified auth is off.
@@ -57,9 +58,10 @@ export async function proxy(request:NextRequest){
  if(isCashPortalPath(pathname))return pass();
  if(mode==="on"){
   // Only 'on' may answer a browser navigation with the sign-in page. In
-  // 'shadow' the legacy challenge has to reach the browser (401 +
-  // WWW-Authenticate); redirecting there hid the only credential that can open
-  // the workspace, so a click on any protected page dead-ended on /login.
+  // 'shadow' protected routes keep the fail-closed 401 challenge
+  // (WWW-Authenticate) instead of redirecting to /login: a shadow session does
+  // not authorise workspace pages yet, and machine clients need the explicit
+  // authentication failure rather than an HTML sign-in page.
   if(prefersDocumentNavigation(request.headers)){
    const target=sanitizeReturnTo(pathname+(request.nextUrl.search||""));
    const url=request.nextUrl.clone();
@@ -69,9 +71,10 @@ export async function proxy(request:NextRequest){
   }
  }
  // Everything else keeps the fail-closed 401 so no client silently proceeds
- // unauthenticated, and so the legacy Basic credential can still be supplied.
+ // unauthenticated.
  return unauthorized();
 }
-// The candidate host applies this same Basic guard before named authentication.
-// Keep its request bodies out of Next proxy cloning during early denial/cancellation.
+// candidate-api requests are excluded from this proxy by the matcher below; the
+// candidate host handles their authentication. Keeping their request bodies out
+// of Next proxy cloning also avoids early denial/cancellation issues.
 export const config={matcher:["/((?!candidate-api(?:/|$)|_next/static|_next/image|favicon.svg|file.svg|globe.svg|window.svg).*)"]};
