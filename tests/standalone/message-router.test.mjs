@@ -220,6 +220,82 @@ test('cash: bare bridge sender matches a full configured Admin JID', async () =>
   assert.equal(Number(created.amount_minor), 33300);
 });
 
+test('cash: element-based message without ID/method/slash auto-posts and creates the employee', async () => {
+  await ensureAccount('wa-01');
+  await stageMessage('wa-01', CASH_CHAT, 'msg-cash-element-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
+    'Just 01999887766 some name 500');
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.instructions, 1);
+  assert.equal(result.errors, 0);
+
+  const instr = await row("SELECT * FROM cash_instructions WHERE source_message_id = 'msg-cash-element-1'");
+  assert.ok(instr);
+  assert.equal(instr.state, 'POSTED');
+  assert.equal(Number(instr.amount_minor), 50000);
+  assert.equal(instr.employee_mobile, '+8801999887766');
+  assert.equal(instr.method, 'cash');
+
+  const employee = await row("SELECT * FROM employees WHERE employee_mobile = '+8801999887766'");
+  assert.ok(employee, 'a missing employee must be created, never dropped');
+  assert.match(String(employee.notes), /AUTO_CREATED_FROM_CASH/);
+});
+
+test('cash: element-based two-mobile message keeps ID and payout separate', async () => {
+  await ensureAccount('wa-01');
+  await stageMessage('wa-01', CASH_CHAT, 'msg-cash-element-2', 'OUTGOING', '8801880446111@s.whatsapp.net',
+    '01999887766 Some Name 01711223344 3000');
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.instructions, 1);
+  const instr = await row("SELECT * FROM cash_instructions WHERE source_message_id = 'msg-cash-element-2'");
+  assert.equal(instr.employee_mobile, '+8801999887766');
+  assert.equal(instr.payout_mobile, '+8801711223344');
+  assert.equal(Number(instr.amount_minor), 300000);
+});
+
+test('cash: outbound message without cash elements is ignored', async () => {
+  await ensureAccount('wa-01');
+  const before = await countInstructions();
+  await stageMessage('wa-01', CASH_CHAT, 'msg-cash-noncash-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
+    'Hello how are you');
+
+  const result = await routePendingMessages(admin, 10);
+  assert.equal(result.instructions, 0);
+  assert.equal(await countInstructions(), before);
+});
+
+test('cash: ACCOUNTANT_CHAT_JID mismatch blocks auto-post', async () => {
+  await ensureAccount('wa-01');
+  const previous = process.env.ACCOUNTANT_CHAT_JID;
+  process.env.ACCOUNTANT_CHAT_JID = '8801999999999@s.whatsapp.net';
+  try {
+    await stageMessage('wa-01', CASH_CHAT, 'msg-cash-gate-1', 'OUTGOING', '8801880446111@s.whatsapp.net',
+      'ID: 01712345678 Rahim 01812345678(B) 500/-');
+    const result = await routePendingMessages(admin, 10);
+    assert.equal(result.instructions, 0);
+    assert.equal(await row("SELECT 1 FROM cash_instructions WHERE source_message_id = 'msg-cash-gate-1'"), null);
+  } finally {
+    if (previous === undefined) delete process.env.ACCOUNTANT_CHAT_JID;
+    else process.env.ACCOUNTANT_CHAT_JID = previous;
+  }
+});
+
+test('cash: ACCOUNTANT_CHAT_JID match still auto-posts', async () => {
+  await ensureAccount('wa-01');
+  const previous = process.env.ACCOUNTANT_CHAT_JID;
+  process.env.ACCOUNTANT_CHAT_JID = CASH_CHAT;
+  try {
+    await stageMessage('wa-01', CASH_CHAT, 'msg-cash-gate-2', 'OUTGOING', '8801880446111@s.whatsapp.net',
+      'ID: 01712345678 Rahim 01812345678(B) 500/-');
+    const result = await routePendingMessages(admin, 10);
+    assert.equal(result.instructions, 1);
+  } finally {
+    if (previous === undefined) delete process.env.ACCOUNTANT_CHAT_JID;
+    else process.env.ACCOUNTANT_CHAT_JID = previous;
+  }
+});
+
 test('cash: incoming Accountant message does NOT create instruction', async () => {
   await ensureAccount('wa-01');
   const before = await countInstructions();

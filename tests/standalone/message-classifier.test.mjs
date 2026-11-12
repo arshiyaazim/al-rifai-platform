@@ -76,3 +76,22 @@ test('classifyDomain: BOTH chat allows vessel', () => {
   const r = classifyDomain('Mother Vessel: MV X Lighter Vessel: L-1 Master: 01911111111', 'BOTH');
   assert.equal(r.domain, 'VESSEL');
 });
+
+test('looksLikeCash: element rule — mobile + amount without ID/method/slash', () => {
+  assert.equal(looksLikeCash('Just 01712345678 some name 500'), true);
+  assert.equal(looksLikeCash('01712345678  Rahim  2500/-'), true);
+  assert.equal(looksLikeCash('Karim:\n01712345678 John 5000'), true);
+});
+
+test('looksLikeCash: element rule does not swallow vessel orders', () => {
+  assert.equal(looksLikeCash('Mother Vessel: MV X Lighter Vessel: L-1 Master: 01911111111 500'), false);
+});
+
+test('looksLikeCash: element rule still rejects non-mobile numbers', () => {
+  assert.equal(looksLikeCash('ID: 12345 some name 3000'), false);
+});
+
+test('classifyDomain: element-based cash in a CASH chat', () => {
+  const r = classifyDomain('Just 01712345678 some name 500', 'CASH');
+  assert.equal(r.domain, 'CASH');
+});

@@ -42,6 +42,22 @@ function hasKeyword(text: string, keywords: string[]): boolean {
   return keywords.some((k) => normalized.includes(k.toLowerCase()));
 }
 
+// Element-based Cash rule (operator rule): a valid Bangladeshi mobile plus any
+// taka amount is a Cash signal even without an `ID:` prefix, a method marker or
+// a `/-` amount style. Mobile digits may be separated by spaces/dots/dashes.
+const MOBILE_ELEMENT = /(?<!\d)(?:00880|\+?880|0)[\s.\-()]*1[3-9](?:[\s.\-()]*\d){8}(?!\d)/g;
+
+function hasCashElements(normalized: string): boolean {
+  const matches = [...normalized.matchAll(MOBILE_ELEMENT)];
+  if (!matches.length) return false;
+  const chars = normalized.split('');
+  for (const match of matches) {
+    for (let i = match.index; i < match.index + match[0].length; i += 1) chars[i] = ' ';
+  }
+  // Any remaining standalone number is a taka amount.
+  return /(?<!\d)[0-9][0-9,]*(?:\.[0-9]{1,2})?(?!\d)/.test(chars.join(''));
+}
+
 export function looksLikeCash(text: string): boolean {
   const normalized = bengaliDigits(text.toLowerCase())
     // Bangla cash markers are the same signal as (B)/(N).
@@ -63,6 +79,9 @@ export function looksLikeCash(text: string): boolean {
   if (paymentBlock && amountPattern) return true;
   if (methodMarker && amountPattern && keyword) return true;
   if (keyword && amountPattern && methodMarker) return true;
+  // Element-based fallback: mobile + amount, unless the text also looks like a
+  // vessel order (which legitimately carries a master mobile + capacity).
+  if (!hasKeyword(normalized, VESSEL_KEYWORDS) && hasCashElements(normalized)) return true;
   return false;
 }
 

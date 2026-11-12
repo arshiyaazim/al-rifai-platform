@@ -496,6 +496,8 @@ async function handleCash(
   text: string,
 ): Promise<{created: boolean; instructionsCreated: number; reviewSubmitted: boolean; reasons: string[]}> {
   const {parsePaymentBlocks} = await import('./history-extraction.mjs');
+  const {parseCashElements} = await import('./cash-elements.mjs');
+  const {findOrCreateEmployeeByMobile} = await import('./standalone/cash-employee.ts');
   const blocks = parsePaymentBlocks(text) as Array<{
     blockKey: string;
     blockOrder: number;
@@ -507,6 +509,7 @@ async function handleCash(
   const incomplete = (blocks ?? []).filter((b) => b.reasons.length > 0);
   let instructionsCreated = 0;
   let reviewSubmitted = false;
+  let elementHandled = false;
   const reasons: string[] = [];
 
   for (const block of clean) {
@@ -520,8 +523,20 @@ async function handleCash(
       reasons.push('PAYMENT_METHOD_UNRESOLVED');
       continue;
     }
-    if (!fields.employeeMobile || !fields.employeeName) {
+    if (!fields.employeeMobile) {
       reasons.push('EMPLOYEE_IDENTITY_UNRESOLVED');
+      continue;
+    }
+    // Operator rule: money has already been sent. Resolve the employee by
+    // mobile digits and create the record when it is missing — never drop.
+    let employeeMobile = fields.employeeMobile;
+    let employeeName = fields.employeeName ?? '';
+    try {
+      const employee = await findOrCreateEmployeeByMobile(employeeMobile, employeeName, actor.id);
+      employeeMobile = employee.employee_mobile;
+      employeeName = employee.preferred_name || employeeName;
+    } catch (error) {
+      reasons.push(`EMPLOYEE_RESOLUTION_FAILED:${(error as Error).message.slice(0, 80)}`);
       continue;
     }
     const existing = await row(
@@ -530,9 +545,9 @@ async function handleCash(
     );
     if (existing) continue;
     const created = await autoPostInstruction(actor, {
-      employeeMobile: fields.employeeMobile ?? null,
-      employeeName: fields.employeeName ?? '',
-      payoutMobile: fields.payoutMobile ?? fields.employeeMobile ?? null,
+      employeeMobile,
+      employeeName,
+      payoutMobile: fields.payoutMobile ?? employeeMobile,
       method: fields.method,
       amountMinor,
       purpose: fields.purpose ?? null,
@@ -553,9 +568,64 @@ async function handleCash(
     if (created) instructionsCreated += 1;
   }
 
+  // Element-based fallback. The strict block parser above requires an `ID:`
+  // prefix, a payment-method marker and a `/-` amount. The operator's rule is
+  // element-based: mobile + name + any taka amount is enough. This branch is
+  // only used when the strict parser produced no clean block, and it never
+  // guesses when there are three or more mobiles or a cancellation.
+  if (!clean.length) {
+    const element = parseCashElements(text);
+    if (element && !element.ambiguous && !element.cancelled) {
+      const blockKey = 'cash-element-0';
+      const existing = await row(
+        'SELECT 1 AS present FROM cash_instructions WHERE source_message_id = $1 AND source_block_key = $2',
+        [message.message_id, blockKey],
+      );
+      if (existing) {
+        elementHandled = true;
+      } else {
+        try {
+          const employee = await findOrCreateEmployeeByMobile(element.mobiles[0], element.nameHint, actor.id);
+          const payoutMobile = `+88${element.mobiles[1] ?? element.mobiles[0]}`;
+          const method = element.method ?? 'cash';
+          const purpose = element.methodInferred
+            ? 'Owner direct payment instruction (payment method not stated; recorded as cash)'
+            : 'Owner direct payment instruction';
+          const created = await autoPostInstruction(actor, {
+            employeeMobile: employee.employee_mobile,
+            employeeName: employee.preferred_name || element.nameHint || 'UNKNOWN',
+            payoutMobile,
+            method,
+            amountMinor: element.amountMinor,
+            purpose,
+            accountId: 'acc-cash',
+            sourceChannel: 'WHATSAPP',
+            sourceMessageId: message.message_id,
+            sourceBlockKey: blockKey,
+            sourceHash: stableId('h', [message.account_id, message.message_id, blockKey]),
+          }, {
+            eventAt: message.source_timestamp,
+            sourceMessageId: message.message_id,
+            sourceBlockKey: blockKey,
+            sourceHash: stableId('h', [message.account_id, message.message_id, blockKey]),
+            auditAction: 'CASH:AUTO_POSTED_ELEMENT',
+            auditSource: 'WHATSAPP',
+            whatsAppVerified: true,
+          });
+          elementHandled = true;
+          if (created) instructionsCreated += 1;
+        } catch (error) {
+          reasons.push(`ELEMENT_POST_FAILED:${(error as Error).message.slice(0, 80)}`);
+        }
+      }
+    } else if (element) {
+      reasons.push(element.ambiguous ? 'AMBIGUOUS_MOBILE_NUMBERS' : 'CANCELLATION_OR_RETURN_REQUIRES_REVIEW');
+    }
+  }
+
   // Any ambiguous/incomplete block is preserved for Office review. It never
   // becomes a Business Paid Event until a human corrects and approves it.
-  if (incomplete.length) {
+  if (!elementHandled && incomplete.length) {
     reasons.push(...incomplete.flatMap((b) => b.reasons));
     const first = incomplete[0];
     const submitted = await submitReviewItem(actor, 'CASH', 'CREATE', message.message_id,
@@ -577,7 +647,27 @@ async function handleCash(
     reviewSubmitted = submitted.submitted;
   }
 
-  if (!clean.length && !incomplete.length) {
+  // A clean block that still failed to post (employee resolution, amount or
+  // database error) must never be silently dropped. Preserve the raw message
+  // for Office review.
+  if (!elementHandled && !reviewSubmitted && reasons.length) {
+    const submitted = await submitReviewItem(actor, 'CASH', 'CREATE', message.message_id,
+      'INCOMPLETE_CASH_INSTRUCTION', {
+        sourceMessageId: message.message_id,
+        sourceChatJid: message.chat_jid,
+        sourceAccountId: message.account_id,
+        sourceTimestamp: message.source_timestamp,
+        senderJid: message.sender_jid,
+        rawText: text,
+        parseReasons: [...new Set(reasons)],
+        parser: 'parsePaymentBlocks+cash-elements',
+        parserVersion: 'history-extraction-v3',
+        needsReviewerCorrection: true,
+      });
+    reviewSubmitted = submitted.submitted;
+  }
+
+  if (!clean.length && !incomplete.length && !elementHandled && !reviewSubmitted) {
     // No payment block at all: preserve the raw message for review.
     const submitted = await submitReviewItem(actor, 'CASH', 'CREATE', message.message_id,
       'EXTRACTION_FAILED', {
@@ -587,8 +677,8 @@ async function handleCash(
         sourceTimestamp: message.source_timestamp,
         senderJid: message.sender_jid,
         rawText: text,
-        parseReasons: ['NO_PARSEABLE_BLOCK'],
-        parser: 'parsePaymentBlocks',
+        parseReasons: ['NO_PARSEABLE_BLOCK', ...new Set(reasons)],
+        parser: 'parsePaymentBlocks+cash-elements',
         parserVersion: 'history-extraction-v3',
         needsReviewerCorrection: true,
       });
@@ -1497,8 +1587,21 @@ export async function routePendingMessages(
             result.ignored += 1;
           } else {
             const cashConversation = await isAuthorizedCashConversation(message.account_id, message.chat_jid);
+            // Flow A (auto-confirm): an OUTGOING WA-01 Admin message in the
+            // configured accountant chat is a RECORD that the accountant has
+            // already paid, so it is posted directly and skips review. The
+            // chat may be pinned with ACCOUNTANT_CHAT_JID; when the variable is
+            // unset, the existing chat-purpose/authorized-contact rule applies.
+            const configuredAccountant = (process.env.ACCOUNTANT_CHAT_JID ?? '').trim();
+            const matchesConfiguredAccountant = configuredAccountant
+              ? jidsMatch(configuredAccountant, message.chat_jid)
+              : true;
             if (!cashConversation.authorized) {
               classification = `CASH:${cashConversation.reason ?? 'ACCOUNTANT_NOT_AUTHORIZED'}`;
+              action = 'ignored';
+              result.ignored += 1;
+            } else if (!matchesConfiguredAccountant) {
+              classification = 'CASH:CHAT_NOT_CONFIGURED_ACCOUNTANT';
               action = 'ignored';
               result.ignored += 1;
             } else {
