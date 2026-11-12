@@ -83,6 +83,14 @@ test('cancellation is flagged, never auto-posted', () => {
   assert.equal(r.cancelled, true);
 });
 
+test('name before two adjacent mobiles is accepted', () => {
+  const r = parsed('Md.Nurun Nabi 01920547773 01770807812(B) 1200/-');
+  assert.ok(r);
+  assert.deepEqual(r.mobiles, ['01920547773', '01770807812']);
+  assert.equal(r.amountMinor, 120000);
+  assert.equal(r.nameHint, 'Md.Nurun Nabi');
+});
+
 test('nationalMobile normalises every mobile form', () => {
   assert.equal(nationalMobile('01581138565'), '01581138565');
   assert.equal(nationalMobile('01581-138565'), '01581138565');

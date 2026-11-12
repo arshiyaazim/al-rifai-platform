@@ -69,6 +69,14 @@ const tally = {
   failed: 0,
 };
 const rejectedSamples: Array<{messageId: string; text: string; reason: string}> = [];
+const pendingSamples: Array<{
+  messageId: string;
+  sourceTimestamp: string;
+  text: string;
+  mobiles: string[];
+  nameHint: string;
+  amountMinor: number;
+}> = [];
 const failures: Array<{messageId: string; error: string}> = [];
 
 for (const message of messages) {
@@ -93,15 +101,30 @@ for (const message of messages) {
   tally.candidates += 1;
 
   const existing = await row(
-    'SELECT 1 AS present FROM cash_instructions WHERE source_message_id = $1 AND source_block_key = $2',
-    [message.message_id, BLOCK_KEY],
+    // Idempotency is per source message, not per block key: a message already
+    // recorded by the live strict parser (e.g. `payment-block-0`) must never be
+    // posted again under the element block key.
+    'SELECT 1 AS present FROM cash_instructions WHERE source_message_id = $1 LIMIT 1',
+    [message.message_id],
   );
   if (existing) {
     tally.alreadyExisted += 1;
     continue;
   }
 
-  if (!APPLY) continue;
+  if (!APPLY) {
+    if (pendingSamples.length < 100) {
+      pendingSamples.push({
+        messageId: message.message_id,
+        sourceTimestamp: message.source_timestamp,
+        text: text.slice(0, 200),
+        mobiles: element.mobiles,
+        nameHint: element.nameHint,
+        amountMinor: element.amountMinor,
+      });
+    }
+    continue;
+  }
 
   try {
     await tx(async (client) => {
@@ -147,5 +170,6 @@ console.log(JSON.stringify({
   since: SINCE,
   ...tally,
   rejectedSamples,
+  pendingSamples,
   failures,
 }, null, 2));
