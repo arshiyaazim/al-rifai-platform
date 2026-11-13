@@ -4,14 +4,17 @@ import Link from 'next/link';
 import {useEffect, useRef, useState} from 'react';
 import {Eye} from 'lucide-react';
 import {AppToaster} from '@/components/standalone/app-toaster';
+import {CashPaymentForm} from '@/components/standalone/cash-payment-form';
 import {CashTransactionSidebar} from '@/components/standalone/cash-transaction-sidebar';
 import {CsvImportDialog} from '@/components/standalone/csv-import-dialog';
+import {DetailSidebar} from '@/components/standalone/detail-sidebar';
 import {TableExportControls} from '@/components/standalone/export-controls';
 import {RealtimeIndicator} from '@/components/standalone/realtime-refresher';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {useRealtimeUpdates} from '@/hooks/use-realtime-updates';
-import {bdtNumber, dateDdMmYyyy, dhakaTime12, localMobile, type ExportColumn} from '@/lib/export-format';
+import {bdtNumber, dateDdMmYyyy, dhakaTime12, type ExportColumn} from '@/lib/export-format';
+import {displayMobile} from '@/lib/display-mobile';
 
 export type CashTransaction = {
   id: string;
@@ -79,14 +82,21 @@ function updateUrl(page: number, limit: number, search: string, state: string, e
   window.history.replaceState(null, '', url);
 }
 
+type AccountOption = {id: string; code: string; name: string};
+
 export function CashTransactionsTable({
-  initial, canManage = false, initialSearch = '', initialState = '', initialEmployeeMobile = '',
+  initial, canManage = false, canSubmit = false, initialSearch = '', initialState = '', initialEmployeeMobile = '',
+  initialPaymentOpen = false, accounts = [], paymentDefaults = {},
 }: {
   initial: CashTransactionPage;
   canManage?: boolean;
+  canSubmit?: boolean;
   initialSearch?: string;
   initialState?: string;
   initialEmployeeMobile?: string;
+  initialPaymentOpen?: boolean;
+  accounts?: AccountOption[];
+  paymentDefaults?: {employeeName?: string; employeeMobile?: string; payoutMobile?: string};
 }) {
   const [data, setData] = useState<CashTransactionPage>(initial);
   const [page, setPage] = useState(initial.page);
@@ -100,6 +110,7 @@ export function CashTransactionsTable({
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [selected, setSelected] = useState<CashTransaction | null>(null);
+  const [paymentOpen, setPaymentOpen] = useState(initialPaymentOpen);
   const request = useRef(0);
   const current = useRef({page: initial.page, limit: initial.limit, appliedSearch: initialSearch, stateFilter: initialState, employeeFilter: initialEmployeeMobile});
 
@@ -211,7 +222,7 @@ export function CashTransactionsTable({
   const exportRows: ExportRow[] = rows.map((item, index) => ({...item, sl: offset + index + 1}));
   const columns: ExportColumn<ExportRow>[] = [
     {header: 'Date', value: (row) => `${dateDdMmYyyy(row.eventAt)} ${dhakaTime12(row.eventAt)}`},
-    {header: 'Employee ID', value: (row) => localMobile(row.employeeId)},
+    {header: 'Employee ID', value: (row) => displayMobile(row.employeeId)},
     {header: 'Name', value: (row) => row.nameOfEmployee},
     {header: 'Designation', value: (row) => row.designation ?? ''},
     {header: 'Date of Join', value: (row) => dateDdMmYyyy(row.dateOfJoin)},
@@ -284,12 +295,9 @@ export function CashTransactionsTable({
                   Clear filters{activeFilters ? ` (${activeFilters})` : ''}
                 </Button>
               ) : null}
-              <label className="muted" style={{display: 'flex', alignItems: 'center', gap: 6}}>
-                Rows
-                <select value={limit} onChange={(event) => changeLimit(Number(event.target.value))} aria-label="Rows per page" className="h-8 rounded-md border bg-background px-2 text-sm">
-                  {[10, 20, 50].map((value) => <option key={value} value={value}>{value}</option>)}
-                </select>
-              </label>
+              {canSubmit ? (
+                <Button type="button" size="sm" onClick={() => setPaymentOpen(true)}>Add New Payment</Button>
+              ) : null}
             </div>
           </form>
           <TableExportControls
@@ -308,7 +316,7 @@ export function CashTransactionsTable({
 
         {employeeFilter ? (
           <div className="vessel-filter-chip" role="status">
-            <span>Filtering: <strong>{employeeLabel || localMobile(employeeFilter)}</strong></span>
+            <span>Filtering: <strong>{employeeLabel || displayMobile(employeeFilter)}</strong></span>
             <button type="button" aria-label="Clear employee filter" onClick={clearEmployeeFilter}>×</button>
           </div>
         ) : null}
@@ -353,15 +361,14 @@ export function CashTransactionsTable({
                   </td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>
                     {item.employeeId
-                      ? <Link href={`/employees/${encodeURIComponent(item.employeeId)}`}>{localMobile(item.employeeId)}</Link>
+                      ? <Link href={`/cash/employee/${encodeURIComponent(item.employeeId)}`}>{displayMobile(item.employeeId)}</Link>
                       : <span className="muted">—</span>}
                   </td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
                     {item.employeeId ? (
-                      <button type="button" className="vessel-link" title={item.nameOfEmployee}
-                        onClick={() => applyEmployeeFilter(item.employeeId, item.nameOfEmployee)}>
+                      <Link href={`/cash/employee/${encodeURIComponent(item.employeeId)}`} title={`Full transaction history for ${item.nameOfEmployee}`}>
                         {dash(item.nameOfEmployee)}
-                      </button>
+                      </Link>
                     ) : dash(item.nameOfEmployee)}
                   </td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>{dash(item.designation)}</td>
@@ -400,12 +407,30 @@ export function CashTransactionsTable({
           <Button type="button" size="sm" variant="outline" disabled={loading || data.page >= data.totalPages} onClick={() => { const next = data.page + 1; updateUrl(next, limit, appliedSearch, stateFilter, employeeFilter); void load(next, limit, appliedSearch, stateFilter, employeeFilter); }}>
             Next →
           </Button>
+          <label className="muted" style={{display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto'}}>
+            Rows
+            <select value={limit} onChange={(event) => changeLimit(Number(event.target.value))} aria-label="Rows per page" className="h-8 rounded-md border bg-background px-2 text-sm">
+              {[10, 20, 50].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
         </div>
 
         <p className="muted" style={{marginTop: 10, marginBottom: 0}}>
           Date is the real WhatsApp event time (Asia/Dhaka). Designation and Date of Join show “—” when the employee registry has no value. Payouts is the sequential payout for that employee; Total Paid is cumulative through this row in event-time order.
         </p>
       </section>
+
+      <DetailSidebar
+        open={paymentOpen}
+        onClose={() => setPaymentOpen(false)}
+        title="New payment instruction"
+        description="Manual entry · employee lookup, then the normal approve/post workflow."
+      >
+        <CashPaymentForm
+          accounts={accounts}
+          defaults={paymentDefaults}
+        />
+      </DetailSidebar>
 
       <CashTransactionSidebar
         key={selected?.id ?? 'none'}

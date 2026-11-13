@@ -5,7 +5,6 @@ import {rows} from '@/lib/standalone/db';
 import {money, pageUser, when} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
-import {CashPaymentForm} from '@/components/standalone/cash-payment-form';
 import {CashTransactionsTable} from '@/components/standalone/cash-transactions-table';
 
 export const dynamic = 'force-dynamic';
@@ -120,7 +119,10 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
         <SummaryCard label="Last Month Paid" value={money(summary.lastMonthPaidMinor)} hint={paidBasis ? 'Business paid last month' : 'Posted last month'} href={rangeHref(lastMonthRange)} />
       </div>
 
-      <CashTransactionsTable canManage={user.role === 'ADMIN' && canReview} initialSearch={txSearch} initialState={state} initialEmployeeMobile={filters.employee_mobile ?? ''} initial={{
+      <CashTransactionsTable canManage={user.role === 'ADMIN' && canReview} canSubmit={canSubmit} initialPaymentOpen={paymentOpen}
+        paymentDefaults={{employeeName, employeeMobile, payoutMobile}}
+        accounts={accounts.map((account) => ({id: account.id, code: account.code, name: account.name}))}
+        initialSearch={txSearch} initialState={state} initialEmployeeMobile={filters.employee_mobile ?? ''} initial={{
         transactions: initialTransactions,
         total: txTotal,
         page: 1,
@@ -129,16 +131,6 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
       }} />
 
       <div className="cash-form-grid">
-        {canSubmit ? (
-          <details className="cash-form-panel" id="new-payment" open={paymentOpen}>
-            <summary>New payment instruction</summary>
-            <CashPaymentForm
-              key={`${employeeName}|${employeeMobile}|${payoutMobile}|${paymentOpen ? '1' : '0'}`}
-              accounts={accounts.map((account) => ({id: account.id, code: account.code, name: account.name}))}
-              defaults={{employeeName, employeeMobile, payoutMobile}}
-            />
-          </details>
-        ) : null}
         {canLedger ? (
           <details className="cash-form-panel">
             <summary>Record income / expense</summary>
