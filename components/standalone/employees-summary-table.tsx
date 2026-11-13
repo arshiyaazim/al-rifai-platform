@@ -1,15 +1,20 @@
 'use client';
 
+import Link from 'next/link';
 import {useEffect, useMemo, useState} from 'react';
 import {Eye, Plus} from 'lucide-react';
 import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
 import {EmployeeDetailSidebar} from '@/components/standalone/employee-detail-sidebar';
+import {displayMobile} from '@/lib/display-mobile';
 
 type SummaryRow = {
   employee_mobile: string;
   preferred_name: string;
   date_of_join: string | null;
   designation: string | null;
+  vessel_attendance?: string;
+  non_vessel_attendance?: string;
   total_attendance: string;
   salary_minor: string;
   cash_paid_minor: string;
@@ -23,6 +28,31 @@ const money = (minor: unknown) => {
   return `৳${(Number.isFinite(value) ? value / 100 : 0).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
 };
 
+/** Attendance is a plain number: 3.5 → "3.5", 3 → "3", none → "0". */
+const attendance = (value: unknown) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '0';
+  return String(Number(number.toFixed(2)));
+};
+
+const sum = (rows: SummaryRow[], key: keyof SummaryRow) =>
+  rows.reduce((total, row) => total + (Number(row[key] ?? 0) || 0), 0);
+
+const monthKey = (date: Date) => `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+function MetricCard({label, value, href, missing}: {label: string; value: string; href?: string; missing?: boolean}) {
+  const body = (
+    <>
+      <div className="ui-card__label">{label}</div>
+      <div className={missing ? 'ui-card__value ui-card__value--missing' : 'ui-card__value'}>{value}</div>
+    </>
+  );
+  return href
+    ? <Link href={href} className="ui-card">{body}</Link>
+    : <div className="ui-card">{body}</div>;
+}
+
 export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
   const [rows, setRows] = useState<SummaryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +61,9 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
   const [createOpen, setCreateOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<{key: SortKey; dir: 'asc' | 'desc'}>({key: 'preferred_name', dir: 'asc'});
+  const [query, setQuery] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const limit = 20;
 
   async function load() {
@@ -51,8 +84,26 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
   // eslint-disable-next-line react-hooks/set-state-in-effect -- the initial read is an async fetch; setState runs after await.
   useEffect(() => { void load(); }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- any filter change must return the table to page 1.
+  useEffect(() => { setPage(1); }, [query, fromDate, toDate]);
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return rows.filter((row) => {
+      if (needle) {
+        const haystack = [row.preferred_name, row.employee_mobile, displayMobile(row.employee_mobile)]
+          .join(' ').toLowerCase();
+        if (!haystack.includes(needle)) return false;
+      }
+      const joined = row.date_of_join ? String(row.date_of_join).slice(0, 10) : '';
+      if (fromDate && (!joined || joined < fromDate)) return false;
+      if (toDate && (!joined || joined > toDate)) return false;
+      return true;
+    });
+  }, [rows, query, fromDate, toDate]);
+
   const sorted = useMemo(() => {
-    const copy = [...rows];
+    const copy = [...filtered];
     copy.sort((left, right) => {
       const a = left[sort.key] ?? '';
       const b = right[sort.key] ?? '';
@@ -61,7 +112,7 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
       return sort.dir === 'asc' ? result : -result;
     });
     return copy;
-  }, [rows, sort]);
+  }, [filtered, sort]);
 
   const pages = Math.max(1, Math.ceil(sorted.length / limit));
   const safePage = Math.min(page, pages);
@@ -79,13 +130,50 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
     </th>
   );
 
+  // Card figures come from the same /api/employees/summary payload that fills
+  // the table: employees (ACTIVE) + employees.date_of_join (joined_on fallback),
+  // program_assignments/program_pay (vessel days), cash_postings (paid).
+  const now = new Date();
+  const thisMonth = monthKey(now);
+  const lastMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const lastMonth = monthKey(lastMonthDate);
+  const today = todayIso();
+  const joinedIn = (month: string) => rows.filter((row) => String(row.date_of_join ?? '').slice(0, 7) === month).length;
+  const joinedToday = rows.filter((row) => String(row.date_of_join ?? '').slice(0, 10) === today).length;
+  const vesselDays = sum(rows, 'vessel_attendance');
+  const salaryTotal = sum(rows, 'salary_minor');
+  const paidTotal = sum(rows, 'cash_paid_minor');
+
   return (
     <>
-      <div className="page-head" style={{marginBottom: 8}}>
-        <div><h3 style={{margin: 0}}>Directory ({rows.length})</h3></div>
+      <div className="ui-cards">
+        <MetricCard label="Total Employee" value={rows.length.toLocaleString()} href="/employees" />
+        <MetricCard label="New Join: Last Month" value={joinedIn(lastMonth).toLocaleString()} />
+        <MetricCard label="New Join: This Month" value={joinedIn(thisMonth).toLocaleString()} />
+        <MetricCard label="Today Joined" value={joinedToday.toLocaleString()} />
+        <MetricCard label="Total Attendance: Vessel" value={attendance(vesselDays)} />
+        <MetricCard label="Total Attendance: Security" value="data source missing" missing />
+        <MetricCard label="Total Salary" value={money(salaryTotal)} />
+        <MetricCard label="Total Paid" value={money(paidTotal)} href="/cash" />
+      </div>
+
+      <div className="ui-filter-row">
+        <label style={{flex: '1 1 240px'}}>Employee search
+          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name or mobile" aria-label="Employee search" />
+        </label>
+        <label>Join date from
+          <Input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} aria-label="Join date from" />
+        </label>
+        <label>Join date to
+          <Input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} aria-label="Join date to" />
+        </label>
         {canManage ? (
           <Button type="button" size="sm" onClick={() => setCreateOpen(true)}><Plus className="size-4" />Add New Employee</Button>
         ) : null}
+      </div>
+
+      <div className="page-head" style={{marginBottom: 8}}>
+        <div><h3 style={{margin: 0}}>Directory ({filtered.length})</h3></div>
       </div>
 
       {error ? <p role="alert" style={{color: '#b91c1c'}}>{error}</p> : null}
@@ -94,14 +182,14 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
         <table className="cash-payment-table" style={{minWidth: 980}}>
           <thead>
             <tr>
-              <th>SL</th>
+              <th style={{width: 48}}>SL</th>
               {header('employee_mobile', 'Employee ID')}
-              {header('preferred_name', 'Employee Name')}
-              {header('date_of_join', 'Date of Join')}
+              {header('preferred_name', 'Name')}
+              {header('date_of_join', 'Join Date')}
               {header('designation', 'Designation')}
-              {header('total_attendance', 'Total Attendance', 'right')}
+              {header('total_attendance', 'Attendance', 'right')}
               {header('salary_minor', 'Salary', 'right')}
-              {header('cash_paid_minor', 'Cash Paid', 'right')}
+              {header('cash_paid_minor', 'Paid', 'right')}
               {header('due_minor', 'Due', 'right')}
               <th><span className="sr-only">View</span></th>
             </tr>
@@ -112,12 +200,12 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
               const due = Number(row.due_minor);
               return (
                 <tr key={row.employee_mobile}>
-                  <td>{(safePage - 1) * limit + index + 1}</td>
-                  <td>{row.employee_mobile}</td>
+                  <td style={{width: 48}}>{(safePage - 1) * limit + index + 1}</td>
+                  <td>{displayMobile(row.employee_mobile)}</td>
                   <td>{row.preferred_name}</td>
                   <td>{row.date_of_join ?? '—'}</td>
                   <td>{row.designation ?? '—'}</td>
-                  <td style={{textAlign: 'right'}}>{Number(row.total_attendance).toFixed(2)}</td>
+                  <td style={{textAlign: 'right'}}>{attendance(row.total_attendance)}</td>
                   <td style={{textAlign: 'right'}}>{money(row.salary_minor)}</td>
                   <td style={{textAlign: 'right'}}>{money(row.cash_paid_minor)}</td>
                   <td style={{textAlign: 'right', color: due > 0 ? '#b91c1c' : '#15803d', fontWeight: 600}}>{money(row.due_minor)}</td>

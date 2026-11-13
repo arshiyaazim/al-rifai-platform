@@ -37,6 +37,8 @@ export async function GET(request: Request) {
           GROUP BY i.employee_mobile
        ), days AS (
          SELECT e.employee_mobile,
+                coalesce(v.days, 0) AS vessel_days,
+                coalesce(n.days, 0) AS non_vessel_days,
                 coalesce(v.days, 0) + coalesce(n.days, 0) AS total_days
            FROM employees e
            LEFT JOIN vessel v ON v.employee_mobile = e.employee_mobile
@@ -46,6 +48,8 @@ export async function GET(request: Request) {
               e.preferred_name,
               coalesce(e.date_of_join, e.joined_on)::text AS date_of_join,
               e.designation,
+              round(d.vessel_days, 2)::text AS vessel_attendance,
+              round(d.non_vessel_days, 2)::text AS non_vessel_attendance,
               round(d.total_days, 2)::text AS total_attendance,
               round(d.total_days * $1)::bigint AS salary_minor,
               coalesce(p.total_paid, 0)::bigint AS cash_paid_minor,
