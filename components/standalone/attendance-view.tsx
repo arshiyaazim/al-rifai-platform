@@ -6,6 +6,8 @@ import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {AttendanceForm, type AttendanceRecord} from '@/components/standalone/attendance-form';
 import {EmployeeLookupDual} from '@/components/standalone/employee-lookup';
+import {displayMobile} from '@/lib/display-mobile';
+import {dateDdMmYyyy} from '@/lib/export-format';
 
 type Row = {
   source_id: string;
@@ -22,20 +24,65 @@ type Row = {
   is_weekend: boolean;
 };
 
-type Summary = {vesselDays: number; nonVesselDays: number; totalDays: number; salaryMinor: number};
-
-const money = (minor: number) => `৳${(minor / 100).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
-const dmy = (value: string) => {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  return match ? `${match[3]}.${match[2]}.${match[1].slice(2)}` : value;
+type Summary = {
+  vesselDays: number;
+  nonVesselDays: number;
+  totalDays: number;
+  salaryMinor: number;
+  activeEmployees?: number;
 };
 
+type Payload = {rows: Row[]; summary: Summary; range?: {from: string; to: string}};
+
+const money = (minor: number) => `৳${(minor / 100).toLocaleString('en-US', {minimumFractionDigits: 2})}`;
+
+/** Plain number: 3.5 → "3.5", 3 → "3", none → "0". */
+const plain = (value: unknown) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '0';
+  return String(Number(number.toFixed(2)));
+};
+
+const monthBounds = (offset: number) => {
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset, 1));
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + offset + 1, 0));
+  return {from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10)};
+};
+
+const distinctPeople = (rows: Row[]) => new Set(rows.map((row) => row.employee_mobile)).size;
+
+function MetricCard({label, value, missing}: {label: string; value: string; missing?: boolean}) {
+  return (
+    <div className="ui-card">
+      <div className="ui-card__label">{label}</div>
+      <div className={missing ? 'ui-card__value ui-card__value--missing' : 'ui-card__value'}>{value}</div>
+    </div>
+  );
+}
+
+async function readPayload(params: URLSearchParams): Promise<Payload> {
+  const response = await fetch(`/api/attendance/unified?${params.toString()}`, {cache: 'no-store'});
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
+  return body as Payload;
+}
+
 export function AttendanceView() {
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const thisMonth = monthBounds(0);
+  const lastMonth = monthBounds(-1);
+  const today = new Date().toISOString().slice(0, 10);
+  const [from, setFrom] = useState(thisMonth.from);
+  const [to, setTo] = useState(thisMonth.to);
   const [employeeMobile, setEmployeeMobile] = useState('');
   const [employeeName, setEmployeeName] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
   const [summary, setSummary] = useState<Summary>({vesselDays: 0, nonVesselDays: 0, totalDays: 0, salaryMinor: 0});
+  const [todayRows, setTodayRows] = useState<Row[]>([]);
+  const [activeEmployees, setActiveEmployees] = useState(0);
+  const [monthSummary, setMonthSummary] = useState<Summary>({vesselDays: 0, nonVesselDays: 0, totalDays: 0, salaryMinor: 0});
+  const [lastMonthSummary, setLastMonthSummary] = useState<Summary>({vesselDays: 0, nonVesselDays: 0, totalDays: 0, salaryMinor: 0});
+  const [monthRows, setMonthRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [page, setPage] = useState(1);
@@ -47,13 +94,21 @@ export function AttendanceView() {
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({month});
+      const params = new URLSearchParams({from, to});
       if (employeeMobile) params.set('employee_mobile', employeeMobile);
-      const response = await fetch(`/api/attendance/unified?${params.toString()}`, {cache: 'no-store'});
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
-      setRows(body.rows as Row[]);
-      setSummary(body.summary as Summary);
+      const [payload, todayPayload, monthPayload, previousPayload] = await Promise.all([
+        readPayload(params),
+        readPayload(new URLSearchParams({from: today, to: today})),
+        readPayload(new URLSearchParams({from: thisMonth.from, to: thisMonth.to})),
+        readPayload(new URLSearchParams({from: lastMonth.from, to: lastMonth.to})),
+      ]);
+      setRows(payload.rows);
+      setSummary(payload.summary);
+      setTodayRows(todayPayload.rows);
+      setActiveEmployees(Number(todayPayload.summary.activeEmployees ?? 0));
+      setMonthSummary(monthPayload.summary);
+      setMonthRows(monthPayload.rows);
+      setLastMonthSummary(previousPayload.summary);
       setPage(1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load attendance.');
@@ -62,8 +117,8 @@ export function AttendanceView() {
     }
   }
 
-  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- the async read owns its loading state; reload only when month/employee changes. */
-  useEffect(() => { void load(); }, [month, employeeMobile]);
+  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- the async read owns its loading state; reload only when the range/employee changes. */
+  useEffect(() => { void load(); }, [from, to, employeeMobile]);
   /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
   const sorted = useMemo(() => {
@@ -101,22 +156,34 @@ export function AttendanceView() {
     remarks: row.remarks,
   });
 
+  const todayPresent = distinctPeople(todayRows);
+  const todayAbsent = Math.max(0, activeEmployees - todayPresent);
+  const presentThisMonth = distinctPeople(monthRows);
+  const manualThisMonth = monthRows.filter((row) => row.source === 'NON_VESSEL').length;
+
   return (
     <>
       <div className="page-head">
         <div>
           <h1>Attendance / হাজিরা</h1>
-          <p className="muted">Vessel duty (automatic) + non-vessel duty (manual), month by month.</p>
+          <p className="muted">Vessel duty (automatic) + non-vessel duty (manual), by date range.</p>
         </div>
-        <Button type="button" size="sm" onClick={() => { setEditing(null); setFormOpen(true); }}>
-          <Plus className="size-4" /> Add Attendance
-        </Button>
+      </div>
+
+      <div className="ui-cards">
+        <MetricCard label="Today Present" value={plain(todayPresent)} />
+        <MetricCard label="Today Absent" value={plain(todayAbsent)} />
+        <MetricCard label="This Month" value={plain(monthSummary.totalDays)} />
+        <MetricCard label="Last Month" value={plain(lastMonthSummary.totalDays)} />
+        <MetricCard label="Vessel" value={plain(monthSummary.vesselDays)} />
+        <MetricCard label="Security" value="data source missing" missing />
+        <MetricCard label="Employees Present This Month" value={plain(presentThisMonth)} />
+        <MetricCard label="Manual Entries This Month" value={plain(manualThisMonth)} />
       </div>
 
       <section className="card" style={{marginBottom: 14, padding: 14}}>
-        <div style={{display: 'grid', gridTemplateColumns: '180px minmax(280px, 1fr) auto', gap: 10, alignItems: 'end'}}>
-          <label className="text-sm">Month<Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} /></label>
-          <div>
+        <div className="ui-filter-row" style={{marginBottom: 0}}>
+          <label style={{flex: '1 1 260px'}}>Employee search
             <EmployeeLookupDual
               key={employeeMobile || 'all'}
               initialMobile={employeeMobile}
@@ -124,12 +191,27 @@ export function AttendanceView() {
               layout="horizontal"
               onEmployeeSelect={(mobile, name) => { setEmployeeMobile(mobile); setEmployeeName(name); }}
             />
-          </div>
-          <Button type="button" size="sm" variant="outline" onClick={() => { setEmployeeMobile(''); setEmployeeName(''); }}>All employees</Button>
+          </label>
+          <label>From
+            <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} aria-label="Attendance from" />
+          </label>
+          <label>To
+            <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} aria-label="Attendance to" />
+          </label>
+          <Button type="button" size="sm" variant="outline"
+            onClick={() => { setFrom(thisMonth.from); setTo(thisMonth.to); }}>
+            This month
+          </Button>
+          {employeeMobile ? (
+            <Button type="button" size="sm" variant="outline" onClick={() => { setEmployeeMobile(''); setEmployeeName(''); }}>All employees</Button>
+          ) : null}
+          <Button type="button" size="sm" onClick={() => { setEditing(null); setFormOpen(true); }}>
+            <Plus className="size-4" /> Add New Attendance
+          </Button>
         </div>
         {employeeMobile ? (
           <div className="vessel-filter-chip" style={{marginTop: 10}}>
-            <span>Filtering: <strong>{employeeName || employeeMobile}</strong></span>
+            <span>Filtering: <strong>{employeeName || displayMobile(employeeMobile)}</strong></span>
             <button type="button" aria-label="Clear employee filter" onClick={() => { setEmployeeMobile(''); setEmployeeName(''); }}>×</button>
           </div>
         ) : null}
@@ -158,8 +240,8 @@ export function AttendanceView() {
               {loading ? <tr><td colSpan={10} className="muted">Loading attendance…</td></tr> : null}
               {!loading && pageRows.map((row) => (
                 <tr key={`${row.source}-${row.source_id}-${row.shift}`} style={row.is_weekend ? {background: '#f8fafc'} : undefined}>
-                  <td style={{whiteSpace: 'nowrap'}}>{dmy(row.attendance_date)} <small className="muted">{row.day_name}</small></td>
-                  <td>{row.employee_mobile}</td>
+                  <td style={{whiteSpace: 'nowrap'}}>{dateDdMmYyyy(row.attendance_date)}</td>
+                  <td>{displayMobile(row.employee_mobile)}</td>
                   <td>{row.preferred_name ?? '—'}</td>
                   <td>{row.shift}</td>
                   <td>{row.location ?? '—'}</td>
@@ -181,7 +263,7 @@ export function AttendanceView() {
                   </td>
                 </tr>
               ))}
-              {!loading && !pageRows.length ? <tr><td colSpan={10} className="muted">No attendance for this month.</td></tr> : null}
+              {!loading && !pageRows.length ? <tr><td colSpan={10} className="muted">No attendance for this range.</td></tr> : null}
             </tbody>
           </table>
         </div>
@@ -193,8 +275,8 @@ export function AttendanceView() {
             <Button type="button" size="sm" variant="outline" disabled={safePage >= pages} onClick={() => setPage(safePage + 1)}>Next →</Button>
           </div>
           <span className="muted">
-            Total days: <strong>{summary.totalDays.toFixed(2)}</strong> · Vessel: {summary.vesselDays.toFixed(2)} ·
-            Non-Vessel: {summary.nonVesselDays.toFixed(2)} · Salary: <strong>{money(summary.salaryMinor)}</strong>
+            Total days: <strong>{plain(summary.totalDays)}</strong> · Vessel: {plain(summary.vesselDays)} ·
+            Non-Vessel: {plain(summary.nonVesselDays)} · Salary: <strong>{money(summary.salaryMinor)}</strong>
           </span>
         </div>
       </section>

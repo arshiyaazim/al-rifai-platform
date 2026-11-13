@@ -131,8 +131,13 @@ export async function voidAttendanceRecord(actor: Actor, id: string) {
   });
 }
 
-export async function unifiedAttendance(input: {employeeMobile?: string; month: string}) {
-  const month = /^\d{4}-\d{2}$/.test(input.month) ? `${input.month}-01` : `${new Date().toISOString().slice(0, 7)}-01`;
+export async function unifiedAttendance(input: {employeeMobile?: string; month?: string; from?: string; to?: string}) {
+  const isoDay = /^\d{4}-\d{2}-\d{2}$/;
+  const month = /^\d{4}-\d{2}$/.test(input.month ?? '') ? String(input.month) : new Date().toISOString().slice(0, 7);
+  const [year, monthNumber] = month.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+  const from = isoDay.test(input.from ?? '') ? String(input.from) : `${month}-01`;
+  const to = isoDay.test(input.to ?? '') ? String(input.to) : lastDay;
   const employee = input.employeeMobile ? mobile(input.employeeMobile, 'employeeMobile') : null;
   const vessel = await rows<Record<string, unknown>>(
     `SELECT pa.employee_mobile, e.preferred_name,
@@ -146,9 +151,10 @@ export async function unifiedAttendance(input: {employeeMobile?: string; month: 
        JOIN program_pay pp ON pp.program_id = p.id
        LEFT JOIN employees e ON e.employee_mobile = pa.employee_mobile
       WHERE p.state IN ('CONFIRMED','RELEASED')
-        AND date_trunc('month', p.start_date) = $1::date
-        AND ($2::text IS NULL OR pa.employee_mobile = $2)`,
-    [month, employee],
+        AND p.start_date >= $1::date
+        AND p.start_date <= $2::date
+        AND ($3::text IS NULL OR pa.employee_mobile = $3)`,
+    [from, to, employee],
   );
   const manual = await rows<Record<string, unknown>>(
     `SELECT a.id AS source_id, a.employee_mobile, e.preferred_name,
@@ -158,9 +164,10 @@ export async function unifiedAttendance(input: {employeeMobile?: string; month: 
        FROM attendance_records a
        LEFT JOIN employees e ON e.employee_mobile = a.employee_mobile
       WHERE a.state = 'ACTIVE'
-        AND date_trunc('month', a.attendance_date) = $1::date
-        AND ($2::text IS NULL OR a.employee_mobile = $2)`,
-    [month, employee],
+        AND a.attendance_date >= $1::date
+        AND a.attendance_date <= $2::date
+        AND ($3::text IS NULL OR a.employee_mobile = $3)`,
+    [from, to, employee],
   );
   const all: Array<Record<string, unknown>> = [...vessel, ...manual].map((rowData): Record<string, unknown> => {
     const date = String(rowData.attendance_date);
@@ -173,13 +180,16 @@ export async function unifiedAttendance(input: {employeeMobile?: string; month: 
   const vesselDays = vessel.reduce((sum, item) => sum + Number(item.vessel_shifts ?? 0) / 2, 0);
   const nonVesselDays = manual.reduce((sum, item) => sum + (item.shift === 'FULL' ? 1 : 0.5), 0);
   const totalDays = vesselDays + nonVesselDays;
+  const active = await row<{count: string}>("SELECT count(*)::text AS count FROM employees WHERE state = 'ACTIVE'");
   return {
     rows: all,
+    range: {from, to},
     summary: {
       vesselDays,
       nonVesselDays,
       totalDays,
       salaryMinor: Math.round(totalDays * 40000),
+      activeEmployees: Number(active?.count ?? 0),
     },
   };
 }

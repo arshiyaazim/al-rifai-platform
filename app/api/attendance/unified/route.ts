@@ -14,6 +14,8 @@ export async function GET(request: Request) {
     return ok(await unifiedAttendance({
       employeeMobile: url.searchParams.get('employee_mobile') ?? undefined,
       month,
+      from: url.searchParams.get('from') ?? undefined,
+      to: url.searchParams.get('to') ?? undefined,
     }));
   } catch (error) {
     return errorResponse(error);
