@@ -9,12 +9,17 @@
 //
 // Usage:
 //   node --experimental-strip-types scripts/backfill-release-slips.ts
-//   node --experimental-strip-types scripts/backfill-release-slips.ts --apply
+//   node --experimental-strip-types scripts/backfill-release-slips.ts --apply --structured-only
 //
-// `--apply` is intentionally a no-op: it prints why and exits without writing.
+// `--apply` writes releases only when `--structured-only` is also passed:
+// structured slips whose escort mobile, end date and a single matching program
+// are all resolved. Payment-line slips are never applied in bulk. Without
+// --apply nothing is written.
 
 import {loadEnv} from '../lib/env.mjs';
-import {rows} from '../lib/standalone/db.ts';
+import {rows, row, type Actor} from '../lib/standalone/db.ts';
+import {releaseProgram} from '../lib/standalone/programs.ts';
+import {compareVesselNames} from '../lib/vessel-match.ts';
 import {parseReleaseSlips} from '../lib/release-slip.ts';
 import {parseMessage} from '../lib/release-parser.ts';
 import {listReleaseSlips, RELEASE_CHAT_JID} from '../lib/standalone/release-slips.ts';
@@ -22,6 +27,8 @@ import {listReleaseSlips, RELEASE_CHAT_JID} from '../lib/standalone/release-slip
 loadEnv();
 
 const APPLY = process.argv.includes('--apply');
+const STRUCTURED_ONLY = process.argv.includes('--structured-only');
+const actor: Actor = {id: 'system:release-backfill', role: 'ADMIN'};
 
 const messages = await rows<{
   message_id: string; source_timestamp: string; text_content: string | null; media_type: string | null;
@@ -72,9 +79,93 @@ console.log(JSON.stringify({
   foodBillTotalMinor: slips.reduce((sum, slip) => sum + Number(slip.foodBillMinor ?? 0), 0),
 }, null, 2));
 
-if (APPLY) {
-  console.log('\nNothing to write: release slips are derived from the messages, not stored.');
-  console.log('Bulk approval is deliberately not automated; use the /release page per slip.');
+// ---------------------------------------------------------------------------
+// Apply (structured slips only)
+// ---------------------------------------------------------------------------
+
+type Candidate = {
+  id: string;
+  state: string;
+  start_date: string;
+  end_date: string | null;
+  lighter_vessel: string | null;
+  mother_vessel: string | null;
+  release_message_id: string | null;
+};
+
+const sameVessel = (left: string | null | undefined, right: string | null | undefined) =>
+  Boolean(left && right) && compareVesselNames(String(left), String(right)) !== 'DIFFERENT';
+
+const results: Array<{messageId: string; outcome: string; detail: string}> = [];
+
+if (APPLY && !STRUCTURED_ONLY) {
+  console.log('\nRefusing: --apply requires --structured-only in this batch. Nothing was written.');
+} else if (APPLY) {
+  const structured = slips.filter((slip) => slip.structured);
+  for (const slip of structured) {
+    if (slip.status !== 'PENDING') {
+      results.push({messageId: slip.messageId, outcome: 'SKIPPED', detail: `ALREADY_${slip.status}`});
+      continue;
+    }
+    if (!slip.escortMobile || !slip.endDate) {
+      results.push({messageId: slip.messageId, outcome: 'SKIPPED', detail: 'INCOMPLETE'});
+      continue;
+    }
+    const candidates = await rows<Candidate>(
+      `SELECT id, state, start_date::text AS start_date, end_date::text AS end_date,
+              lighter_vessel, mother_vessel, release_message_id
+         FROM programs
+        WHERE escort_mobile = $1
+          AND state IN ('CONFIRMED','ASSIGNED','IN_DUTY')
+          AND start_date <= $2::date
+        ORDER BY start_date DESC`,
+      [`+88${slip.escortMobile}`, slip.endDate],
+    );
+    const byLighter = slip.lighterVessel
+      ? candidates.filter((candidate) => sameVessel(candidate.lighter_vessel, slip.lighterVessel))
+      : candidates;
+    const byMother = slip.motherVessel
+      ? byLighter.filter((candidate) => sameVessel(candidate.mother_vessel, slip.motherVessel))
+      : byLighter;
+    const matches = byMother.length ? byMother : byLighter;
+    if (!matches.length) {
+      results.push({messageId: slip.messageId, outcome: 'SKIPPED', detail: 'NO_MATCHING_PROGRAM'});
+      continue;
+    }
+    if (matches.length > 1) {
+      results.push({messageId: slip.messageId, outcome: 'SKIPPED', detail: `AMBIGUOUS(${matches.length})`});
+      continue;
+    }
+    const program = matches[0];
+    if (program.release_message_id === slip.messageId) {
+      results.push({messageId: slip.messageId, outcome: 'SKIPPED', detail: 'ALREADY_APPLIED'});
+      continue;
+    }
+    try {
+      await releaseProgram(actor, program.id, {
+        endDate: slip.endDate,
+        endShift: slip.endShift ?? 'D',
+        note: `Backfill release slip ${slip.messageId}`,
+        release: {
+          messageId: slip.messageId,
+          chatJid: RELEASE_CHAT_JID,
+          senderJid: null,
+          accountId: 'wa-01',
+          timestamp: slip.messageAt,
+        },
+      });
+      results.push({messageId: slip.messageId, outcome: 'APPLIED', detail: program.id});
+    } catch (error) {
+      results.push({messageId: slip.messageId, outcome: 'SKIPPED', detail: `ERROR:${(error as Error).message.slice(0, 80)}`});
+    }
+  }
+  console.log('\n--- structured apply results ---');
+  for (const result of results) console.log(`${result.messageId} | ${result.outcome} | ${result.detail}`);
+  console.log(JSON.stringify({
+    structured: slips.filter((slip) => slip.structured).length,
+    applied: results.filter((result) => result.outcome === 'APPLIED').length,
+    skipped: results.filter((result) => result.outcome === 'SKIPPED').length,
+  }, null, 2));
 } else {
   console.log('\nDry run only. Nothing was written.');
 }
