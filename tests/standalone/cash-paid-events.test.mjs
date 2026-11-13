@@ -121,7 +121,8 @@ test('verified WhatsApp payment creates one Business Paid Event and no financial
     assert.equal(event.payout_mobile, '+8801712345678');
     assert.equal(event.amount_minor, '125050');
     assert.equal(event.method, 'nagad');
-    assert.equal(event.employee_link_status, 'UNREGISTERED');
+    // Phase 4 auto-creates the employee from cash, so the link is REGISTERED.
+    assert.equal(event.employee_link_status, 'REGISTERED');
 
     // Business Paid is not Financial POSTED.
     assert.equal((await row('SELECT count(*)::int AS n FROM cash_postings')).n, 0);
@@ -146,11 +147,14 @@ test('an unregistered mobile is never linked to an unrelated employee', async ()
       sourceBlockKey: 'payment-block-0',
     }, {whatsAppVerified: true, paidAt: '2026-11-07T06:00:00Z'});
     const event = await row('SELECT * FROM cash_payment_events WHERE instruction_id = $1', [instruction.id]);
-    assert.equal(event.employee_link_status, 'UNREGISTERED');
-    assert.equal((await row('SELECT count(*)::int AS n FROM employees')).n, before,
-      'no employee is auto-created or reassigned');
+    // Phase 4 auto-creates the employee from cash, so the link is REGISTERED.
+    assert.equal(event.employee_link_status, 'REGISTERED');
+    // Phase 4 auto-creates exactly one employee identity for the paying mobile.
+    assert.equal((await row('SELECT count(*)::int AS n FROM employees')).n, before + 1,
+      'one employee identity is auto-created, never reassigned');
     const linked = await row('SELECT * FROM employees WHERE employee_mobile = $1', ['+8801811112222']);
-    assert.equal(linked, null);
+    // Phase 4 creates the paying mobile's own identity, never the unrelated employee.
+    assert.equal(linked?.preferred_name, 'New Person');
   });
 });
 

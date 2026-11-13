@@ -8,7 +8,7 @@ import test, {beforeEach} from 'node:test';
 import {createPool} from '../../db/postgres.mjs';
 import {row, rows} from '../../lib/standalone/db.ts';
 import {routePendingMessages} from '../../lib/message-router.ts';
-import {countPrograms, createProgram, getProgram, listPrograms, updateProgram} from '../../lib/standalone/programs.ts';
+import {countPrograms, createProgram, getProgram, listPrograms, resolveVesselSearchKeys, updateProgram} from '../../lib/standalone/programs.ts';
 import {getMessageEvidence} from '../../lib/standalone/messages.ts';
 
 process.env.ALRIFAI_VESSEL_PROCESSING_ENABLED = '1';
@@ -158,7 +158,8 @@ test('order: verified direct client PN chat creates one DRAFT', async () => {
   assert.equal(result.programs, 1);
   const program = await programBySource('o-pn-1');
   assert.equal(program.state, 'DRAFT');
-  assert.equal(program.mother_vessel, 'Ocean Star');
+  // Phase 4 stores canonical vessel names uppercase.
+  assert.equal(program.mother_vessel, 'OCEAN STAR');
   assert.equal(program.lighter_vessel, 'L-77');
   assert.equal(program.source_chat_jid, CLIENT_PN_CHAT);
   assert.equal(result.byMessage[0].classification, 'VESSEL:PROGRAM_DRAFT');
@@ -482,6 +483,68 @@ test('register list paginates and exposes the updated timestamp', async () => {
   assert.equal(await countPrograms({q: 'MV Page'}), 3);
   assert.ok(first[0].updated_at, 'updated timestamp is exposed for the list');
   assert.notEqual(first[0].id, second[0].id);
+});
+
+
+// ── 4.2 canonical vessel search (q normalised like stored names) ────────────
+
+test('register search: exact, punctuation and case variants find the canonical row', async () => {
+  await createProgram(admin, {
+    motherVessel: 'MV Page', lighterVessel: 'LT Search One', masterMobile: '01911111111',
+    startDate: '2026-12-01', startShift: 'D',
+  });
+  for (const q of ['MV Page', 'mv-page', 'M.V. Page', 'mV pAgE', 'PAGE']) {
+    assert.equal(await countPrograms({q}), 1, `normalized key must match: ${q}`);
+  }
+  assert.equal((await listPrograms({q: 'M.V. Page'}))[0].mother_vessel, 'PAGE');
+});
+
+test('register search: one typo within the 3-letter tolerance finds the unique row', async () => {
+  await createProgram(admin, {
+    motherVessel: 'Beltokyo Star', lighterVessel: 'LT Search Two', masterMobile: '01911111111',
+    startDate: '2026-12-02', startShift: 'D',
+  });
+  assert.equal(await countPrograms({q: 'Beltokio Star'}), 1);
+});
+
+test('register search: two similar candidates are returned together, flagged ambiguous', async () => {
+  // Insert directly: createProgram's six-field dedup would merge these two
+  // deliberately similar names, so it cannot be used to build the ambiguity case.
+  const owner = createPool({role: 'app', readOnly: false, applicationName: 'batch8-ambiguous-search'});
+  try {
+    await owner.query(`INSERT INTO programs
+      (id, mother_vessel, lighter_vessel, master_mobile, start_date, start_shift, state, source_channel, created_by, event_at)
+      VALUES ('batch8-amb-1','BELTOKYOA STAR','LT Amb A','01911111111','2027-03-03','D','DRAFT','WEB','system','2027-03-03'),
+             ('batch8-amb-2','BELTOKYOB STAR','LT Amb B','01922222222','2027-03-10','D','DRAFT','WEB','system','2027-03-10')`);
+  } finally {
+    await owner.end();
+  }
+  const resolution = await resolveVesselSearchKeys('Beltokyoz Star');
+  assert.equal(resolution.ambiguous, true);
+  assert.ok(resolution.keys.length >= 2, 'no auto-merge of ambiguous candidates');
+  assert.equal(await countPrograms({q: 'Beltokyoz Star'}), 2, 'both rows are returned');
+});
+
+test('register search: keys shorter than 5 characters skip spelling tolerance', async () => {
+  await createProgram(admin, {
+    motherVessel: 'Beltokyo Star', lighterVessel: 'LT Search Five', masterMobile: '01911111111',
+    startDate: '2026-12-05', startShift: 'D',
+  });
+  const resolution = await resolveVesselSearchKeys('Page'); // vesselKey('Page') === 'PAGE' (4 chars)
+  assert.equal(resolution.tolerant, false);
+  assert.equal(resolution.reason, 'SHORT_KEY');
+  assert.deepEqual(resolution.keys, []);
+});
+
+// ── 4.3 createProgram must populate event_at (NOT NULL since migration 018) ──
+
+test('createProgram succeeds and stores a non-null event_at', async () => {
+  const created = await createProgram(admin, {
+    motherVessel: 'Event At MV', lighterVessel: 'LT Event At', masterMobile: '01911111111',
+    startDate: '2026-12-06', startShift: 'D',
+  });
+  assert.ok(created.program, 'createProgram returns the created row');
+  assert.ok(created.program.event_at, 'event_at must be set by the manual create path');
 });
 
 test('register: unconfirmed Draft is not a confirmed program', async () => {

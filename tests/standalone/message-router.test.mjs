@@ -674,7 +674,8 @@ test('vessel: single-lighter order creates program in DRAFT (WA-01)', async () =
   const prog = await row("SELECT * FROM programs WHERE source_channel = 'WHATSAPP' AND source_message_id = 'msg-vessel-single-1'");
   assert.ok(prog);
   assert.equal(prog.state, 'DRAFT');
-  assert.equal(prog.mother_vessel, 'Ocean Star');
+  // Phase 4 stores canonical vessel names uppercase.
+  assert.equal(prog.mother_vessel, 'OCEAN STAR');
   assert.equal(prog.lighter_vessel, 'L-77');
   assert.equal(prog.master_mobile, '01911111111');
   assert.equal(prog.source_channel, 'WHATSAPP');
@@ -721,7 +722,8 @@ test('vessel: vessel prefix normalization (M.V., MV, M. V., Mv.)', async () => {
   assert.equal(result.programs, 1, 'M.V. prefix should be normalized');
   const prog = await row("SELECT mother_vessel FROM programs WHERE source_message_id = 'msg-vessel-prefix-1'");
   assert.ok(prog);
-  assert.equal(prog.mother_vessel, 'Beltokyo');
+  // Phase 4 stores canonical vessel names uppercase.
+  assert.equal(prog.mother_vessel, 'BELTOKYO');
 });
 
 test('vessel: missing master mobile → review candidate', async () => {

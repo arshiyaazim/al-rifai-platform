@@ -216,7 +216,8 @@ test('complete draft creates exactly one durable QUEUED record with an audit tra
   assert.equal(result.record.state, 'QUEUED');
   assert.equal(result.record.accountId, 'wa-01');
   assert.equal(result.record.recipientJid, SOURCE_CHAT);
-  assert.match(result.record.text, /^Mother Vessel: M\.V\. VDD TEST MV/);
+  // Phase 4 canonical drafts use "MV" rather than "M.V.".
+  assert.match(result.record.text, /^Mother Vessel: MV VDD TEST MV/);
   const stored = await row('SELECT * FROM vessel_draft_deliveries WHERE id=$1', [result.record.id]);
   assert.ok(stored);
   assert.equal(stored.state, 'QUEUED');

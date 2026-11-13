@@ -131,7 +131,8 @@ test('worker claims a queued draft, sends once, persists SENT and audits', async
   assert.equal(calls.length, 1);
   assert.equal(calls[0].request.recipientJid, RECIPIENT);
   assert.equal(calls[0].request.accountId, 'wa-01');
-  assert.match(calls[0].request.text, /^Mother Vessel: M\.V\. VDD WORKER MV/);
+  // Phase 4 canonical drafts use "MV" rather than "M.V.".
+  assert.match(calls[0].request.text, /^Mother Vessel: MV VDD WORKER MV/);
   assert.equal(calls[0].receivedPaths.socketPath, paths.socketPath);
 
   const saved = await row('SELECT * FROM vessel_draft_deliveries WHERE id=$1', [queued.record.id]);
