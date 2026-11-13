@@ -19,6 +19,8 @@
 
 export type ReleaseSlipBlock = {
   blockKey: string;
+  /** Every escort number on the slip; fields.escortMobile is the first. */
+  escortMobiles: string[];
   fields: {
     motherVessel: string | null;
     lighterVessel: string | null;
@@ -39,10 +41,19 @@ export type ReleaseSlipBlock = {
 const bengali = (value: string) =>
   value.replace(/[০-৯]/g, (digit) => String('০১২৩৪৫৬৭৮৯'.indexOf(digit)));
 
-const phone = (value: string | null | undefined): string | null => {
+const phone = (value: string | null | undefined): string | null => phones(value)[0] ?? null;
+
+/**
+ * Every Bangladeshi mobile in a field. A slip may carry two numbers on one
+ * label ("01937-539700/01405-847642"); the first is the primary escort number
+ * and the rest are kept as alternates.
+ */
+const phones = (value: string | null | undefined): string[] => {
+  // Join digit runs first: "01937-539700/01405-847642" must yield two numbers,
+  // and "01776-790425" must yield one, not two fragments.
   const digits = String(value ?? '').replace(/[^0-9]/g, '');
-  const national = digits.replace(/^(?:880|00880)/, '0');
-  return /^01[3-9][0-9]{8}$/.test(national) ? national : null;
+  const found = digits.match(/01[3-9][0-9]{8}/g) ?? [];
+  return [...new Set(found)];
 };
 
 const date = (value: string | null | undefined): string | null => {
@@ -95,7 +106,10 @@ function parseBlock(block: string, index: number): ReleaseSlipBlock {
     masterMobile: phone(grab(text, /^\s*(?:Master\s*(?:mobile|number|no)|মাস্টার\s*মোবাইল)\s*[:\-]\s*([^\n]+)/im)),
     destination: grab(text, /^\s*(?:Destination|Ghat|গন্তব্য)\s*[:\-]\s*([^\n]+)/im),
     escortName: grab(text, /^\s*(?:Escort\s*Name|এসকর্ট\s*নাম)\s*[:\-]\s*([^\n]+)/im),
-    escortMobile: phone(grab(text, /^\s*(?:Escort\s*(?:mobile|number|no)|এসকর্ট\s*মোবাইল)\s*[:\-]\s*([^\n]+)/im)),
+    escortMobile: (() => {
+      const raw = grab(text, /^\s*(?:Escort\s*(?:mobile|number|no)|এসকর্ট\s*মোবাইল)\s*[:\-]\s*([^\n]+)/im);
+      return phones(raw)[0] ?? null;
+    })(),
     startDate: date(startRaw),
     startShift: shift(startRaw),
     endDate: date(endRaw),
@@ -105,14 +119,17 @@ function parseBlock(block: string, index: number): ReleaseSlipBlock {
       const value = raw ? Number(raw) : null;
       return value !== null && Number.isInteger(value) && value > 0 && value < 1000 ? value : null;
     })(),
-    foodBillMinor: money(grab(text, /^\s*(?:Food\s*bill|খাবার\s*বিল)\s*[:\-]\s*([^\n]+)/im)),
+    // The food bill often shares the line with the day count:
+    // "Totsl duty day: -09-day food bill: -1350/-".
+    foodBillMinor: money(grab(text, /(?:Food\s*bill|খাবার\s*বিল)\s*[:\-]?\s*([^\n]+)/i)),
   };
   const reasons: string[] = [];
   if (!fields.escortMobile) reasons.push('ESCORT_MOBILE_UNRESOLVED');
   if (!fields.endDate) reasons.push('RELEASE_DATE_UNRESOLVED');
   if (!fields.endShift) reasons.push('RELEASE_SHIFT_UNRESOLVED');
   if (fields.startDate && fields.endDate && fields.endDate < fields.startDate) reasons.push('RELEASE_BEFORE_START');
-  return {blockKey: `release-block-${index}`, fields, reasons};
+  const escortMobiles = phones(grab(text, /^\s*(?:Escort\s*(?:mobile|number|no)|এসকর্ট\s*মোবাইল)\s*[:\-]\s*([^\n]+)/im));
+  return {blockKey: `release-block-${index}`, escortMobiles, fields, reasons};
 }
 
 const normalizeReleaseText = (text: string): string =>

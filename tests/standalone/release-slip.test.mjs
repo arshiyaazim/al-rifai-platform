@@ -30,6 +30,33 @@ test('release slip extracts vessel, escort, dates, shift and food evidence', () 
   assert.deepEqual(block.reasons, []);
 });
 
+test('the operator structured example parses, including two escort numbers', () => {
+  const text = `===(Escort Release)===
+Mother Vessel: M.V. Beltokyo
+Importer
+Lighter Vessel: M.V. Puspita-3
+Master mobile: -01743-932633
+Destination: - Janata-Ghat-Rupshi,
+Escort Name: Joy-Samadder
+Escort mobile: -01937-539700/01405-847642,
+Start: -04-11-26-(N)
+End: -13-11-26-(D)
+Totsl duty day: -09-day food bill: -1350/-only,`;
+  const [block] = parseReleaseSlips(text);
+  assert.equal(block.fields.motherVessel, 'Beltokyo');
+  assert.equal(block.fields.lighterVessel, 'Puspita-3');
+  assert.equal(block.fields.masterMobile, '01743932633');
+  assert.equal(block.fields.escortName, 'Joy-Samadder');
+  assert.equal(block.fields.escortMobile, '01937539700');
+  assert.deepEqual(block.escortMobiles, ['01937539700', '01405847642']);
+  assert.equal(block.fields.startDate, '2026-11-04');
+  assert.equal(block.fields.startShift, 'N');
+  assert.equal(block.fields.endDate, '2026-11-13');
+  assert.equal(block.fields.endShift, 'D');
+  assert.equal(block.fields.totalDays, 9);
+  assert.equal(block.fields.foodBillMinor, 135000);
+});
+
 test('label-only release message is accepted when mobile and end date exist', () => {
   const text = 'Escort Name: Test\nEscort mobile: 01812345678\nStart: 01/11/26 (D)\nEnd: 05/11/26 (N)';
   const [block] = parseReleaseSlips(text);
