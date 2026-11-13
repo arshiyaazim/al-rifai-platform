@@ -160,7 +160,7 @@ export async function unifiedAttendance(input: {employeeMobile?: string; month?:
     `SELECT a.id AS source_id, a.employee_mobile, e.preferred_name,
             a.attendance_date::text AS attendance_date, a.shift, a.location,
             a.client_name, a.designation, a.remarks, 'NON_VESSEL' AS source,
-            NULL::int AS vessel_shifts, a.state AS program_state
+            a.created_by, NULL::int AS vessel_shifts, a.state AS program_state
        FROM attendance_records a
        LEFT JOIN employees e ON e.employee_mobile = a.employee_mobile
       WHERE a.state = 'ACTIVE'
@@ -179,6 +179,11 @@ export async function unifiedAttendance(input: {employeeMobile?: string; month?:
 
   const vesselDays = vessel.reduce((sum, item) => sum + Number(item.vessel_shifts ?? 0) / 2, 0);
   const nonVesselDays = manual.reduce((sum, item) => sum + (item.shift === 'FULL' ? 1 : 0.5), 0);
+  // Security attendance = frontend-entered records. Migration 024 backfilled
+  // legacy rows as 'migration:024'; those are not frontend entries.
+  const securityDays = manual
+    .filter((item) => item.created_by !== 'migration:024')
+    .reduce((sum, item) => sum + (item.shift === 'FULL' ? 1 : 0.5), 0);
   const totalDays = vesselDays + nonVesselDays;
   const active = await row<{count: string}>("SELECT count(*)::text AS count FROM employees WHERE state = 'ACTIVE'");
   return {
@@ -189,6 +194,7 @@ export async function unifiedAttendance(input: {employeeMobile?: string; month?:
       nonVesselDays,
       totalDays,
       salaryMinor: Math.round(totalDays * 40000),
+      securityDays,
       activeEmployees: Number(active?.count ?? 0),
     },
   };

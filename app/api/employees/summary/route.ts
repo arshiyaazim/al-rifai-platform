@@ -35,14 +35,25 @@ export async function GET(request: Request) {
            JOIN cash_instructions i ON i.id = p.instruction_id
           WHERE i.state = 'POSTED' AND i.employee_mobile IS NOT NULL
           GROUP BY i.employee_mobile
+       ), security AS (
+         -- Security attendance = entered through the frontend attendance form.
+         -- Migration 024 backfilled legacy rows with created_by='migration:024';
+         -- those are not frontend entries and are excluded here.
+         SELECT employee_mobile,
+                sum(CASE WHEN shift = 'FULL' THEN 1 ELSE 0.5 END) AS days
+           FROM attendance_records
+          WHERE state = 'ACTIVE' AND created_by IS DISTINCT FROM 'migration:024'
+          GROUP BY employee_mobile
        ), days AS (
          SELECT e.employee_mobile,
                 coalesce(v.days, 0) AS vessel_days,
                 coalesce(n.days, 0) AS non_vessel_days,
+                coalesce(s.days, 0) AS security_days,
                 coalesce(v.days, 0) + coalesce(n.days, 0) AS total_days
            FROM employees e
            LEFT JOIN vessel v ON v.employee_mobile = e.employee_mobile
            LEFT JOIN non_vessel n ON n.employee_mobile = e.employee_mobile
+           LEFT JOIN security s ON s.employee_mobile = e.employee_mobile
        )
        SELECT e.employee_mobile,
               e.preferred_name,
@@ -50,6 +61,7 @@ export async function GET(request: Request) {
               e.designation,
               round(d.vessel_days, 2)::text AS vessel_attendance,
               round(d.non_vessel_days, 2)::text AS non_vessel_attendance,
+              round(d.security_days, 2)::text AS security_attendance,
               round(d.total_days, 2)::text AS total_attendance,
               round(d.total_days * $1)::bigint AS salary_minor,
               coalesce(p.total_paid, 0)::bigint AS cash_paid_minor,
