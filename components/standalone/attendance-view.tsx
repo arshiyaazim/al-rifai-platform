@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import {useEffect, useMemo, useState} from 'react';
 import {Eye, Plus} from 'lucide-react';
 import {Button} from '@/components/ui/button';
@@ -29,6 +30,7 @@ type Summary = {
   nonVesselDays: number;
   totalDays: number;
   salaryMinor: number;
+  securityDays?: number;
   activeEmployees?: number;
 };
 
@@ -176,7 +178,7 @@ export function AttendanceView() {
         <MetricCard label="This Month" value={plain(monthSummary.totalDays)} />
         <MetricCard label="Last Month" value={plain(lastMonthSummary.totalDays)} />
         <MetricCard label="Vessel" value={plain(monthSummary.vesselDays)} />
-        <MetricCard label="Security" value="data source missing" missing />
+        <MetricCard label="Security" value={plain(monthSummary.securityDays)} />
         <MetricCard label="Employees Present This Month" value={plain(presentThisMonth)} />
         <MetricCard label="Manual Entries This Month" value={plain(manualThisMonth)} />
       </div>
@@ -224,10 +226,12 @@ export function AttendanceView() {
           <table className="cash-payment-table" style={{minWidth: 1100}}>
             <thead>
               <tr>
-                {header('attendance_date', 'Date')}
+                <th style={{width: 96, cursor: 'pointer'}} onClick={() => changeSort('attendance_date')}>
+                  Date{sort.key === 'attendance_date' ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+                </th>
                 <th>Employee ID</th>
                 {header('preferred_name', 'Employee Name')}
-                <th>Shift</th>
+                <th style={{width: 56}}>Shift</th>
                 {header('location', 'Location')}
                 <th>Client</th>
                 <th>Designation</th>
@@ -241,8 +245,8 @@ export function AttendanceView() {
               {!loading && pageRows.map((row) => (
                 <tr key={`${row.source}-${row.source_id}-${row.shift}`} style={row.is_weekend ? {background: '#f8fafc'} : undefined}>
                   <td style={{whiteSpace: 'nowrap'}}>{dateDdMmYyyy(row.attendance_date)}</td>
-                  <td>{displayMobile(row.employee_mobile)}</td>
-                  <td>{row.preferred_name ?? '—'}</td>
+                  <td><Link href={`/employees/${encodeURIComponent(row.employee_mobile)}`}>{displayMobile(row.employee_mobile)}</Link></td>
+                  <td>{row.preferred_name ? <Link href={`/employees/${encodeURIComponent(row.employee_mobile)}`}>{row.preferred_name}</Link> : '—'}</td>
                   <td>{row.shift}</td>
                   <td>{row.location ?? '—'}</td>
                   <td>{row.client_name ?? '—'}</td>
