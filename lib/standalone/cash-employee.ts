@@ -45,6 +45,8 @@ export async function findOrCreateEmployeeByMobile(
   nationalMobile: string,
   nameHint: string,
   createdBy = 'system',
+  /** Asia/Dhaka date (YYYY-MM-DD) of the triggering message. Never now(). */
+  joinDate: string | null = null,
 ): Promise<CashEmployee> {
   const national = nationalDigits(nationalMobile);
   if (!/^01[3-9][0-9]{8}$/.test(national)) {
@@ -59,11 +61,11 @@ export async function findOrCreateEmployeeByMobile(
   const notes = `${AUTO_CREATED_MARKER}: first seen in an outbound Cash payment (mobile ${national})`;
 
   const inserted = await row<{employee_mobile: string; preferred_name: string}>(
-    `INSERT INTO employees (employee_mobile, preferred_name, notes, created_by)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO employees (employee_mobile, preferred_name, notes, created_by, date_of_join, joined_on)
+     VALUES ($1, $2, $3, $4, $5, $5)
      ON CONFLICT (employee_mobile) DO NOTHING
      RETURNING employee_mobile, preferred_name`,
-    [canonical, preferredName, notes.slice(0, 2000), createdBy],
+    [canonical, preferredName, notes.slice(0, 2000), createdBy, joinDate],
   );
   if (inserted) return {...inserted, created: true};
 

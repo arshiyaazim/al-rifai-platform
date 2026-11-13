@@ -201,9 +201,9 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
   if (escortMobile) {
       const name = optionalText(input.escortName, 'escortName', 150) ?? escortMobile;
     await client.query(
-      `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
-       VALUES ($1,$2,'escort','escort',$3) ON CONFLICT (employee_mobile) DO NOTHING`,
-      [escortMobile, name, actor.id],
+      `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by, date_of_join, joined_on)
+       VALUES ($1,$2,'escort','escort',$3,$4,$4) ON CONFLICT (employee_mobile) DO NOTHING`,
+      [escortMobile, name, actor.id, startDate],
     );
   }
   const inserted = await client.query<ProgramRow>(

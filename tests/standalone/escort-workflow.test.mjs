@@ -538,6 +538,19 @@ test('register search: keys shorter than 5 characters skip spelling tolerance', 
 
 // ── 4.3 createProgram must populate event_at (NOT NULL since migration 018) ──
 
+test('createProgram sets the escort employee join date from the duty start date', async () => {
+  await createProgram(admin, {
+    motherVessel: 'Join Date MV', lighterVessel: 'LT Join Date', masterMobile: '01911111111',
+    escortMobile: '01877776666', escortName: 'Join Date Escort',
+    startDate: '2026-09-15', startShift: 'D',
+  });
+  const employee = await row("SELECT date_of_join, joined_on FROM employees WHERE employee_mobile = '+8801877776666'");
+  assert.ok(employee, 'the escort identity is auto-created');
+  const iso = (value) => new Date(String(value)).toISOString().slice(0, 10);
+  assert.equal(iso(employee.date_of_join), '2026-09-15');
+  assert.equal(iso(employee.joined_on), '2026-09-15');
+});
+
 test('createProgram succeeds and stores a non-null event_at', async () => {
   const created = await createProgram(admin, {
     motherVessel: 'Event At MV', lighterVessel: 'LT Event At', masterMobile: '01911111111',

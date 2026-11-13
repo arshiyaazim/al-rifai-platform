@@ -239,6 +239,12 @@ test('cash: element-based message without ID/method/slash auto-posts and creates
   const employee = await row("SELECT * FROM employees WHERE employee_mobile = '+8801999887766'");
   assert.ok(employee, 'a missing employee must be created, never dropped');
   assert.match(String(employee.notes), /AUTO_CREATED_FROM_CASH/);
+  // Join date comes from the triggering message's Dhaka day, never now()/created_at.
+  const expectedJoin = new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Dhaka'})
+    .format(new Date(String(instr.event_at)));
+  const iso = (value) => new Date(String(value)).toISOString().slice(0, 10);
+  assert.equal(iso(employee.date_of_join), expectedJoin);
+  assert.equal(iso(employee.joined_on), expectedJoin);
 });
 
 test('cash: element-based two-mobile message keeps ID and payout separate', async () => {

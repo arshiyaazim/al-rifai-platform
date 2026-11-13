@@ -1,3 +1,4 @@
+import {businessDay} from '../vessel-match.ts';
 import type {PoolClient} from 'pg';
 import {rows, row, tx, text, optionalText, optionalMobile, mobile, isoDate, moneyMinor, DomainError, type Actor} from './db.ts';
 import {recordAudit, stableId, newId} from './audit.ts';
@@ -159,10 +160,11 @@ export async function insertBusinessPaidEvent(client: Tx, input: BusinessPaidEve
   // Owner rule Q: a cash payment for an unknown mobile creates the employee
   // identity. The cash tables are untouched; only the shared directory grows.
   await client.query(
-    `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
-     VALUES ($1,$2,'other','other','system')
+    `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by, date_of_join, joined_on)
+     VALUES ($1,$2,'other','other','system',$3::date,$3::date)
      ON CONFLICT (employee_mobile) DO NOTHING`,
-    [employeeMobile, employeeName || `Unknown-${employeeMobile.slice(-4)}`],
+    [employeeMobile, employeeName || `Unknown-${employeeMobile.slice(-4)}`,
+      input.paidAt ? businessDay(String(input.paidAt)) : null],
   );
   const registered = await client.query(
     'SELECT 1 FROM employees WHERE employee_mobile = $1', [employeeMobile],

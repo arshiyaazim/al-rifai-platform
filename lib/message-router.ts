@@ -41,6 +41,7 @@ import {vesselKey} from './vessel-match.ts';
 import {approvedGroupRole, resolveSourceRole, type SourceRole} from './source-roles.ts';
 import {featureConfig, isFeatureEnabled} from './feature-flags.ts';
 import {computeConfirmationScore} from './pipelines/vessel/fuzzy-match.ts';
+import {businessDay} from './vessel-match.ts';
 import type {WhatsAppAccount} from './standalone/whatsapp.ts';
 
 const ORDER_INTAKE_JIDS = new Set([
@@ -541,7 +542,8 @@ async function handleCash(
     let employeeMobile = fields.employeeMobile;
     let employeeName = fields.employeeName ?? '';
     try {
-      const employee = await findOrCreateEmployeeByMobile(employeeMobile, employeeName, actor.id);
+      const employee = await findOrCreateEmployeeByMobile(employeeMobile, employeeName, actor.id,
+        businessDay(message.source_timestamp));
       employeeMobile = employee.employee_mobile;
       employeeName = employee.preferred_name || employeeName;
     } catch (error) {
@@ -594,7 +596,8 @@ async function handleCash(
         elementHandled = true;
       } else {
         try {
-          const employee = await findOrCreateEmployeeByMobile(element.mobiles[0], element.nameHint, actor.id);
+          const employee = await findOrCreateEmployeeByMobile(element.mobiles[0], element.nameHint, actor.id,
+            businessDay(message.source_timestamp));
           const payoutMobile = `+88${element.mobiles[1] ?? element.mobiles[0]}`;
           const method = element.method ?? 'cash';
           const purpose = element.methodInferred
