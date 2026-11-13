@@ -6,7 +6,7 @@
 |---|---|
 | **Version** | **v3.0.0-phase4-merged** |
 | **Branch** | `main`. Phase 4A–4E UI is merged into `main`; `feat/15-task-roadmap` is merged and **no longer the source of truth** (the branch is retained, not deleted). |
-| **Deployed image** | `local/al-rifai-platform:v3.0.0-phase4-merged` |
+| **Deployed image** | `local/al-rifai-platform:v3.0.1-phase4-merged` (release `v3.0.0-phase4-merged` + vessel-search patch) |
 | **DB schema** | **1.13.7** — 60 tables, **25 migrations (001–026)** |
 | **Auth** | Application login/session. Unauthenticated workspace routes fail closed with JSON `401`; document navigations redirect to `/login`. |
 | **UI** | Phase 4A–4E: sidebar API Keys + Recruitment AI, `/settings/api-keys`, `/settings/recruitment`, employee summary/profile sidebar, dual-source attendance, CSV import/export, vessel register client, recruitment dashboard. |

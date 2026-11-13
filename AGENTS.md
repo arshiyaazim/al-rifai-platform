@@ -6,7 +6,7 @@ in `docs/` and the Phase 3 reports.
 
 ## Current release (2026-11-13)
 
-- **Version**: `v3.0.0-phase4-merged`, image `local/al-rifai-platform:v3.0.0-phase4-merged`.
+- **Version**: `v3.0.0-phase4-merged`, deployed image `local/al-rifai-platform:v3.0.1-phase4-merged` (release + vessel-search patch).
 - **Schema**: `1.13.7`, 60 tables, **25 migrations (001–026)**. Live DB `alrifai_v2_phase3`.
 - **Branch**: Phase 4A–4E UI is merged into `main`. `feat/15-task-roadmap` is
   merged and **no longer the source of truth**; do not treat it as current, and
