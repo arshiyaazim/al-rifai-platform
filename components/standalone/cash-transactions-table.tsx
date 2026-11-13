@@ -324,7 +324,7 @@ export function CashTransactionsTable({
         <div className="cash-table-scroll">
           <table className="cash-payment-table" style={{tableLayout: 'fixed', minWidth: 940}}>
             <colgroup>
-              <col style={{width: 110}} />
+              <col style={{width: 88}} />
               <col style={{width: 110}} />
               <col style={{width: 180}} />
               <col style={{width: 120}} />
@@ -361,12 +361,12 @@ export function CashTransactionsTable({
                   </td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis'}}>
                     {item.employeeId
-                      ? <Link href={`/cash/employee/${encodeURIComponent(item.employeeId)}`}>{displayMobile(item.employeeId)}</Link>
+                      ? <Link href={`/employees/${encodeURIComponent(item.employeeId)}`}>{displayMobile(item.employeeId)}</Link>
                       : <span className="muted">—</span>}
                   </td>
                   <td style={{overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
                     {item.employeeId ? (
-                      <Link href={`/cash/employee/${encodeURIComponent(item.employeeId)}`} title={`Full transaction history for ${item.nameOfEmployee}`}>
+                      <Link href={`/employees/${encodeURIComponent(item.employeeId)}`} title={`Full transaction history for ${item.nameOfEmployee}`}>
                         {dash(item.nameOfEmployee)}
                       </Link>
                     ) : dash(item.nameOfEmployee)}

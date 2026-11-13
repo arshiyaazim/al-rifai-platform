@@ -1,7 +1,6 @@
 import Link from 'next/link';
-import {cashTransactionView, countCashTransactions, countInstructions, countLedger, listAccounts, listCashTransactions, listInstructions, listLedger, listReconciliations} from '@/lib/standalone/finance';
+import {cashTransactionView, countCashTransactions, listAccounts, listCashTransactions, listReconciliations} from '@/lib/standalone/finance';
 import {cashDashboardSummary, currentMonthRange, previousMonthRange, shiftIsoDate, paidEventsReportingEnabled} from '@/lib/standalone/cash-dashboard';
-import {rows} from '@/lib/standalone/db';
 import {money, pageUser, when} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
@@ -30,78 +29,43 @@ function SummaryCard({label, value, hint, href}: SummaryCardProps) {
 }
 
 export default async function CashPage({searchParams}: {searchParams: Promise<{
-  q?: string; state?: string; page?: string; ledgerPage?: string; from?: string; to?: string; search?: string;
+  q?: string; state?: string; search?: string;
   employeeName?: string; employeeMobile?: string; payoutMobile?: string; openPayment?: string;
   employee_mobile?: string;
 }>}) {
   const user = await pageUser();
   const canSubmit = can(user as never, 'cash.submit');
   const canReview = can(user as never, 'cash.review');
-  const canPost = can(user as never, 'cash.post');
-  const canReverse = can(user as never, 'cash.reverse');
   const canLedger = can(user as never, 'cash.ledger');
   const canReconcile = can(user as never, 'cash.reconcile');
-  const canDecide = can(user as never, 'review.decide');
   const paidBasis = paidEventsReportingEnabled();
   const cashDetailPath = paidBasis ? '/cash/paid' : '/cash/transactions';
   const today = new Date().toISOString().slice(0, 10);
   const filters = await searchParams;
-  const q = (filters.q ?? '').trim();
   const state = filters.state ?? '';
   const txSearch = (filters.search ?? '').trim();
-  const from = filters.from ?? '';
-  const to = filters.to ?? '';
   const employeeName = (filters.employeeName ?? '').trim();
   const employeeMobile = (filters.employeeMobile ?? '').trim();
   const payoutMobile = (filters.payoutMobile ?? '').trim();
   const paymentOpen = filters.openPayment === '1' || Boolean(employeeName || employeeMobile || payoutMobile);
-  const page = Math.max(1, Number(filters.page) || 1);
-  const ledgerPage = Math.max(1, Number(filters.ledgerPage) || 1);
-  const pageSize = 100;
-  const ledgerSize = 50;
   const txLimit = 20;
-  const [accounts, instructions, instructionTotal, ledger, ledgerTotal, summary, submissions, reconciliations, txRows, txTotal] = await Promise.all([
+  const [accounts, summary, reconciliations, txRows, txTotal] = await Promise.all([
     listAccounts(),
-    listInstructions({q, state: state || undefined, limit: pageSize, offset: (page - 1) * pageSize}),
-    countInstructions({q, state: state || undefined}),
-    listLedger({from: from || undefined, to: to || undefined, limit: ledgerSize, offset: (ledgerPage - 1) * ledgerSize}),
-    countLedger({from: from || undefined, to: to || undefined}),
     cashDashboardSummary(),
-    rows<{id: string; state: string; submitted_by: string; created_at: string; instruction_id: string | null; display_name: string | null}>(
-      'SELECT s.id, s.state, s.submitted_by, s.created_at, s.instruction_id, u.display_name FROM cash_submissions s LEFT JOIN cash_portal_users u ON u.id = s.submitted_by ORDER BY s.created_at DESC LIMIT 30',
-    ),
     listReconciliations(25),
     listCashTransactions({q: txSearch, state: state || undefined, employeeId: filters.employee_mobile || undefined, limit: txLimit, offset: 0}),
     countCashTransactions({q: txSearch, state: state || undefined, employeeId: filters.employee_mobile || undefined}),
   ]);
   const initialTransactions = txRows.map(cashTransactionView);
-  const pending = instructions.filter((instruction) => (instruction as {state: string}).state === 'REVIEW').slice(0, 20);
-  const instructionPages = Math.max(1, Math.ceil(instructionTotal / pageSize));
-  const ledgerPages = Math.max(1, Math.ceil(ledgerTotal / ledgerSize));
   const monthRange = currentMonthRange(summary.asOfDate);
   const lastMonthRange = previousMonthRange(summary.asOfDate);
   const rangeHref = (range: {from: string; to: string}) => `${cashDetailPath}?from=${range.from}&to=${range.to}`;
   const dateHref = (date: string) => `${cashDetailPath}?date=${date}`;
-  const href = (overrides: Record<string, string | number>) => {
-    const values: Record<string, string> = {};
-    if (q) values.q = q;
-    if (state) values.state = state;
-    if (from) values.from = from;
-    if (to) values.to = to;
-    if (page > 1) values.page = String(page);
-    if (ledgerPage > 1) values.ledgerPage = String(ledgerPage);
-    for (const [key, value] of Object.entries(overrides)) {
-      if (String(value) === '' || value === 1) delete values[key];
-      else values[key] = String(value);
-    }
-    const search = new URLSearchParams(values).toString();
-    return search ? `/cash?${search}` : '/cash';
-  };
 
   return (
     <>
       <div className="page-head">
-        <div><h1>Cash &amp; Accounts</h1><p className="muted">Instructions, approvals, postings and the ledger.</p></div>
+        <div><h1>Cash &amp; Accounts</h1><p className="muted">Instructions, postings and the ledger.</p></div>
         <div className="row-actions">
           <Link href="/review?domain=CASH">Open Cash review queue →</Link>
           {paidBasis ? <Link href="/cash/transactions">Financial POSTED →</Link> : <Link href="/cash/paid">Business Paid →</Link>}
@@ -130,6 +94,8 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
         totalPages: Math.max(1, Math.ceil(txTotal / txLimit)),
       }} />
 
+      {/* Income/expense posting has no other route (the ledger views are read-only),
+          so the form stays here even though the ledger table moved out of this page. */}
       <div className="cash-form-grid">
         {canLedger ? (
           <details className="cash-form-panel">
@@ -153,160 +119,8 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
         ) : null}
       </div>
 
-      <form method="get" className="card form compact" style={{marginBottom: 18}}>
-        <div className="grid">
-          <label><span>Search payee</span><input name="q" defaultValue={q} placeholder="Name or mobile" /></label>
-          <label><span>State</span>
-            <select name="state" defaultValue={state}>
-              <option value="">All states</option>
-              {['REVIEW','APPROVED','POSTED','REJECTED','VOID'].map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
-          <label><span>Ledger from</span><input name="from" type="date" defaultValue={from} /></label>
-          <label><span>Ledger to</span><input name="to" type="date" defaultValue={to} /></label>
-        </div>
-        <button type="submit">Filter Cash</button>
-      </form>
-
-      <section className="card">
-        <h3>Instructions ({instructionTotal})</h3>
-        {canReview ? (
-          <ActionForm
-            compact
-            title="Assign paying account (REVIEW only)"
-            endpoint="/api/finance"
-            action="instruction.account"
-            submitLabel="Assign account"
-            fields={[
-              {name: 'id', label: 'Instruction id', required: true},
-              {name: 'accountId', label: 'Account', type: 'select', required: true,
-                options: accounts.map((account) => ({value: account.id, label: `${account.code} — ${account.name}`}))},
-            ]}
-          />
-        ) : null}
-        <table>
-          <thead><tr><th>Instruction</th><th>Payee</th><th>Account</th><th>Method</th><th>Amount</th><th>State</th><th>Source</th><th>Actions</th></tr></thead>
-          <tbody>
-            {instructions.map((instruction) => {
-              const item = instruction as unknown as {
-                id: string; employee_name: string; method: string; amount_minor: string; state: string;
-                account_code?: string | null; source_channel?: string | null; source_message_id?: string | null; source_block_key?: string | null;
-                reversal_id?: string | null; reversed_at?: string | null; reversal_reason?: string | null;
-              };
-              return (
-                <tr key={item.id}>
-                  <td><Link href={`/cash/${item.id}`} style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{item.id}</Link></td>
-                  <td>{item.employee_name}</td>
-                  <td>{item.account_code ?? <span className="muted">unassigned</span>}</td>
-                  <td>{item.method}</td>
-                  <td>{money(item.amount_minor)}</td>
-                  <td>
-                    <span className={`pill ${item.state === 'POSTED' ? 'ok' : item.state === 'VOID' || item.state === 'REJECTED' ? 'bad' : 'warn'}`}>{item.state}</span>
-                    {item.reversal_id ? <div className="muted" style={{fontSize: 10}}>reversed {when(item.reversed_at)}</div> : null}
-                  </td>
-                  <td style={{maxWidth: 260}}>
-                    <div className="muted" style={{fontSize: 11}}>{item.source_channel ?? 'WEB'}</div>
-                    {item.source_message_id ? (
-                      <Link href={`/messages?q=${encodeURIComponent(item.source_message_id)}`} style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>
-                        {item.source_message_id}
-                      </Link>
-                    ) : <span className="muted">no source message</span>}
-                    {item.source_block_key ? <div className="muted" style={{fontSize: 10}}>block {item.source_block_key}</div> : null}
-                  </td>
-                  <td>
-                    {item.state === 'REVIEW' && canReview ? (
-                      <div className="row-actions">
-                        <ActionForm compact endpoint="/api/finance" action="instruction.approve" submitLabel="Approve" hidden={{id: item.id}} fields={[]} />
-                        <ActionForm compact endpoint="/api/finance" action="instruction.reject" submitLabel="Reject" hidden={{id: item.id}} fields={[{name: 'reason', label: 'Reason', required: true}]} />
-                      </div>
-                    ) : item.state === 'APPROVED' && canPost ? (
-                      <ActionForm compact endpoint="/api/finance" action="instruction.post" submitLabel="Post" hidden={{id: item.id}} fields={[]} />
-                    ) : item.state === 'POSTED' && canReverse ? (
-                      <ActionForm compact endpoint="/api/finance" action="instruction.reverse" submitLabel="Reverse" hidden={{id: item.id}} fields={[{name: 'reason', label: 'Reversal reason', required: true}]} />
-                    ) : <span className="muted">—</span>}
-                  </td>
-                </tr>
-              );
-            })}
-            {!instructions.length ? <tr><td colSpan={8} className="muted">No instructions yet.</td></tr> : null}
-          </tbody>
-        </table>
-        {pending.length ? <p className="muted">{pending.length} instruction(s) awaiting approval. Posting remains a separate explicit admin action.</p> : null}
-        {instructionPages > 1 ? (
-          <div className="row-actions">
-            {page > 1 ? <Link href={href({page: page - 1})}>← Previous</Link> : null}
-            <span className="muted">Page {page} / {instructionPages}</span>
-            {page < instructionPages ? <Link href={href({page: page + 1})}>Next →</Link> : null}
-          </div>
-        ) : null}
-      </section>
-
-      <div className="split">
-        <section className="card">
-          <h3>Ledger ({ledgerTotal})</h3>
-          <table>
-            <thead><tr><th>Date</th><th>Account</th><th>Category</th><th>Amount</th></tr></thead>
-            <tbody>
-              {ledger.map((entry) => {
-                const item = entry as unknown as {id: string; entry_date: string; account_code: string; category: string; direction: string; amount_minor: string};
-                return (
-                  <tr key={item.id}>
-                    <td>{item.entry_date}</td><td>{item.account_code}</td><td>{item.category}</td>
-                    <td>{item.direction === 'CREDIT' ? '+' : '−'}{money(item.amount_minor)}</td>
-                  </tr>
-                );
-              })}
-              {!ledger.length ? <tr><td colSpan={4} className="muted">No ledger entries.</td></tr> : null}
-            </tbody>
-          </table>
-          {ledgerPages > 1 ? (
-            <div className="row-actions">
-              {ledgerPage > 1 ? <Link href={href({ledgerPage: ledgerPage - 1})}>← Previous</Link> : null}
-              <span className="muted">Page {ledgerPage} / {ledgerPages}</span>
-              {ledgerPage < ledgerPages ? <Link href={href({ledgerPage: ledgerPage + 1})}>Next →</Link> : null}
-            </div>
-          ) : null}
-        </section>
-
-        <section className="card">
-          <h3>Staff submissions</h3>
-          {canSubmit ? (
-            <ActionForm
-              endpoint="/api/finance"
-              action="submission.submit"
-              submitLabel="Submit for approval"
-              fields={[
-                {name: 'employeeName', label: 'Payee', required: true},
-                {name: 'method', label: 'Method', type: 'select', options: [
-                  {value: 'bkash', label: 'bKash'}, {value: 'nagad', label: 'Nagad'}, {value: 'bank', label: 'Bank'}, {value: 'cash', label: 'Cash'}]},
-                {name: 'amountMinor', label: 'Amount (paisa)', type: 'number', required: true},
-              ]}
-            />
-          ) : null}
-          <table>
-            <thead><tr><th>Submitted by</th><th>State</th><th>Instruction</th><th>Decision</th></tr></thead>
-            <tbody>
-              {submissions.map((submission) => (
-                <tr key={submission.id}>
-                  <td>{submission.display_name ?? submission.submitted_by.slice(0, 12)}</td>
-                  <td><span className={`pill ${submission.state === 'APPROVED' ? 'ok' : submission.state === 'REJECTED' ? 'bad' : 'warn'}`}>{submission.state}</span></td>
-                  <td>{submission.instruction_id ? <Link href={`/cash/${submission.instruction_id}`}>{submission.instruction_id}</Link> : <span className="muted">—</span>}</td>
-                  <td>
-                    {submission.state === 'PENDING_REVIEW' && canDecide ? (
-                      <div className="row-actions">
-                        <ActionForm compact endpoint="/api/review" action="decide" submitLabel="Approve candidate" hidden={{id: submission.id, kind: 'cash_submission', decision: 'APPROVED'}} fields={[]} />
-                        <ActionForm compact endpoint="/api/review" action="decide" submitLabel="Reject candidate" hidden={{id: submission.id, kind: 'cash_submission', decision: 'REJECTED'}} fields={[{name: 'reason', label: 'Reason', required: true}]} />
-                      </div>
-                    ) : <span className="muted">—</span>}
-                  </td>
-                </tr>
-              ))}
-              {!submissions.length ? <tr><td colSpan={4} className="muted">No submissions.</td></tr> : null}
-            </tbody>
-          </table>
-        </section>
-      </div>
-
+      {/* Reconciliation exists only on this page; removing it would make the
+          feature unreachable, so it stays (see the batch report). */}
       <section className="card" style={{marginBottom: 18}}>
         <div className="page-head" style={{marginBottom: 8}}>
           <div><h3>Reconciliation ({reconciliations.length})</h3></div>
