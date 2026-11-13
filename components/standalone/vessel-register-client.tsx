@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {Eye, Plus} from 'lucide-react';
 import {toast} from 'sonner';
@@ -464,15 +465,15 @@ export function VesselRegisterClient({
         <div className="vessel-table-wrap">
           <table className="cash-payment-table vessel-register-table" style={{tableLayout: 'fixed', minWidth: 920}}>
             <colgroup>
-              <col style={{width: 48}} />
-              <col style={{width: 75}} /><col style={{width: 120}} /><col style={{width: 120}} />
+              <col style={{width: 32}} />
+              <col style={{width: 64}} /><col style={{width: 120}} /><col style={{width: 120}} />
               <col style={{width: 130}} /><col style={{width: 90}} /><col style={{width: 90}} />
               <col style={{width: 45}} /><col style={{width: 60}} /><col style={{width: 55}} />
               <col style={{width: 60}} /><col style={{width: 35}} />
             </colgroup>
             <thead>
               <tr>
-                <th style={{width: 48}}>SL</th>
+                <th style={{width: 32}}>SL</th>
                 <th>Date</th><th>Mother Vessel</th><th>Lighter Vessel</th><th>Escort Name</th>
                 <th>Start</th><th>End</th><th className="num">Days</th><th className="num">Salary</th>
                 <th className="num">Conv.</th><th className="num">Total</th><th><span className="sr-only">View</span></th>
@@ -485,18 +486,21 @@ export function VesselRegisterClient({
                 const pay = payCells({...program, halfDayUnits: program.shifts});
                 return (
                   <tr key={program.id}>
-                    <td style={{width: 48}}>{offset + index + 1}</td>
+                    <td style={{width: 32}}>{offset + index + 1}</td>
                     <td>{eventDate(program.event_at)}</td>
                     <td className="vessel-ellipsis" title={program.mother_vessel}>{withMv(program.mother_vessel_normalized ?? program.mother_vessel)}</td>
-                    <td className="vessel-ellipsis" title={program.lighter_vessel}>{withMv(program.lighter_vessel_normalized ?? program.lighter_vessel)}</td>
+                    <td className="vessel-ellipsis" title={program.lighter_vessel}>
+                      <div>{withMv(program.lighter_vessel_normalized ?? program.lighter_vessel)}</div>
+                      {program.master_mobile ? <small className="muted">{displayMobile(program.master_mobile)}</small> : null}
+                    </td>
                     <td className="vessel-escort-cell">
                       {program.escort_mobile ? (
-                        <button type="button" className="vessel-link" title={cleanEmployeeName(program.escort_name)}
-                          onClick={() => applyEscortFilter(String(program.escort_mobile), program.escort_name)}>
+                        <Link href={`/employees/${encodeURIComponent(String(program.escort_mobile))}`} className="vessel-link"
+                          style={{fontSize: 14, fontWeight: 600}} title={cleanEmployeeName(program.escort_name)}>
                           {cleanEmployeeName(program.escort_name) || '—'}
-                        </button>
+                        </Link>
                       ) : (
-                        <strong className="vessel-ellipsis">{cleanEmployeeName(program.escort_name) || '—'}</strong>
+                        <strong className="vessel-ellipsis" style={{fontSize: 14, fontWeight: 600}}>{cleanEmployeeName(program.escort_name) || '—'}</strong>
                       )}
                       <small>{program.escort_mobile ? displayMobile(program.escort_mobile) : '—'}</small>
                     </td>
