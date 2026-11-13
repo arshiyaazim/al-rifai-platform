@@ -12,6 +12,7 @@ const NAV = [
   {href: '/employees', label: 'Employees / Escorts'},
   {href: '/vessel', label: 'Vessel Register'},
   {href: '/vessel/drafts', label: 'Order Drafts'},
+  {href: '/release', label: 'Escort Release'},
   {href: '/attendance', label: 'Attendance'},
   {href: '/cash', label: 'Cash & Accounts'},
   {href: '/cash/paid', label: 'Business Paid'},
