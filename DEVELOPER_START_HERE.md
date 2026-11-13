@@ -1,12 +1,13 @@
 # DEVELOPER_START_HERE.md — AL-RIFA'I Platform
 
-**Last Updated**: 2026-11-10
-**Current Version**: v1.13.0 (Vessel Phase 2 complete; Cash v1.12.0 image base)
-**Schema Version**: 1.13.1 (56 operational tables + 6 snapshot tables, 18 migrations)
-**Main Release HEAD**: `bd0519d` (Cash final); Vessel overhaul branch `feat/15-task-roadmap`
-**Status**: Production healthy; Vessel pipeline **ACTIVE (stages 1–5)**; Cash live (2,382 POSTED).
+**Last Updated**: 2026-11-13
+**Current Version**: v3.0.0-phase4-merged (Phase 4A–4E UI merged into main)
+**Schema Version**: 1.13.7 (60 tables; 25 migration files 001–026)
+**Main Release HEAD**: `de518ea` (merge `8062f6e` plus post-merge fixes). `feat/15-task-roadmap` is **merged and no longer the source of truth**; the branch is retained for history, not deleted.
+**Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.0.0-phase4-merged`
+**Rollback image**: `local/al-rifai-platform:v2.9.1-cash-autoconfirm`
 
-> **Vessel Phase 2 complete (2026-11-10):** Migration 019 applied (schema 1.13.1).
+> **Historical — Vessel Phase 2 complete (2026-11-10):** Migration 019 applied.
 > All five stages are active: processing, draft-to-Admin, draft-to-Office,
 > auto-confirm, office-forward. Freeze window: 2026-11-09T21:45:43Z →
 > 2026-11-10T07:51:52Z. Backlog scanned 23 messages, 0 new orders. See
@@ -231,8 +232,7 @@ returned by `GET /api/auth/session`.
 
 ## 5. Database
 
-**Current schema: 1.13.1 — 56 operational tables + 6 snapshot tables — 18 migrations.** Migrations 018 (overhaul) and 019 (cleanup) were applied through the checksum-tracked runner. Production Cash baseline is now **2,382 POSTED / 121,875,500 minor /
-218 employees** (live traffic; vessel code never touches Cash tables).
+**Current schema: 1.13.7 — 60 tables — 25 migration files (001–026).** Production was verified at 1.13.7 after the Phase 4A–4E merge. Migrations 020–026 add the review-queue overhaul, vessel name normalization, employee profile extension, attendance records, API keys and the recruitment reply log. The Cash baseline is live traffic, not a fixed number; read the current counts from `alrifai_v2_phase3` when needed (vessel code never touches Cash tables).
 
 ### 5.1 Tables by domain
 
@@ -296,7 +296,14 @@ returned by `GET /api/auth/session`.
 | `016_audit_indexes.sql` | 1.11.0 | Audit Trail timestamp/action indexes and program-event index |
 | `017_cash_event_at.sql` | 1.12.0 | `cash_instructions.event_at`, event-time index, WhatsApp event-time semantics |
 | `018_vessel_overhaul.sql` | 1.13.0 | Vessel `event_at`, source block/order keys, draft text, escort-change link; feature flags, review queue, pipeline state, backlog progress |
-| `019_vessel_cleanup.sql` | 1.13.1 | Strip `MV ` display prefix from stored names; add `vessel.auto_confirm.shadow` |
+| `019_vessel_cleanup.sql` | 1.13.1 (historical intermediate level) | Strip `MV ` display prefix from stored names; add `vessel.auto_confirm.shadow` |
+| `020_review_queue_overhaul.sql` | 1.13.2 | Review queue overhaul; `vessels` reference directory |
+| `021_vessel_name_normalize.sql` | 1.13.3 | `normalize_vessel_name()`, canonical generated columns |
+| `022_vessel_annotation_strip.sql` | 1.13.4 | Strip annotations from stored vessel names |
+| `023_employee_profile_extension.sql` | 1.13.5 | Extended employee profile columns |
+| `024_attendance_table.sql` | 1.13.6 | `attendance_records` (dual-source attendance) |
+| `025_api_keys.sql` | 1.13.7 | `api_keys` registry for the Settings UI |
+| `026_recruitment_log.sql` | 1.13.7 | `recruitment_reply_log` (no schema bump) |
 
 Canonical message identity is `(account_id, chat_jid, message_id)`.
 Event time (`source_timestamp`), ingestion time (`created_at`) and mirror time
@@ -1346,11 +1353,28 @@ export ALRIFAI_ENV_FILE=/opt/al-rifai-phase3-test/.env
 
 pnpm typecheck        # tsc --noEmit
 pnpm lint             # scripts/lint.mjs, 0 errors
-pnpm test:unit        # 152 tests (current)
-pnpm test:standalone  # 247 tests (current, includes Escort E2E and form audit)
+pnpm test:unit        # 194 tests (current)
+pnpm test:standalone  # 257 tests (includes Escort E2E, vessel search, form audit)
+                      # 9 known failures: Phase 4 semantic drift in older assertions
 pnpm build            # Next.js standalone build
 pnpm db:preflight     # read-only migration check
 ```
+
+Production deployment (one image, recreate the `app` service only; the sync
+service is deliberately left on its existing tag):
+
+```bash
+cd /opt/al-rifai-platform
+docker build -t local/al-rifai-platform:<tag> .
+# set ALRIFAI_TAG=<tag> in both .env files (repo .env for compose interpolation,
+# and /opt/vps/al-rifai-standalone/apps/al-rifai/.env for the container env_file)
+docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app
+curl -sk https://127.0.0.1/api/health   # {"status":"ok","database":"ok","schemaVersion":"1.13.7"}
+```
+
+Rollback: set `ALRIFAI_TAG=v2.9.1-cash-autoconfirm` in both `.env` files and
+rerun the same `docker compose ... up -d --no-deps app` command. That image is
+the last release before the Phase 4 merge; it does not contain the Phase 4 UI.
 
 Runtime smoke test:
 
@@ -1368,9 +1392,9 @@ docker logs --since 10m al-rifai-phase3-app-1
 docker logs --since 10m al-rifai-phase3-sync-1
 ```
 
-Current production evidence: health `200`, schema `1.12.0`, image
-`cash-final-eb70d91`, app/sync healthy, 0 restarts, 0 error log lines
-after deployment. Cash backfill: 2,359 POSTED / 2,359 postings / 2,359 ledger
+Current production evidence: health `200`, schema `1.13.7`, image
+`v3.0.0-phase4-merged`, app/sync healthy, 0 restarts, 0 error log lines
+after deployment. Cash backfill (historical): 2,359 POSTED / 2,359 postings / 2,359 ledger
 entries, 8 pending review submissions, 222 employees, 1,211,555.00 BDT.
 Backup: `/opt/al-rifai-backups/alrifai_v2_phase3_20261109T101559Z.pre-cash-overhaul.sql.gz`
 (SHA-256 `fb87581fdef6d3bfb8ac69c9074b1ebeeedccd4be394fbcd5f1badaa81ec8390`).

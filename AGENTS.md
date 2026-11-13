@@ -4,6 +4,19 @@ This file records the rules an automated agent or engineer must preserve when
 changing this repository. It is intentionally short; detailed design notes live
 in `docs/` and the Phase 3 reports.
 
+## Current release (2026-11-13)
+
+- **Version**: `v3.0.0-phase4-merged`, image `local/al-rifai-platform:v3.0.0-phase4-merged`.
+- **Schema**: `1.13.7`, 60 tables, **25 migrations (001–026)**. Live DB `alrifai_v2_phase3`.
+- **Branch**: Phase 4A–4E UI is merged into `main`. `feat/15-task-roadmap` is
+  merged and **no longer the source of truth**; do not treat it as current, and
+  do not delete the branch. Build production images from `/opt/al-rifai-platform` (`main`).
+- **Deploy**: `docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app`
+  after building and setting `ALRIFAI_TAG` in both `.env` files.
+- **Rollback**: `local/al-rifai-platform:v2.9.1-cash-autoconfirm`.
+- Historical version/schema numbers below (v1.12.0, 1.13.x intermediate levels)
+  describe past releases, not the running system.
+
 ## Safety boundary
 
 - Never run migrations, cash postings, deployments, Docker rebuilds, WhatsApp
