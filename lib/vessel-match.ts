@@ -399,8 +399,13 @@ export function matchConfirmation(
   const shiftConflict = shift === 'CONFLICT'
     ? { state: 'AMBIGUOUS' as const, orderId: null, orderMessageId: null, candidateIds: [winner.order.id], mobileEvidence: 'EXACT' as const, shiftEvidence: 'CONFLICT' as const, reasons: ['SHIFT_CONFLICT'] }
     : null;
+  // Owner rule (2026-11-10): when Mother + Lighter + Master Mobile identify the
+  // order exactly, a different date/shift is an assignment-window update, not
+  // an ambiguity. The escort reply is allowed to move the start date/shift.
+  const identityExact = winner.mobile.kind === 'EXACT'
+    && winner.mother !== 'DIFFERENT' && winner.lighter !== 'DIFFERENT';
   if (winner.mobile.kind === 'EXACT') {
-    if (shiftConflict) return shiftConflict;
+    if (shiftConflict && !identityExact) return shiftConflict;
     return {
       state: sameNames ? 'EXACT' : 'VARIANT',
       orderId: winner.order.id,
@@ -408,7 +413,9 @@ export function matchConfirmation(
       candidateIds: [winner.order.id],
       mobileEvidence: 'EXACT',
       shiftEvidence: shift,
-      reasons: [...(sameNames ? [] : ['VESSEL_SPELLING_VARIANT']), ...(shift === 'UNVERIFIED' ? ['SHIFT_UNVERIFIED'] : [])],
+      reasons: [...(sameNames ? [] : ['VESSEL_SPELLING_VARIANT']),
+        ...(shift === 'UNVERIFIED' ? ['SHIFT_UNVERIFIED'] : []),
+        ...(shiftConflict ? ['ASSIGNMENT_WINDOW_UPDATED'] : [])],
     };
   }
   if (winner.mobile.kind === 'CORRECTED') {

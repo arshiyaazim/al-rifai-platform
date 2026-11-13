@@ -54,7 +54,7 @@ const enabledConfig = () => ({
 test('Owner draft keeps the exact shape with blank escort fields', () => {
   assert.equal(isOwnerDraftShape(DRAFT), true);
   assert.match(DRAFT, /^Escort Name:\s*$/m);
-  assert.match(DRAFT, /^Escort mobile:\s*$/m);
+  assert.match(DRAFT, /^Escort Mobile:\s*$/m);
   assert.equal(isOwnerDraftShape(DRAFT.replace('Escort Name:', 'Escort Name: Someone')), false);
   assert.equal(isOwnerDraftShape('not a draft'), false);
 });

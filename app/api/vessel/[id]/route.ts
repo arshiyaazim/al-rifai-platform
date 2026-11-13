@@ -1,6 +1,6 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../../_shared';
 import {assertCapability} from '@/lib/standalone/authz';
-import {assignEscort, getProgram, releaseProgram, updateProgram} from '@/lib/standalone/programs';
+import {assignEscort, getProgram, releaseProgram, updateProgram, voidProgram} from '@/lib/standalone/programs';
 import {listProgramSourcesForPrograms} from '@/lib/standalone/review';
 import {getMessageEvidence} from '@/lib/standalone/messages';
 import {recordAudit} from '@/lib/standalone/audit';
@@ -35,6 +35,29 @@ export async function GET(request: Request, context: {params: Promise<{id: strin
 }
 
 /**
+ * Soft-delete: the row and its audit trail stay, state becomes VOIDED.
+ */
+export async function DELETE(request: Request, context: {params: Promise<{id: string}>}) {
+  try {
+    const actor = await actorFor(request);
+    assertCapability(actor as never, 'vessel.command');
+    const {id} = await context.params;
+    const programId = decodeURIComponent(id);
+    let reason = 'Deleted from vessel register';
+    try {
+      const body = await request.clone().json() as {reason?: string};
+      if (body?.reason) reason = String(body.reason).slice(0, 500);
+    } catch {
+      // DELETE without a JSON body is allowed; the default reason is audited.
+    }
+    const result = await voidProgram(actor as never, programId, reason);
+    return ok(result);
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+/**
  * Edit supported program fields. Mother/Lighter identity is never edited here;
  * the order message remains their source of truth.
  */
@@ -45,17 +68,16 @@ export async function PATCH(request: Request, context: {params: Promise<{id: str
     const {id} = await context.params;
     const programId = decodeURIComponent(id);
     const body = await bodyOf<{
-      escortMobile?: string; escortName?: string; masterName?: string | null; masterMobile?: string | null;
+      escortMobile?: string; escortName?: string; masterMobile?: string | null;
       startDate?: string; startShift?: string; endDate?: string | null; endShift?: string | null; notes?: string | null;
     }>(request);
     const current = await getProgram(programId);
     if (current.program.state === 'VOIDED') throw new DomainError('PROGRAM_VOIDED', 409);
 
     const changed: Record<string, unknown> = {};
-    if (body.masterName !== undefined || body.masterMobile !== undefined
+    if (body.masterMobile !== undefined
       || body.startDate !== undefined || body.startShift !== undefined || body.notes !== undefined) {
       await updateProgram(actor as never, programId, {
-        masterName: body.masterName,
         masterMobile: body.masterMobile,
         startDate: body.startDate,
         startShift: body.startShift,

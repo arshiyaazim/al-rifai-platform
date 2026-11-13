@@ -1,6 +1,6 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../_shared';
 import {
-  EMPLOYEE_SUGGESTION_LIMIT, listEmployees, searchEmployees, createEmployee, updateEmployee,
+  EMPLOYEE_SUGGESTION_LIMIT, listEmployees, searchEmployees, createEmployee, updateEmployee, getEmployee,
 } from '@/lib/standalone/employees';
 import {assertCapability, can} from '@/lib/standalone/authz';
 import {submitForReview} from '@/lib/standalone/review';
@@ -13,6 +13,9 @@ export async function GET(request: Request) {
     const actor = await actorFor(request, {csrf: false});
     assertCapability(actor as never, 'employee.read');
     const url = new URL(request.url);
+    if (url.searchParams.get('mobile')) {
+      return ok(await getEmployee(url.searchParams.get('mobile') as string));
+    }
     if (url.searchParams.get('lookup') === '1') {
       return ok({
         suggestions: await searchEmployees(url.searchParams.get('q') ?? '', EMPLOYEE_SUGGESTION_LIMIT),
@@ -41,7 +44,11 @@ export async function POST(request: Request) {
       });
       return ok({pending: true, review}, 202);
     }
-    return ok(await createEmployee(actor as never, body as never), 201);
+    const created = await createEmployee(actor as never, body as never);
+    if (!created.created) {
+      return ok({error: 'EMPLOYEE_EXISTS', employeeMobile: created.employeeMobile}, 409);
+    }
+    return ok(created, 201);
   } catch (error) {
     return errorResponse(error);
   }

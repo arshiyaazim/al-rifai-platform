@@ -28,11 +28,12 @@ async function csrfToken(): Promise<string> {
 }
 
 export function CashTransactionSidebar({
-  transaction, onClose, onUpdated, canManage = false,
+  transaction, onClose, onUpdated, onFilterEmployee, canManage = false,
 }: {
   transaction: CashTransaction | null;
   onClose: () => void;
   onUpdated?: (transaction: CashTransaction) => void;
+  onFilterEmployee?: (employeeId: string, name?: string) => void;
   canManage?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
@@ -158,6 +159,19 @@ export function CashTransactionSidebar({
     }
   };
 
+  const allTransactions = transaction?.employeeId ? (
+    onFilterEmployee ? (
+      <Button type="button" size="sm" variant="outline"
+        onClick={() => { onFilterEmployee(transaction.employeeId as string, transaction.nameOfEmployee); onClose(); }}>
+        All Transactions
+      </Button>
+    ) : (
+      <Button asChild size="sm" variant="outline">
+        <Link href={`/cash/employee/${encodeURIComponent(transaction.employeeId)}`}>All Transactions</Link>
+      </Button>
+    )
+  ) : null;
+
   return (
     <DetailSidebar
       open={Boolean(transaction)}
@@ -168,11 +182,7 @@ export function CashTransactionSidebar({
         reversed ? (
           <>
             <Button type="button" size="sm" variant="outline" onClick={() => { setEditing(false); onClose(); }}>Close</Button>
-            {transaction.employeeId ? (
-              <Button asChild size="sm" variant="outline">
-                <Link href={`/cash/employee/${encodeURIComponent(transaction.employeeId)}`}>All Transactions</Link>
-              </Button>
-            ) : null}
+            {allTransactions}
           </>
         ) : mode === 'correction' ? (
           <>
@@ -189,11 +199,7 @@ export function CashTransactionSidebar({
             <Button type="button" size="sm" variant="outline" onClick={() => { setEditing(false); onClose(); }}>Close</Button>
             {canManage ? <Button type="button" size="sm" onClick={startCorrection}>Create Correction</Button> : null}
             {canManage ? <Button type="button" size="sm" variant="outline" onClick={startReversal}>Reverse &amp; Re-post</Button> : null}
-            {transaction.employeeId ? (
-              <Button asChild size="sm" variant="outline">
-                <Link href={`/cash/employee/${encodeURIComponent(transaction.employeeId)}`}>All Transactions</Link>
-              </Button>
-            ) : null}
+            {allTransactions}
           </>
         ) : editing ? (
           <>
@@ -204,11 +210,7 @@ export function CashTransactionSidebar({
           <>
             <Button type="button" size="sm" variant="outline" onClick={() => { setEditing(false); onClose(); }}>Close</Button>
             <Button type="button" size="sm" onClick={() => setEditing(true)}>Edit</Button>
-            {transaction.employeeId ? (
-              <Button asChild size="sm" variant="outline">
-                <Link href={`/cash/employee/${encodeURIComponent(transaction.employeeId)}`}>All Transactions</Link>
-              </Button>
-            ) : null}
+            {allTransactions}
           </>
         )
       ) : null}

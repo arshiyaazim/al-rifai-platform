@@ -10,7 +10,7 @@
 // It never sends, writes, assigns or confirms. Delivery is a separate step and
 // is currently MANUAL_COPY_ONLY (no outbound WhatsApp sender is enabled).
 
-import {orderDraftDateAndShift} from './shift-boundary.ts';
+import {orderIntakeDateAndShift} from './order-intake-shift.ts';
 import {renderOwnerDraftFields} from './order-draft-template.ts';
 
 /** The draft is prepared in the Admin UI; nothing is transmitted automatically. */
@@ -21,6 +21,8 @@ export type OrderDraftRecord = {
   lighterVessel?: string | null;
   masterMobile?: string | null;
   destination?: string | null;
+  escortName?: string | null;
+  escortMobile?: string | null;
   /** ISO `YYYY-MM-DD`; `DD-MM-YYYY` / `DD/MM/YY` are also accepted. */
   date?: string | null;
   shift?: string | null;
@@ -91,7 +93,7 @@ export function ownerDraftFromRecord(record: OrderDraftRecord): OrderDraftResult
   let date = normalizeDraftDate(record.date);
   let shift = normalizeDraftShift(record.shift);
   if ((!date || !shift) && record.sourceTimestamp) {
-    const derived = orderDraftDateAndShift(record.sourceTimestamp);
+    const derived = orderIntakeDateAndShift(record.sourceTimestamp, '');
     if (derived) {
       date = date || derived.date;
       shift = shift || derived.shift;
@@ -118,6 +120,8 @@ export function ownerDraftFromRecord(record: OrderDraftRecord): OrderDraftResult
         lighterVessel: String(record.lighterVessel ?? ''),
         masterMobile: String(record.masterMobile ?? ''),
         destination: record.destination,
+        escortName: record.escortName,
+        escortMobile: record.escortMobile,
         date,
         shift: shift as 'D' | 'N',
       });
@@ -140,6 +144,8 @@ type ProgramLike = {
   lighter_vessel?: unknown;
   master_mobile?: unknown;
   destination?: unknown;
+  escort_name?: unknown;
+  escort_mobile?: unknown;
   start_date?: unknown;
   start_shift?: unknown;
   source_message_id?: unknown;
@@ -152,6 +158,8 @@ export function ownerDraftFromProgram(program: ProgramLike): OrderDraftResult {
     lighterVessel: program.lighter_vessel as string | null,
     masterMobile: program.master_mobile as string | null,
     destination: program.destination as string | null,
+    escortName: program.escort_name as string | null,
+    escortMobile: program.escort_mobile as string | null,
     date: program.start_date as string | null,
     shift: program.start_shift as string | null,
     sourceMessageId: program.source_message_id as string | null,

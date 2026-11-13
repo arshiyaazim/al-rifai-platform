@@ -457,12 +457,15 @@ export async function applyConfirmation(
   const fields = block.fields ?? {};
   const employee = fields.escortMobile ?? fields.employeeMobile;
   if (!employee) return 'CONFIRMATION_NO_EMPLOYEE';
-  await assignEscort(actor, target.id, {
+  const assigned = await assignEscort(actor, target.id, {
     employeeMobile: employee,
     employeeName: fields.escortName ?? employee,
     startDate: block.assignmentDate ?? undefined,
     startShift: block.shift ?? undefined,
   });
+  // A different escort mobile creates a linked escort-change row; the
+  // confirmation belongs to the new row, not the superseded one.
+  const confirmedProgramId = assigned.programId;
   await row(
     `UPDATE programs
         SET confirmation_message_id = $2,
@@ -473,7 +476,7 @@ export async function applyConfirmation(
             state = 'CONFIRMED'
       WHERE id = $1`,
     [
-      target.id,
+      confirmedProgramId,
       message.message_id,
       message.chat_jid,
       message.sender_jid,
@@ -485,7 +488,7 @@ export async function applyConfirmation(
     actor,
     action: 'PROGRAM_CONFIRMED',
     entity: 'program',
-    entityId: target.id,
+    entityId: confirmedProgramId,
     detail: {
       matchState: match.state,
       mobileEvidence: match.mobileEvidence,
@@ -496,6 +499,7 @@ export async function applyConfirmation(
       confirmationSenderJid: message.sender_jid,
       confirmationAccountId: message.account_id,
       originalOrderMessageId: target.source_message_id,
+      fromProgramId: confirmedProgramId === target.id ? null : target.id,
     },
     source: 'WHATSAPP',
     sourceRef: message.message_id,

@@ -90,6 +90,15 @@ async function insertInstruction(client: Tx, actor: Actor, input: InstructionInp
   const amountMinor = moneyMinor(input.amountMinor);
   const employeeMobile = optionalMobile(input.employeeMobile, 'employeeMobile');
   const payoutMobile = optionalMobile(input.payoutMobile, 'payoutMobile');
+  if (employeeMobile) {
+    const designation = /client|ক্লায়েন্ট/i.test(String(input.purpose ?? '')) ? 'client' : 'other';
+    await client.query(
+      `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
+       VALUES ($1,$2,'other',$3,'system:cash')
+       ON CONFLICT (employee_mobile) DO NOTHING`,
+      [employeeMobile, text(input.employeeName, 'employeeName', {max: 150}), designation],
+    );
+  }
   const id = newId('ins');
   const created = await client.query(
     `INSERT INTO cash_instructions
@@ -147,6 +156,14 @@ export async function insertBusinessPaidEvent(client: Tx, input: BusinessPaidEve
   } else if (!input.sourceSubmissionId) {
     throw new DomainError('PAID_EVENT_OFFICE_SUBMISSION_REQUIRED', 409);
   }
+  // Owner rule Q: a cash payment for an unknown mobile creates the employee
+  // identity. The cash tables are untouched; only the shared directory grows.
+  await client.query(
+    `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
+     VALUES ($1,$2,'other','other','system')
+     ON CONFLICT (employee_mobile) DO NOTHING`,
+    [employeeMobile, employeeName || `Unknown-${employeeMobile.slice(-4)}`],
+  );
   const registered = await client.query(
     'SELECT 1 FROM employees WHERE employee_mobile = $1', [employeeMobile],
   );

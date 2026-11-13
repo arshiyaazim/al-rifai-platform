@@ -128,6 +128,16 @@ CREATE INDEX employees_name ON employees (lower(preferred_name));
 CREATE TRIGGER employees_touch BEFORE UPDATE ON employees
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 
+-- Vessel reference directory. Mother and lighter are separate roles, so the
+-- same name may exist in both. Program rows still store the raw source name.
+CREATE TABLE vessels (
+  vessel_name text NOT NULL CHECK (length(btrim(vessel_name)) BETWEEN 1 AND 120),
+  vessel_type text NOT NULL CHECK (vessel_type IN ('mother','lighter')),
+  created_by  text NOT NULL DEFAULT 'system',
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (vessel_name, vessel_type)
+);
+
 -- ───────────────────────────────────────────────────────────── programs ──
 -- One row per Lighter. Same mother + different lighters are separate programs.
 CREATE TABLE programs (
@@ -144,7 +154,7 @@ CREATE TABLE programs (
   end_date                 date,
   end_shift                char(1) CHECK (end_shift IN ('D','N')),
   state                    text NOT NULL DEFAULT 'DRAFT'
-                             CHECK (state IN ('DRAFT','CONFIRMED','ASSIGNED','IN_DUTY','RELEASED','COMPLETED','VOIDED')),
+                             CHECK (state IN ('DRAFT','CONFIRMED','ASSIGNED','IN_DUTY','RELEASED','COMPLETED','VOIDED','WITHDRAWN')),
   source_channel           text NOT NULL DEFAULT 'WEB' CHECK (source_channel IN ('WEB','WHATSAPP','IMPORT')),
   source_message_id        text,
   source_chat_jid          text,
@@ -164,9 +174,9 @@ CREATE INDEX programs_escort ON programs (escort_mobile);
 CREATE INDEX programs_start ON programs (start_date DESC);
 -- Exact duplicate identity only; the ±1-day rule is evaluated by the service
 -- (it needs a warning, not a hard constraint).
-CREATE UNIQUE INDEX programs_exact_identity
-  ON programs (lower(btrim(mother_vessel)), lower(btrim(lighter_vessel)), start_date)
-  WHERE state <> 'VOIDED';
+-- The six-field duplicate engine in lib/pipelines/vessel/six-field-dedup.ts is
+-- the duplicate authority; no exact-uniqueness index here (escort changes may
+-- legitimately share mother/lighter/start date).
 CREATE TRIGGER programs_touch BEFORE UPDATE ON programs
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 
@@ -279,9 +289,10 @@ BEGIN
    WHERE destination_key = v_key AND active AND effective_from <= p.start_date
    ORDER BY effective_from DESC LIMIT 1;
   IF v_rate IS NULL THEN
+    -- The wildcard row is stored as '*' (the historical seed), not 'default'.
     SELECT shift_rate_minor, conveyance_minor INTO v_rate, v_conv
       FROM rate_config
-     WHERE destination_key = 'default' AND active AND effective_from <= p.start_date
+     WHERE destination_key = '*' AND active AND effective_from <= p.start_date
      ORDER BY effective_from DESC LIMIT 1;
   END IF;
   IF v_rate IS NULL THEN
@@ -433,7 +444,7 @@ CREATE TABLE review_items (
   payload      jsonb NOT NULL,
   submitted_by text NOT NULL,
   state        text NOT NULL DEFAULT 'PENDING'
-                 CHECK (state IN ('PENDING','APPROVED','REJECTED','WITHDRAWN')),
+                 CHECK (state IN ('PENDING','APPROVED','REJECTED','IGNORED','SENT_BACK','WITHDRAWN')),
   created_at   timestamptz NOT NULL DEFAULT now(),
   decided_at   timestamptz
 );

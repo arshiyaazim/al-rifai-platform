@@ -100,6 +100,10 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
         }}
         escorts={escorts.map((employee) => ({mobile: employee.employee_mobile, name: employee.preferred_name}))}
         mothers={[program.mother_vessel]}
+        lighters={[]}
+        escortNames={[]}
+        escortMobiles={[]}
+        clients={[]}
         fixedMother={program.mother_vessel}
         canCommand={canCommand}
         canRelease={canRelease}

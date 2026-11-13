@@ -8,7 +8,7 @@ const IDENT = /^[A-Za-z_][A-Za-z0-9_$]*$/;
 
 const READ_WRITE = [
   'cash_portal_users', 'cash_portal_sessions', 'employees', 'programs',
-  'program_assignments', 'attendance', 'program_pay', 'cash_instructions',
+  'program_assignments', 'attendance', 'attendance_records', 'program_pay', 'cash_instructions',
   'cash_submissions', 'review_items', 'whatsapp_messages', 'whatsapp_cursors',
   'app_settings', 'schema_meta', 'cash_accounts', 'whatsapp_accounts',
   'whatsapp_chats', 'rate_config',
@@ -29,6 +29,13 @@ const READ_WRITE = [
   'ai_outbound_attempts',
 // Phase 3 WA-01 Vessel Draft delivery queue (migration 010, transport inert).
   'vessel_draft_deliveries',
+  // Phase 2 vessel overhaul (migration 018).
+  'system_feature_flags', 'message_review_queue', 'message_pipeline_state',
+  'vessel_backlog_progress',
+  // Phase 3 vessel reference directory (migration 020).
+  'vessels',
+  // Phase 4E AI key registry + recruitment audit (migrations 025/026).
+  'api_keys', 'recruitment_reply_log',
 ];
 
 const APPEND_ONLY = [
@@ -63,6 +70,8 @@ export async function grantRuntime(client, {schema, runtimeUser}) {
   await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA "${schema}" TO "${runtimeUser}"`);
   await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".compute_program_pay(text) TO "${runtimeUser}"`);
   await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".normalize_mobile(text) TO "${runtimeUser}"`);
+  await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".normalize_vessel_name(text) TO "${runtimeUser}"`);
+  await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".reset_daily_api_usage() TO "${runtimeUser}"`);
 }
 
 export const GRANT_TABLES = {READ_WRITE, APPEND_ONLY, DELETE_ONLY, READ_ONLY_VIEWS};

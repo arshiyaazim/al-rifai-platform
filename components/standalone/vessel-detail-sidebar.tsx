@@ -13,7 +13,7 @@ export type VesselProgram = {
   id: string; mother_vessel: string; lighter_vessel: string; master_name?: string | null;
   master_mobile: string | null; escort_name: string | null; escort_mobile: string | null;
   start_date: string; start_shift: string; end_date: string | null; end_shift: string | null;
-  state: string; notes: string | null; created_at?: string; updated_at?: string;
+  state: string; notes: string | null; created_at?: string; updated_at?: string; event_at?: string | null;
   source_message_id?: string | null; source_chat_jid?: string | null;
   confirmation_message_id?: string | null; confirmation_chat_jid?: string | null;
   confirmation_sender_jid?: string | null; confirmation_account_id?: string | null;
@@ -34,7 +34,7 @@ const dash = (value: unknown) => value === null || value === undefined || value 
 const when = (value: string | null | undefined) => value ? new Date(value).toISOString().slice(0, 16).replace('T', ' ') : '—';
 export const stateTone = (state: string) => state === 'RELEASED' || state === 'COMPLETED' ? 'ok'
   : state === 'CONFIRMED' || state === 'ASSIGNED' || state === 'IN_DUTY' ? 'info'
-    : state === 'VOIDED' ? 'bad' : '';
+    : state === 'VOIDED' || state === 'WITHDRAWN' ? 'bad' : '';
 
 async function csrfToken(): Promise<string> {
   const response = await fetch('/api/auth/session', {credentials: 'same-origin', cache: 'no-store'});
@@ -45,19 +45,21 @@ async function csrfToken(): Promise<string> {
 }
 
 export function VesselDetailSidebar({
-  programId, onClose, onUpdated, canCommand, canRelease,
+  programId, onClose, onUpdated, onFilterEscort, canCommand, canRelease,
 }: {
   programId: string | null;
   onClose: () => void;
   onUpdated?: () => void;
+  onFilterEscort?: (mobile: string, name?: string | null) => void;
   canCommand: boolean;
   canRelease: boolean;
 }) {
   const [detail, setDetail] = useState<VesselDetail | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [form, setForm] = useState({
-    masterName: '', masterMobile: '', escortMobile: '', escortName: '',
+    masterMobile: '', escortMobile: '', escortName: '',
     startDate: '', startShift: 'D', endDate: '', endShift: '', notes: '',
   });
 
@@ -71,11 +73,10 @@ export function VesselDetailSidebar({
     return () => controller.abort();
   }, [programId]);
 
-  const startEdit = () => {
-    if (!detail) return;
+  const startEdit = () => {    if (!detail) return;
     const p = detail.program;
     setForm({
-      masterName: p.master_name ?? '', masterMobile: p.master_mobile ?? '',
+      masterMobile: p.master_mobile ?? '',
       escortMobile: p.escort_mobile ?? '', escortName: p.escort_name ?? '',
       startDate: p.start_date ?? '', startShift: p.start_shift ?? 'D',
       endDate: p.end_date ?? '', endShift: p.end_shift ?? '', notes: p.notes ?? '',
@@ -93,7 +94,6 @@ export function VesselDetailSidebar({
         credentials: 'same-origin',
         headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token},
         body: JSON.stringify({
-          masterName: form.masterName.trim() || null,
           masterMobile: form.masterMobile.trim() || null,
           escortMobile: form.escortMobile.trim() || undefined,
           escortName: form.escortName.trim() || undefined,
@@ -117,6 +117,30 @@ export function VesselDetailSidebar({
     }
   };
 
+  const remove = async () => {
+    if (!detail) return;
+    if (!window.confirm(`Delete ${detail.program.mother_vessel} → ${detail.program.lighter_vessel}? The row is marked VOIDED, never hard-deleted.`)) return;
+    setDeleting(true);
+    try {
+      const token = await csrfToken();
+      const response = await fetch(`/api/vessel/${encodeURIComponent(detail.program.id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token},
+        body: JSON.stringify({reason: 'Deleted from vessel sidebar'}),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
+      toast.success('Program voided.');
+      onUpdated?.();
+      onClose();
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : 'Delete failed.', {duration: Infinity});
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const loading = Boolean(programId) && !detail;
   const program = detail?.program;
   const orderSource = detail?.sources?.find((source) => source.source_role === 'primary') ?? detail?.sources?.[0];
@@ -137,7 +161,21 @@ export function VesselDetailSidebar({
           <>
             <Button type="button" size="sm" variant="outline" onClick={() => { setEditing(false); onClose(); }}>Close</Button>
             {canCommand ? <Button type="button" size="sm" onClick={startEdit}>Edit</Button> : null}
-            <Button asChild size="sm" variant="outline"><Link href={`/vessel/${encodeURIComponent(program.id)}`}>All Programs</Link></Button>
+            {program.escort_mobile && onFilterEscort ? (
+              <Button type="button" size="sm" variant="outline"
+                onClick={() => { onFilterEscort(String(program.escort_mobile), program.escort_name); onClose(); }}>
+                All Programs
+              </Button>
+            ) : (
+              <Button asChild size="sm" variant="outline">
+                <Link href={program.escort_mobile ? `/vessel?escort_mobile=${encodeURIComponent(program.escort_mobile)}` : '/vessel'}>All Programs</Link>
+              </Button>
+            )}
+            {canCommand && program.state !== 'VOIDED' ? (
+              <Button type="button" size="sm" variant="outline" disabled={deleting} onClick={() => void remove()}>
+                {deleting ? 'Deleting…' : 'Delete'}
+              </Button>
+            ) : null}
           </>
         )
       ) : null}
@@ -151,13 +189,15 @@ export function VesselDetailSidebar({
               <dt className="text-muted-foreground">Mother Vessel</dt><dd>{program.mother_vessel}</dd>
               <dt className="text-muted-foreground">Lighter Name</dt><dd>{program.lighter_vessel}</dd>
               <dt className="text-muted-foreground">Master Name</dt>
-              <dd>{editing ? <Input value={form.masterName} onChange={(e) => setForm({...form, masterName: e.target.value})} /> : dash(program.master_name)}</dd>
+              <dd>{dash(program.master_name)}</dd>
               <dt className="text-muted-foreground">Master Mobile</dt>
               <dd>{editing ? <Input value={form.masterMobile} onChange={(e) => setForm({...form, masterMobile: e.target.value})} /> : dash(program.master_mobile)}</dd>
               <dt className="text-muted-foreground">Escort Name</dt>
               <dd>{editing ? <Input value={form.escortName} onChange={(e) => setForm({...form, escortName: e.target.value})} /> : cleanEmployeeName(program.escort_name)}</dd>
               <dt className="text-muted-foreground">Escort Mobile</dt>
               <dd>{editing ? <Input value={form.escortMobile} onChange={(e) => setForm({...form, escortMobile: e.target.value})} /> : dash(program.escort_mobile)}</dd>
+              <dt className="text-muted-foreground">Event Date</dt>
+              <dd>{program.event_at ? new Date(program.event_at).toLocaleDateString('en-GB', {timeZone: 'Asia/Dhaka'}).replaceAll('/', '-') : '—'}</dd>
               <dt className="text-muted-foreground">Start</dt>
               <dd>{editing ? (
                 <span className="flex gap-2"><Input type="date" value={form.startDate} onChange={(e) => setForm({...form, startDate: e.target.value})} />

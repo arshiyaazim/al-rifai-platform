@@ -409,6 +409,10 @@ export async function runtimeDeliveryConfig(): Promise<DeliveryGateConfig> {
   config.authorizedRecipientJids = Array.isArray(chatSetting?.value)
     ? chatSetting.value.filter((jid): jid is string => typeof jid === 'string' && jid.trim().length > 0)
     : [];
+  // Owner-approved Admin draft recipient (B8).
+  if (!config.authorizedRecipientJids.includes('8801880446111@s.whatsapp.net')) {
+    config.authorizedRecipientJids.push('8801880446111@s.whatsapp.net');
+  }
   return config;
 }
 

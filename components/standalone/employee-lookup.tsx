@@ -167,3 +167,131 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
     </div>
   );
 }
+
+// ── Dual-field (name + mobile) lookup used by the Attendance form ──────────
+export type DualSuggestion = {mobile: string; name: string; designation: string | null};
+
+function Highlight({text, query}: {text: string; query: string}) {
+  const q = query.trim();
+  if (!q) return <>{text}</>;
+  const index = text.toLowerCase().indexOf(q.toLowerCase());
+  if (index < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, index)}
+      <mark>{text.slice(index, index + q.length)}</mark>
+      {text.slice(index + q.length)}
+    </>
+  );
+}
+
+/**
+ * Two-field attendance lookup. Typing in either field searches the matching
+ * column; selecting a row fills both fields and notifies the caller.
+ */
+export function EmployeeLookupDual({
+  onEmployeeSelect, initialMobile = '', initialName = '', disabled = false, layout = 'vertical',
+}: {
+  onEmployeeSelect: (mobile: string, name: string) => void;
+  initialMobile?: string;
+  initialName?: string;
+  disabled?: boolean;
+  layout?: 'horizontal' | 'vertical';
+}) {
+  const [name, setName] = useState(initialName);
+  const [mobile, setMobile] = useState(initialMobile);
+  const [suggestions, setSuggestions] = useState<DualSuggestion[]>([]);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [query, setQuery] = useState('');
+  const [field, setField] = useState<'name' | 'mobile'>('name');
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const root = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      if (root.current && !root.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, []);
+
+  function search(nextField: 'name' | 'mobile', value: string) {
+    setField(nextField);
+    setQuery(value);
+    if (timer.current) clearTimeout(timer.current);
+    const minimum = nextField === 'name' ? 2 : 3;
+    if (value.trim().length < minimum) { setSuggestions([]); setOpen(false); return; }
+    timer.current = setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/employees/lookup?q=${encodeURIComponent(value)}&field=${nextField}`, {cache: 'no-store'});
+        if (!response.ok) return;
+        const body = await response.json() as {rows?: DualSuggestion[]};
+        setSuggestions(body.rows ?? []);
+        setOpen(Boolean(body.rows?.length));
+        setActive(0);
+      } catch { /* keep the field usable when lookup is offline */ }
+    }, 300);
+  }
+
+  function choose(item: DualSuggestion) {
+    setName(item.name);
+    setMobile(item.mobile);
+    setOpen(false);
+    setSuggestions([]);
+    onEmployeeSelect(item.mobile, item.name);
+  }
+
+  function keyDown(event: React.KeyboardEvent) {
+    if (!open) return;
+    if (event.key === 'ArrowDown') { event.preventDefault(); setActive((index) => Math.min(index + 1, suggestions.length - 1)); }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); setActive((index) => Math.max(index - 1, 0)); }
+    else if (event.key === 'Enter' && suggestions[active]) { event.preventDefault(); choose(suggestions[active]); }
+    else if (event.key === 'Escape') setOpen(false);
+  }
+
+  return (
+    <div ref={root} style={{position: 'relative', display: 'grid', gridTemplateColumns: layout === 'horizontal' ? '1fr 1fr' : '1fr', gap: 8}}>
+      <label className="text-sm" style={{position: 'relative'}}>
+        Employee Name
+        <input
+          value={name} disabled={disabled} autoComplete="off"
+          onChange={(event) => { setName(event.target.value); search('name', event.target.value); }}
+          onFocus={() => { if (suggestions.length) setOpen(true); }}
+          onKeyDown={keyDown}
+          placeholder="Type 2+ characters"
+          style={{width: '100%'}}
+        />
+      </label>
+      <label className="text-sm" style={{position: 'relative'}}>
+        Employee Mobile
+        <input
+          value={mobile} disabled={disabled} autoComplete="off" inputMode="tel"
+          onChange={(event) => { setMobile(event.target.value); search('mobile', event.target.value); }}
+          onFocus={() => { if (suggestions.length) setOpen(true); }}
+          onKeyDown={keyDown}
+          placeholder="Type 3+ digits"
+          style={{width: '100%'}}
+        />
+      </label>
+      {open && suggestions.length ? (
+        <div style={{position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, boxShadow: '0 8px 24px rgba(15,23,42,.15)', maxHeight: 240, overflowY: 'auto', marginTop: 4}}>
+          {suggestions.map((item, index) => (
+            <button
+              key={item.mobile} type="button"
+              onMouseEnter={() => setActive(index)}
+              onClick={() => choose(item)}
+              style={{display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: index === active ? '#dbeafe' : 'transparent', border: 0, cursor: 'pointer', fontSize: 13}}
+            >
+              {field === 'mobile'
+                ? <><Highlight text={item.mobile} query={query} /> <span className="muted">({item.name})</span></>
+                : <><Highlight text={item.name} query={query} /> <span className="muted">({item.mobile})</span></>}
+              {item.designation ? <span className="pill" style={{marginLeft: 6, fontSize: 10}}>{item.designation}</span> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
