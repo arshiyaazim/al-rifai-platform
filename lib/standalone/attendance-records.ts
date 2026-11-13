@@ -179,11 +179,30 @@ export async function unifiedAttendance(input: {employeeMobile?: string; month?:
 
   const vesselDays = vessel.reduce((sum, item) => sum + Number(item.vessel_shifts ?? 0) / 2, 0);
   const nonVesselDays = manual.reduce((sum, item) => sum + (item.shift === 'FULL' ? 1 : 0.5), 0);
-  // Security attendance = frontend-entered records. Migration 024 backfilled
-  // legacy rows as 'migration:024'; those are not frontend entries.
-  const securityDays = manual
-    .filter((item) => item.created_by !== 'migration:024')
-    .reduce((sum, item) => sum + (item.shift === 'FULL' ? 1 : 0.5), 0);
+  // Security attendance = every attendance day (legacy + imported + frontend)
+  // that is not already covered by a vessel program assignment on that date.
+  const security = await row<{days: string}>(
+    `WITH slots AS (
+       SELECT employee_mobile, attendance_date AS day, shift
+         FROM attendance_records WHERE state = 'ACTIVE'
+       UNION
+       SELECT employee_mobile, duty_date AS day, shift::text
+         FROM attendance WHERE state = 'PRESENT'
+     )
+     SELECT coalesce(sum(CASE WHEN shift = 'FULL' THEN 1 ELSE 0.5 END), 0)::text AS days
+       FROM slots s
+      WHERE s.day >= $1::date AND s.day <= $2::date
+        AND ($3::text IS NULL OR s.employee_mobile = $3)
+        AND NOT EXISTS (
+          SELECT 1 FROM program_assignments pa
+            JOIN programs p ON p.id = pa.program_id
+           WHERE pa.employee_mobile = s.employee_mobile
+             AND p.state IN ('CONFIRMED','RELEASED')
+             AND s.day BETWEEN p.start_date AND coalesce(p.end_date, p.start_date)
+        )`,
+    [from, to, employee],
+  );
+  const securityDays = Number(security?.days ?? 0);
   const totalDays = vesselDays + nonVesselDays;
   const active = await row<{count: string}>("SELECT count(*)::text AS count FROM employees WHERE state = 'ACTIVE'");
   return {

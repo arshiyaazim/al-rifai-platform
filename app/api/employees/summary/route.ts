@@ -23,12 +23,31 @@ export async function GET(request: Request) {
                 AND pp.shifts IS NOT NULL
            ) d
           GROUP BY employee_mobile
+       ), attendance_slots AS (
+         -- Every attendance row from both tables, deduplicated by
+         -- (employee, day, shift). attendance_records contains the migration
+         -- 024 backfill of these same legacy rows, so a UNION removes the
+         -- double count.
+         SELECT employee_mobile, attendance_date AS day, shift
+           FROM attendance_records WHERE state = 'ACTIVE'
+         UNION
+         SELECT employee_mobile, duty_date AS day, shift::text
+           FROM attendance WHERE state = 'PRESENT'
        ), non_vessel AS (
-         SELECT employee_mobile,
-                sum(CASE WHEN shift = 'FULL' THEN 1 ELSE 0.5 END) AS days
-           FROM attendance_records
-          WHERE state = 'ACTIVE'
-          GROUP BY employee_mobile
+         -- Security attendance: every attendance day that is NOT already
+         -- covered by a vessel program assignment on that date.
+         SELECT s.employee_mobile,
+                sum(CASE WHEN s.shift = 'FULL' THEN 1 ELSE 0.5 END) AS days
+           FROM attendance_slots s
+          WHERE NOT EXISTS (
+            SELECT 1
+              FROM program_assignments pa
+              JOIN programs p ON p.id = pa.program_id
+             WHERE pa.employee_mobile = s.employee_mobile
+               AND p.state IN ('CONFIRMED','RELEASED')
+               AND s.day BETWEEN p.start_date AND coalesce(p.end_date, p.start_date)
+          )
+          GROUP BY s.employee_mobile
        ), paid AS (
          SELECT i.employee_mobile, sum(p.amount_minor)::bigint AS total_paid
            FROM cash_postings p
@@ -36,14 +55,9 @@ export async function GET(request: Request) {
           WHERE i.state = 'POSTED' AND i.employee_mobile IS NOT NULL
           GROUP BY i.employee_mobile
        ), security AS (
-         -- Security attendance = entered through the frontend attendance form.
-         -- Migration 024 backfilled legacy rows with created_by='migration:024';
-         -- those are not frontend entries and are excluded here.
-         SELECT employee_mobile,
-                sum(CASE WHEN shift = 'FULL' THEN 1 ELSE 0.5 END) AS days
-           FROM attendance_records
-          WHERE state = 'ACTIVE' AND created_by IS DISTINCT FROM 'migration:024'
-          GROUP BY employee_mobile
+         -- Security attendance is the same set as non-vessel attendance: every
+         -- legacy, imported and frontend-entered row not covered by a vessel day.
+         SELECT employee_mobile, days FROM non_vessel
        ), days AS (
          SELECT e.employee_mobile,
                 coalesce(v.days, 0) AS vessel_days,
