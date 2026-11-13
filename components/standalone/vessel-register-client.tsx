@@ -16,6 +16,7 @@ import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 import {useRealtimeUpdates} from '@/hooks/use-realtime-updates';
 import {cleanEmployeeName} from '@/lib/display-name';
+import {displayMobile} from '@/lib/display-mobile';
 import {payCells} from '@/lib/vessel-pay';
 import type {ExportColumn} from '@/lib/export-format';
 
@@ -253,7 +254,7 @@ export function VesselRegisterClient({
     {header: 'Mother Vessel', value: (row) => withMv(row.mother_vessel_normalized ?? row.mother_vessel)},
     {header: 'Lighter Vessel', value: (row) => withMv(row.lighter_vessel_normalized ?? row.lighter_vessel)},
     {header: 'Escort Name', value: (row) => cleanEmployeeName(row.escort_name)},
-    {header: 'Escort Mobile', value: (row) => row.escort_mobile ?? ''},
+    {header: 'Escort Mobile', value: (row) => displayMobile(row.escort_mobile)}, 
     {header: 'Start', value: (row) => shift(row.start_date, row.start_shift)},
     {header: 'End', value: (row) => shift(row.end_date, row.end_shift)},
     {header: 'Days', value: (row) => payCells({...row, halfDayUnits: row.shifts}).days.value},
@@ -463,6 +464,7 @@ export function VesselRegisterClient({
         <div className="vessel-table-wrap">
           <table className="cash-payment-table vessel-register-table" style={{tableLayout: 'fixed', minWidth: 920}}>
             <colgroup>
+              <col style={{width: 48}} />
               <col style={{width: 75}} /><col style={{width: 120}} /><col style={{width: 120}} />
               <col style={{width: 130}} /><col style={{width: 90}} /><col style={{width: 90}} />
               <col style={{width: 45}} /><col style={{width: 60}} /><col style={{width: 55}} />
@@ -470,6 +472,7 @@ export function VesselRegisterClient({
             </colgroup>
             <thead>
               <tr>
+                <th style={{width: 48}}>SL</th>
                 <th>Date</th><th>Mother Vessel</th><th>Lighter Vessel</th><th>Escort Name</th>
                 <th>Start</th><th>End</th><th className="num">Days</th><th className="num">Salary</th>
                 <th className="num">Conv.</th><th className="num">Total</th><th><span className="sr-only">View</span></th>
@@ -477,11 +480,12 @@ export function VesselRegisterClient({
             </thead>
             <tbody>
               {loading ? Array.from({length: Math.min(limit, 5)}).map((_, index) => (
-                <tr key={`sk-${index}`}><td>—</td><td colSpan={10}><span className="muted">Loading…</span></td></tr>
-              )) : pageRows.map((program) => {
+                <tr key={`sk-${index}`}><td>—</td><td>—</td><td colSpan={10}><span className="muted">Loading…</span></td></tr>
+              )) : pageRows.map((program, index) => {
                 const pay = payCells({...program, halfDayUnits: program.shifts});
                 return (
                   <tr key={program.id}>
+                    <td style={{width: 48}}>{offset + index + 1}</td>
                     <td>{eventDate(program.event_at)}</td>
                     <td className="vessel-ellipsis" title={program.mother_vessel}>{withMv(program.mother_vessel_normalized ?? program.mother_vessel)}</td>
                     <td className="vessel-ellipsis" title={program.lighter_vessel}>{withMv(program.lighter_vessel_normalized ?? program.lighter_vessel)}</td>
@@ -494,7 +498,7 @@ export function VesselRegisterClient({
                       ) : (
                         <strong className="vessel-ellipsis">{cleanEmployeeName(program.escort_name) || '—'}</strong>
                       )}
-                      <small>{program.escort_mobile ?? '—'}</small>
+                      <small>{program.escort_mobile ? displayMobile(program.escort_mobile) : '—'}</small>
                     </td>
                     <td>{shift(program.start_date, program.start_shift)}</td>
                     <td>{shift(program.end_date, program.end_shift)}</td>
@@ -510,7 +514,7 @@ export function VesselRegisterClient({
                   </tr>
                 );
               })}
-              {!loading && !pageRows.length ? <tr><td colSpan={11} className="muted">No programs match this filter.</td></tr> : null}
+              {!loading && !pageRows.length ? <tr><td colSpan={12} className="muted">No programs match this filter.</td></tr> : null}
             </tbody>
           </table>
         </div>
