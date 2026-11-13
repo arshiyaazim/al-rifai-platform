@@ -816,6 +816,11 @@ input, select, textarea, .pill, .vessel-facets button, .button-link,
 @media (max-width: 768px) {
   html, body { max-width: 100%; overflow-x: clip; }
 
+  /* Headers, action rows and pagination wrap instead of overflowing the page. */
+  .page-head { flex-wrap: wrap; align-items: flex-start; }
+  .cash-pagination { flex-wrap: wrap; row-gap: 8px; }
+  .table-toolbar { align-items: stretch; }
+
   .wx-workspace,
   .wx-workspace__content,
   .wx-page,
@@ -1072,7 +1077,7 @@ input, select, textarea, .pill, .vessel-facets button, .button-link,
 .vessel-kpi strong { font-size: 20px; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .vessel-kpi:hover { border-color: #93c5fd; background: #f8fbff; }
 .vessel-kpi--clear { align-items: center; justify-content: center; text-align: center; }
-.vessel-table-wrap { width: 100%; max-width: 100%; overflow-x: hidden; }
+.vessel-table-wrap { width: 100%; max-width: 100%; overflow-x: auto; }
 .vessel-register-table { width: 100%; }
 .vessel-register-table th, .vessel-register-table td { padding: 8px 8px; }
 .vessel-register-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
