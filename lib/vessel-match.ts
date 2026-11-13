@@ -107,6 +107,19 @@ function editDistance(a: string, b: string): number {
 
 export type VesselSimilarity = 'SAME' | 'VARIANT' | 'DIFFERENT';
 
+/**
+ * True when the normalised keys are within `max` single-character edits.
+ * Used only by the operator's spelling-tolerant search (≤3); names are never
+ * merged on this alone.
+ */
+export function withinEditDistance(a: string, b: string, max = 3): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (Math.abs(a.length - b.length) > max) return false;
+  return editDistance(a, b) <= max;
+}
+
+
 export function compareVesselNames(left: string, right: string): VesselSimilarity {
   const a = vesselKey(left);
   const b = vesselKey(right);

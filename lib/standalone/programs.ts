@@ -2,7 +2,7 @@ import type {PoolClient} from 'pg';
 import {row, rows, tx, text, optionalText, isoDate, shift, mobile, optionalMobile, DomainError, type Actor} from './db.ts';
 import {recordAudit, stableId} from './audit.ts';
 import {assertCapability} from './authz.ts';
-import {vesselKey} from '../vessel-match.ts';
+import {vesselKey, withinEditDistance} from '../vessel-match.ts';
 import {evaluateSixFieldDedup, type SixFieldCandidate} from '../pipelines/vessel/six-field-dedup.ts';
 import {ensureVessel} from '../pipelines/vessel/vessels.ts';
 import {handleEscortChangeOn} from '../pipelines/vessel/escort-change.ts';
@@ -637,21 +637,89 @@ export type ProgramListFilters = {
   offset?: number;
 };
 
-function programFilterSql(filters: ProgramListFilters): {clause: string; values: unknown[]} {
+function programFilterSql(
+  filters: ProgramListFilters,
+  searchKeys: string[] = [],
+  qKey = '',
+): {clause: string; values: unknown[]} {
   const q = (filters.q ?? '').trim().toLowerCase();
+  // Stored vessel names are canonical, so a search must compare on the same
+  // projection the canonicaliser produces (vesselKey): case, dots, dashes,
+  // spaces and the MV prefix are ignored. The raw clauses stay for names and
+  // mobiles that are not vessel keys.
+  const keyOf = (column: string) => `regexp_replace(upper(${column}), '[^A-Z0-9]', '', 'g')`;
   return {
-    clause: `WHERE ($1 = '' OR lower(p.mother_vessel) LIKE '%' || $1 || '%'
+    clause: `WHERE (
+        ($1 = '' AND $8 = '' AND cardinality($9::text[]) = 0)
+        OR ($1 <> '' AND (
+             lower(p.mother_vessel) LIKE '%' || $1 || '%'
              OR lower(p.lighter_vessel) LIKE '%' || $1 || '%'
              OR lower(coalesce(p.escort_name,'')) LIKE '%' || $1 || '%'
-             OR p.master_mobile LIKE '%' || $1 || '%')
+             OR p.master_mobile LIKE '%' || $1 || '%'
+             OR ($8 <> '' AND (${keyOf('p.mother_vessel')} LIKE '%' || $8 || '%'
+                           OR ${keyOf('p.lighter_vessel')} LIKE '%' || $8 || '%'))
+        ))
+        OR (cardinality($9::text[]) > 0 AND (${keyOf('p.mother_vessel')} = ANY($9::text[])
+                                          OR ${keyOf('p.lighter_vessel')} = ANY($9::text[])))
+      )
         AND ($2::text IS NULL OR p.state = $2)
         AND ($3::text IS NULL OR p.escort_mobile = $3)
         AND ($4::date IS NULL OR p.start_date >= $4)
         AND ($5::date IS NULL OR p.start_date <= $5)
         AND ($6::text IS NULL OR lower(btrim(p.mother_vessel)) = lower(btrim($6)))
         AND ($7::text IS NULL OR p.escort_mobile = $7)`,
-    values: [q, filters.state ?? null, filters.escort ?? null, filters.from ?? null, filters.to ?? null, filters.mother ?? null, filters.escortMobile ?? null],
+    values: [q, filters.state ?? null, filters.escort ?? null, filters.from ?? null, filters.to ?? null, filters.mother ?? null, filters.escortMobile ?? null, qKey, searchKeys],
   };
+}
+
+export type VesselSearchResolution = {
+  keys: string[];
+  ambiguous: boolean;
+  tolerant: boolean;
+  reason: 'NO_QUERY' | 'SHORT_KEY' | 'NONE' | 'UNIQUE' | 'AMBIGUOUS';
+};
+
+/**
+ * Spelling-tolerant vessel search (operator rule: up to 3 letters).
+ *
+ * Normalisation reuses `vesselKey()` — the same function that produces the key
+ * for a stored name — so "MV Page", "mv-page", "M.V. Page" and "mV pAgE" all
+ * reduce to PAGE. When that key has no exact/substring match, a bounded
+ * Levenshtein distance of at most 3 is applied to the normalised key, with two
+ * guards: the query key must be at least 5 characters (too little signal
+ * below that), and only an unambiguous single candidate may be used. Two or
+ * more candidates are returned together and flagged `ambiguous` so callers can
+ * show both instead of silently merging them.
+ */
+export async function resolveVesselSearchKeys(
+  q: string,
+  filters: ProgramListFilters = {},
+): Promise<VesselSearchResolution> {
+  const key = vesselKey(q).toUpperCase();
+  if (!key) return {keys: [], ambiguous: false, tolerant: false, reason: 'NO_QUERY'};
+  if (key.length < 5) return {keys: [], ambiguous: false, tolerant: false, reason: 'SHORT_KEY'};
+  const keyOf = (column: string) => `regexp_replace(upper(${column}), '[^A-Z0-9]', '', 'g')`;
+  const candidates = await rows<{vkey: string}>(
+    `SELECT DISTINCT ${keyOf('p.mother_vessel')} AS vkey FROM programs p
+      WHERE ${keyOf('p.mother_vessel')} <> ''
+        AND ($1::text IS NULL OR p.state = $1)
+        AND ($2::date IS NULL OR p.start_date >= $2)
+        AND ($3::date IS NULL OR p.start_date <= $3)
+     UNION
+     SELECT DISTINCT ${keyOf('p.lighter_vessel')} AS vkey FROM programs p
+      WHERE ${keyOf('p.lighter_vessel')} <> ''
+        AND ($1::text IS NULL OR p.state = $1)
+        AND ($2::date IS NULL OR p.start_date >= $2)
+        AND ($3::date IS NULL OR p.start_date <= $3)
+     LIMIT 2000`,
+    [filters.state ?? null, filters.from ?? null, filters.to ?? null],
+  );
+  const matches = candidates
+    .map((candidate) => candidate.vkey)
+    .filter((candidate) => withinEditDistance(key, candidate, 3));
+  if (matches.length === 0) return {keys: [], ambiguous: false, tolerant: true, reason: 'NONE'};
+  if (matches.length === 1) return {keys: matches, ambiguous: false, tolerant: true, reason: 'UNIQUE'};
+  return {keys: matches, ambiguous: true, tolerant: true, reason: 'AMBIGUOUS'};
 }
 
 export async function listPrograms(filters: ProgramListFilters = {}) {
@@ -660,28 +728,43 @@ export async function listPrograms(filters: ProgramListFilters = {}) {
   const resolved = filters.mother
     ? {...filters, mother: await resolveMotherVesselAlias(normalizeVesselName(filters.mother))}
     : filters;
-  const {clause, values} = programFilterSql(resolved);
-  return rows<ProgramListRow>(
-    `SELECT p.*, p.start_date::text AS start_date, p.end_date::text AS end_date,
-            pp.state AS pay_state, pp.shifts, pp.total_minor::text, pp.salary_minor::text, pp.conveyance_minor::text
-       FROM programs p LEFT JOIN program_pay pp ON pp.program_id = p.id
-       ${clause}
-      ORDER BY p.start_date DESC, p.created_at DESC
-      LIMIT $8 OFFSET $9`,
-    [...values, limit, offset],
-  );
+  const qKey = vesselKey(filters.q ?? '').toUpperCase();
+  const select = (clause: string, values: unknown[]) =>
+    rows<ProgramListRow>(
+      `SELECT p.*, p.start_date::text AS start_date, p.end_date::text AS end_date,
+              pp.state AS pay_state, pp.shifts, pp.total_minor::text, pp.salary_minor::text, pp.conveyance_minor::text
+         FROM programs p LEFT JOIN program_pay pp ON pp.program_id = p.id
+         ${clause}
+        ORDER BY p.start_date DESC, p.created_at DESC
+        LIMIT $10 OFFSET $11`,
+      [...values, limit, offset],
+    );
+  let {clause, values} = programFilterSql(resolved, [], qKey);
+  const found = await select(clause, values);
+  if (found.length || qKey.length < 5) return found;
+  // No literal match: fall back to the bounded spelling tolerance, which only
+  // ever widens the result when the match is unambiguous.
+  const tolerance = await resolveVesselSearchKeys(filters.q ?? '', filters);
+  if (!tolerance.keys.length) return found;
+  ({clause, values} = programFilterSql(resolved, tolerance.keys, qKey));
+  return select(clause, values);
 }
 
 export async function countPrograms(filters: ProgramListFilters = {}) {
   const resolved = filters.mother
     ? {...filters, mother: await resolveMotherVesselAlias(normalizeVesselName(filters.mother))}
     : filters;
-  const {clause, values} = programFilterSql(resolved);
-  const counted = await row<{count: string}>(
-    `SELECT count(*)::text AS count FROM programs p ${clause}`,
-    values,
-  );
-  return Number(counted?.count ?? 0);
+  const qKey = vesselKey(filters.q ?? '').toUpperCase();
+  const count = (clause: string, values: unknown[]) =>
+    row<{count: string}>(`SELECT count(*)::text AS count FROM programs p ${clause}`, values);
+  let {clause, values} = programFilterSql(resolved, [], qKey);
+  const counted = await count(clause, values);
+  if (Number(counted?.count ?? 0) > 0 || qKey.length < 5) return Number(counted?.count ?? 0);
+  const tolerance = await resolveVesselSearchKeys(filters.q ?? '', filters);
+  if (!tolerance.keys.length) return 0;
+  ({clause, values} = programFilterSql(resolved, tolerance.keys, qKey));
+  const widened = await count(clause, values);
+  return Number(widened?.count ?? 0);
 }
 
 /**
