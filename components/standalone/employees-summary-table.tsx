@@ -15,6 +15,7 @@ type SummaryRow = {
   designation: string | null;
   vessel_attendance?: string;
   non_vessel_attendance?: string;
+  security_attendance?: string;
   total_attendance: string;
   salary_minor: string;
   cash_paid_minor: string;
@@ -141,6 +142,7 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
   const joinedIn = (month: string) => rows.filter((row) => String(row.date_of_join ?? '').slice(0, 7) === month).length;
   const joinedToday = rows.filter((row) => String(row.date_of_join ?? '').slice(0, 10) === today).length;
   const vesselDays = sum(rows, 'vessel_attendance');
+  const securityDays = sum(rows, 'security_attendance');
   const salaryTotal = sum(rows, 'salary_minor');
   const paidTotal = sum(rows, 'cash_paid_minor');
 
@@ -152,7 +154,7 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
         <MetricCard label="New Join: This Month" value={joinedIn(thisMonth).toLocaleString()} />
         <MetricCard label="Today Joined" value={joinedToday.toLocaleString()} />
         <MetricCard label="Total Attendance: Vessel" value={attendance(vesselDays)} />
-        <MetricCard label="Total Attendance: Security" value="data source missing" missing />
+        <MetricCard label="Total Attendance: Security" value={attendance(securityDays)} />
         <MetricCard label="Total Salary" value={money(salaryTotal)} />
         <MetricCard label="Total Paid" value={money(paidTotal)} href="/cash" />
       </div>
@@ -201,8 +203,8 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
               return (
                 <tr key={row.employee_mobile}>
                   <td style={{width: 48}}>{(safePage - 1) * limit + index + 1}</td>
-                  <td>{displayMobile(row.employee_mobile)}</td>
-                  <td>{row.preferred_name}</td>
+                  <td><Link href={`/employees/${encodeURIComponent(row.employee_mobile)}`}>{displayMobile(row.employee_mobile)}</Link></td>
+                  <td><Link href={`/employees/${encodeURIComponent(row.employee_mobile)}`}>{row.preferred_name}</Link></td>
                   <td>{row.date_of_join ?? '—'}</td>
                   <td>{row.designation ?? '—'}</td>
                   <td style={{textAlign: 'right'}}>{attendance(row.total_attendance)}</td>
