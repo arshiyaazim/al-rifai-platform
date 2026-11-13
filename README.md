@@ -4,12 +4,12 @@
 
 | Category | Value |
 |---|---|
-| **Version** | **v3.0.0-phase4-merged** |
+| **Version** | **v3.1.0-ui-polish** |
 | **Branch** | `main`. Phase 4A–4E UI is merged into `main`; `feat/15-task-roadmap` is merged and **no longer the source of truth** (the branch is retained, not deleted). |
-| **Deployed image** | `local/al-rifai-platform:v3.0.1-phase4-merged` (release `v3.0.0-phase4-merged` + vessel-search patch) |
+| **Deployed image** | `local/al-rifai-platform:v3.1.0-ui-polish` |
 | **DB schema** | **1.13.7** — 60 tables, **25 migrations (001–026)** |
 | **Auth** | Application login/session. Unauthenticated workspace routes fail closed with JSON `401`; document navigations redirect to `/login`. |
-| **UI** | Phase 4A–4E: sidebar API Keys + Recruitment AI, `/settings/api-keys`, `/settings/recruitment`, employee summary/profile sidebar, dual-source attendance, CSV import/export, vessel register client, recruitment dashboard. |
+| **UI** | Phase 4A–4E plus the v3.1.0 polish: 8-card metric rows and filter rows on `/employees` and `/attendance`, vessel SL column, cash payment side panel and employee-history links. Mobile numbers are rendered through the shared `displayMobile()` helper (`lib/display-mobile.ts`); stored values are never rewritten. |
 | **Deploy** | `docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app` (after setting `ALRIFAI_TAG` in both `.env` files and building the image). See `DEVELOPER_START_HERE.md` §18. |
 | **Rollback image** | `local/al-rifai-platform:v2.9.1-cash-autoconfirm` (last pre-merge release; contains the cash autoconfirm fixes but **not** the Phase 4 UI). |
 | **Recruitment AI** | Separate application `/opt/al-rifai-recruitment-ai`; untouched by this release. |

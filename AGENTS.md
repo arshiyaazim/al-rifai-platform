@@ -6,7 +6,7 @@ in `docs/` and the Phase 3 reports.
 
 ## Current release (2026-11-13)
 
-- **Version**: `v3.0.0-phase4-merged`, deployed image `local/al-rifai-platform:v3.0.1-phase4-merged` (release + vessel-search patch).
+- **Version**: `v3.1.0-ui-polish`, deployed image `local/al-rifai-platform:v3.1.0-ui-polish`.
 - **Schema**: `1.13.7`, 60 tables, **25 migrations (001–026)**. Live DB `alrifai_v2_phase3`.
 - **Branch**: Phase 4A–4E UI is merged into `main`. `feat/15-task-roadmap` is
   merged and **no longer the source of truth**; do not treat it as current, and
@@ -14,6 +14,9 @@ in `docs/` and the Phase 3 reports.
 - **Deploy**: `docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app`
   after building and setting `ALRIFAI_TAG` in both `.env` files.
 - **Rollback**: `local/al-rifai-platform:v2.9.1-cash-autoconfirm`.
+- **Mobile display**: every mobile number shown in the UI goes through
+  `displayMobile()` (`lib/display-mobile.ts`). It formats for display only;
+  stored values and canonical keys are never rewritten.
 - Historical version/schema numbers below (v1.12.0, 1.13.x intermediate levels)
   describe past releases, not the running system.
 
