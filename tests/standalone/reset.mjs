@@ -17,6 +17,7 @@ export async function resetBusinessState(applicationName = 'alrifai-test-reset')
       cash_submission_reviews, cash_submissions, review_decisions, review_items,
       attendance, identity_aliases, program_pay, program_source_messages,
       program_assignments, program_events, programs, employees,
+      attendance_records, api_keys, recruitment_reply_log, vessels,
       vessel_draft_deliveries,
       whatsapp_message_intelligence, whatsapp_calls,
       escort_client_group_authorizations, rate_config, app_settings

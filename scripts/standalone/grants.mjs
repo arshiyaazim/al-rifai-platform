@@ -68,10 +68,21 @@ export async function grantRuntime(client, {schema, runtimeUser}) {
   for (const table of DELETE_ONLY) await grant(table, 'DELETE');
   for (const view of READ_ONLY_VIEWS) await grant(view, 'SELECT');
   await client.query(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA "${schema}" TO "${runtimeUser}"`);
-  await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".compute_program_pay(text) TO "${runtimeUser}"`);
-  await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".normalize_mobile(text) TO "${runtimeUser}"`);
-  await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".normalize_vessel_name(text) TO "${runtimeUser}"`);
-  await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".reset_daily_api_usage() TO "${runtimeUser}"`);
+  // Function grants are guarded the same way as table grants: the baseline
+  // installer stops at migration 017, so functions introduced by later additive
+  // layers (019+) are absent on a fresh install and must not abort it.
+  const grantFunction = async (signature) => {
+    const present = await client.query('SELECT to_regprocedure($1) IS NOT NULL AS present', [`${schema}.${signature}`]);
+    if (present.rows[0]?.present === true) {
+      await client.query(`GRANT EXECUTE ON FUNCTION "${schema}".${signature} TO "${runtimeUser}"`);
+    }
+  };
+  for (const signature of [
+    'compute_program_pay(text)',
+    'normalize_mobile(text)',
+    'normalize_vessel_name(text)',
+    'reset_daily_api_usage()',
+  ]) await grantFunction(signature);
 }
 
 export const GRANT_TABLES = {READ_WRITE, APPEND_ONLY, DELETE_ONLY, READ_ONLY_VIEWS};

@@ -37,7 +37,7 @@ beforeEach(async () => {
     await owner.query(`TRUNCATE TABLE
       audit_events, cash_transaction_adjustments, cash_payment_event_postings, cash_payment_events, cash_reversals, cash_reconciliations, cash_instructions, cash_postings, ledger_entries,
       cash_submission_reviews, cash_submissions, review_decisions, review_items,
-      attendance, identity_aliases, program_pay, program_source_messages,
+      attendance, attendance_records, identity_aliases, program_pay, program_source_messages,
       program_assignments, program_events, programs, employees,
       vessel_draft_deliveries,
       whatsapp_message_intelligence, whatsapp_calls, whatsapp_media, whatsapp_messages, whatsapp_chats, whatsapp_sync_state,

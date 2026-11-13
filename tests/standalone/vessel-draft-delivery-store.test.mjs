@@ -96,8 +96,8 @@ before(async () => {
   const insertProgram = (id, masterMobile, lighterVessel, messageId, chat) => owner.query(
     `INSERT INTO programs (id, mother_vessel, lighter_vessel, master_mobile, destination,
                            start_date, start_shift, state, source_channel, created_by,
-                           source_message_id, source_chat_jid)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+                           source_message_id, source_chat_jid, event_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$6::date)`,
     [id, 'VDD TEST MV', lighterVessel, masterMobile, 'Chattogram',
       '2026-11-07', 'D', 'DRAFT', 'WEB', 'system', messageId, chat],
   );

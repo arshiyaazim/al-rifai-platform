@@ -86,8 +86,8 @@ before(async () => {
   await owner.query(
     `INSERT INTO programs (id, mother_vessel, lighter_vessel, master_mobile, destination,
                            start_date, start_shift, state, source_channel, created_by,
-                           source_message_id, source_chat_jid)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+                           source_message_id, source_chat_jid, event_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$6::date)`,
     [PROGRAM.id, PROGRAM.mother_vessel, PROGRAM.lighter_vessel, PROGRAM.master_mobile,
       PROGRAM.destination, PROGRAM.start_date, PROGRAM.start_shift, 'DRAFT', 'WEB', 'system',
       PROGRAM.source_message_id, PROGRAM.source_chat_jid],

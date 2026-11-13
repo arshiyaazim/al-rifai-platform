@@ -210,13 +210,13 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
       `INSERT INTO programs
          (id, mother_vessel, lighter_vessel, master_mobile, master_name, destination, escort_name, escort_mobile,
           start_date, start_shift, end_date, end_shift, state, source_channel, source_type, source_message_id,
-          source_chat_jid, created_by, notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+          source_chat_jid, created_by, notes, event_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20::date)
      RETURNING *`,
     [id, motherVessel, lighterVessel, masterMobile, masterName, destination,
       optionalText(input.escortName, 'escortName', 150), escortMobile,
       startDate, startShift, endDate, endShift, state, channel, sourceType,
-      source.messageId ?? null, source.chatJid ?? null, actor.id, notes],
+      source.messageId ?? null, source.chatJid ?? null, actor.id, notes, startDate],
   );
   await ensureVessel(client, motherVessel, 'mother');
   await ensureVessel(client, lighterVessel, 'lighter');

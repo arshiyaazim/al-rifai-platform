@@ -42,7 +42,7 @@ async function reset() {
     await owner.query(`TRUNCATE TABLE
       audit_events, cash_transaction_adjustments, cash_payment_event_postings, cash_payment_events, cash_reversals,
       cash_reconciliations, cash_instructions, cash_postings, ledger_entries,
-      cash_submission_reviews, cash_submissions, attendance, review_decisions, review_items,
+      cash_submission_reviews, cash_submissions, attendance, attendance_records, review_decisions, review_items,
       identity_aliases, program_pay, program_source_messages,
       program_assignments, program_events, programs, employees,
       vessel_draft_deliveries, whatsapp_message_intelligence, whatsapp_calls,
