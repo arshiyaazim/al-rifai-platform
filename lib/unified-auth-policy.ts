@@ -298,7 +298,7 @@ export function assertUsernameChange(current: string, next: string): void {
  * Post-login redirect must stay on this application. Absolute URLs, protocol
  * relative URLs, encoded separators and traversal are all rejected.
  */
-export function sanitizeReturnTo(value: unknown, fallback = '/dashboard'): string {
+export function sanitizeReturnTo(value: unknown, fallback = '/home'): string {
   if (typeof value !== 'string' || !value.startsWith('/') || value.length > 512) return fallback;
   let decoded = value;
   try {

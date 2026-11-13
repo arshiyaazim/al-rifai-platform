@@ -6,7 +6,7 @@ import {WorkspaceSidebar} from '@/components/standalone/workspace-sidebar';
 export const dynamic = 'force-dynamic';
 
 const NAV = [
-  {href: '/dashboard', label: 'Dashboard'},
+  {href: '/home', label: 'Home'},
   {href: '/insights', label: 'Insights'},
   {href: '/assistant', label: 'AI Assistant'},
   {href: '/employees', label: 'Employees / Escorts'},

@@ -94,7 +94,7 @@ export function WorkspaceSidebar({navItems, pendingReviews, user, children}: Pro
 
       <aside id="workspace-sidebar" className="wx-workspace__sidebar" aria-label="Workspace navigation">
         <div className="wx-workspace__brand-row">
-          <Link className="wx-workspace__brand" href="/dashboard">AL-RIFA’I</Link>
+          <Link className="wx-workspace__brand" href="/home">AL-RIFA’I</Link>
           <button
             ref={closeButtonRef}
             type="button"

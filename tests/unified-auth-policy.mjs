@@ -209,7 +209,7 @@ test('post-login redirects cannot leave the application', () => {
     `/${'a'.repeat(600)}`,
     '/%2e%2e%2f%2e%2e%2fetc',
   ]) {
-    assert.equal(sanitizeReturnTo(hostile), '/dashboard', `expected fallback for ${String(hostile)}`);
+    assert.equal(sanitizeReturnTo(hostile), '/home', `expected fallback for ${String(hostile)}`);
   }
   assert.equal(sanitizeReturnTo('/vessel', '/dashboard'), '/vessel');
 });
@@ -243,12 +243,12 @@ test('a signed-in visitor is only forwarded when the session authorises the work
   assert.equal(signedInRedirectTarget('on', '/dashboard'), '/dashboard');
   assert.equal(signedInRedirectTarget('on', '/admin'), '/admin');
   // Destination sanitisation is unchanged in the only mode that redirects.
-  assert.equal(signedInRedirectTarget('on', 'https://evil.example/x'), '/dashboard');
-  assert.equal(signedInRedirectTarget('on', '//evil.example'), '/dashboard');
-  assert.equal(signedInRedirectTarget('on', '/login'), '/dashboard');
-  assert.equal(signedInRedirectTarget('on', '/cash'), '/dashboard');
-  assert.equal(signedInRedirectTarget('on', '/api/auth/session'), '/dashboard');
-  assert.equal(signedInRedirectTarget('on', undefined), '/dashboard');
+  assert.equal(signedInRedirectTarget('on', 'https://evil.example/x'), '/home');
+  assert.equal(signedInRedirectTarget('on', '//evil.example'), '/home');
+  assert.equal(signedInRedirectTarget('on', '/login'), '/home');
+  assert.equal(signedInRedirectTarget('on', '/cash'), '/home');
+  assert.equal(signedInRedirectTarget('on', '/api/auth/session'), '/home');
+  assert.equal(signedInRedirectTarget('on', undefined), '/home');
   // Unknown configuration stays fail-closed.
   assert.equal(signedInRedirectTarget(unifiedAuthMode('unknown'), '/dashboard'), null);
   assert.equal(signedInRedirectTarget(unifiedAuthMode(undefined), '/dashboard'), null);

@@ -7,7 +7,7 @@ import {RealtimeRefresher} from '@/components/standalone/realtime-refresher';
 
 export const dynamic = 'force-dynamic';
 
-export default async function DashboardPage() {
+export default async function HomePage() {
   const [stats, audit, reviewCounts] = await Promise.all([
     row<{
       employees: string; programs: string; reviews: string; cash_pending: string;
@@ -44,7 +44,7 @@ export default async function DashboardPage() {
   return (
     <>
       <div className="page-head">
-        <div><h1>Dashboard</h1><p className="muted">Business overview and pending work.</p></div>
+        <div><h1>Home</h1><p className="muted">Business overview and pending work.</p></div>
         <RealtimeRefresher domain="ANY" label="Live dashboard" />
       </div>
 
