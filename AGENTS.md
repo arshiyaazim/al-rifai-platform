@@ -6,8 +6,9 @@ in `docs/` and the Phase 3 reports.
 
 ## Current release (2026-11-13)
 
-- **Version**: `v3.1.1-ui-polish`, deployed image `local/al-rifai-platform:v3.1.1-ui-polish`. **App and sync are always recreated together on the same tag**; never leave sync on an older image.
-- **Attendance**: *Vessel* = derived from programs; *Security* = entered through the frontend form (`attendance_records.created_by <> 'migration:024'`). Legacy `attendance.source='IMPORT'` rows are neither.
+- **Version**: `v3.2.0-home-security`, deployed image `local/al-rifai-platform:v3.2.0-home-security`. **App and sync are always recreated together on the same tag**; never leave sync on an older image.
+- **Attendance**: *Vessel* = derived from programs; *Security* = every other attendance day (legacy `attendance` + `attendance_records`, deduplicated by employee/day/shift, excluding dates covered by a vessel assignment). Vessel + Security = total attendance days.
+- **Routes/auth**: the workspace home is `/home` (`/dashboard` 307-redirects to `/home`). Unauthenticated page requests redirect 307 to `/login`; the `/api/` namespace keeps JSON `401`.
 - **Join date**: `employees.date_of_join` = `joined_on` = earlier of first cash-payment message time and first vessel assignment start date (Asia/Dhaka). Never `created_at`/import time. Backfill: `scripts/backfill-employee-join-date.ts` (dry-run by default).
 - **Schema**: `1.13.7`, 60 tables, **25 migrations (001–026)**. Live DB `alrifai_v2_phase3`.
 - **Branch**: Phase 4A–4E UI is merged into `main`. `feat/15-task-roadmap` is

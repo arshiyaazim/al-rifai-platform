@@ -1,10 +1,10 @@
 # DEVELOPER_START_HERE.md — AL-RIFA'I Platform
 
 **Last Updated**: 2026-11-13
-**Current Version**: v3.1.1-ui-polish (Phase 4A–4E UI merged into main + UI polish)
+**Current Version**: v3.2.0-home-security (Phase 4A–4E UI + home rename + security attendance)
 **Schema Version**: 1.13.7 (60 tables; 25 migration files 001–026)
 **Main Release HEAD**: `de518ea` (merge `8062f6e` plus post-merge fixes). `feat/15-task-roadmap` is **merged and no longer the source of truth**; the branch is retained for history, not deleted.
-**Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.1.1-ui-polish` (app and sync on the same tag)
+**Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.2.0-home-security` (app and sync on the same tag)
 **Rollback image**: `local/al-rifai-platform:v2.9.1-cash-autoconfirm`
 
 > **Historical — Vessel Phase 2 complete (2026-11-10):** Migration 019 applied.
@@ -1393,7 +1393,7 @@ docker logs --since 10m al-rifai-phase3-sync-1
 ```
 
 Current production evidence: health `200`, schema `1.13.7`, image
-`v3.1.1-ui-polish`, app/sync healthy, 0 restarts, 0 error log lines
+`v3.2.0-home-security`, app/sync healthy, 0 restarts, 0 error log lines
 after deployment. Cash backfill (historical): 2,359 POSTED / 2,359 postings / 2,359 ledger
 entries, 8 pending review submissions, 222 employees, 1,211,555.00 BDT.
 Backup: `/opt/al-rifai-backups/alrifai_v2_phase3_20261109T101559Z.pre-cash-overhaul.sql.gz`

@@ -4,12 +4,13 @@
 
 | Category | Value |
 |---|---|
-| **Version** | **v3.1.1-ui-polish** |
+| **Version** | **v3.2.0-home-security** |
 | **Branch** | `main`. Phase 4A–4E UI is merged into `main`; `feat/15-task-roadmap` is merged and **no longer the source of truth** (the branch is retained, not deleted). |
-| **Deployed image** | `local/al-rifai-platform:v3.1.1-ui-polish` (app **and** sync always deploy together on the same tag) |
+| **Deployed image** | `local/al-rifai-platform:v3.2.0-home-security` (app **and** sync always deploy together on the same tag) |
 | **DB schema** | **1.13.7** — 60 tables, **25 migrations (001–026)** |
 | **Auth** | Application login/session. Unauthenticated workspace routes fail closed with JSON `401`; document navigations redirect to `/login`. |
-| **Attendance definitions** | **Vessel** attendance is derived from vessel programs (`program_assignments` + `program_pay`). **Security** attendance is attendance entered through the frontend form (`attendance_records` with `created_by` other than the `migration:024` backfill marker). Legacy imported rows (`attendance.source='IMPORT'`) are neither. |
+| **Attendance definitions** | **Vessel** attendance is derived from vessel programs (`program_assignments` + `program_pay`). **Security** attendance is every attendance day (legacy `attendance` + `attendance_records`, deduplicated by employee/day/shift) that is not already covered by a vessel program assignment on that date. Vessel + Security = total attendance days. |
+| **Navigation** | The workspace home is **`/home`** (renamed from `/dashboard`; `/dashboard` 307-redirects to `/home`). Unauthenticated page requests 307-redirect to `/login`; API requests keep a JSON `401`. |
 | **Join date** | `employees.date_of_join` (= `joined_on`), set to the earlier of (A) the WhatsApp timestamp of the first cash payment message and (B) the first vessel assignment's duty start date, as an Asia/Dhaka calendar date. `created_at`/import/backfill time is never used. |
 | **UI** | Phase 4A–4E plus the v3.1.0/v3.1.1 polish: 8-card metric rows and filter rows on `/employees` and `/attendance`, vessel SL column, cash payment side panel and employee-history links. Mobile numbers are rendered through the shared `displayMobile()` helper (`lib/display-mobile.ts`); stored values are never rewritten. |
 | **Deploy** | `docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app` (after setting `ALRIFAI_TAG` in both `.env` files and building the image). See `DEVELOPER_START_HERE.md` §18. |
