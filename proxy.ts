@@ -3,7 +3,6 @@ import {validationIdentity} from "@/lib/validation-auth.mjs";
 import {
   isCashPortalPath,
   isUnifiedAuthPublicPath,
-  prefersDocumentNavigation,
   sanitizeReturnTo,
   unifiedAuthMode,
 } from "@/lib/unified-auth-policy";
@@ -32,6 +31,13 @@ export async function proxy(request:NextRequest){
  for(const key of [...forwarded.keys()])if(key.startsWith("oai-authenticated-")||key==="x-middleware-subrequest")forwarded.delete(key);
  const pass=()=>NextResponse.next({request:{headers:forwarded}});
  if(pathname===HEALTH_PATH)return pass();
+ // /dashboard was renamed to /home. Redirect before the auth decision so old
+ // bookmarks land on the new route whether or not the visitor has a session.
+ if(pathname==="/dashboard"||pathname.startsWith("/dashboard/")){
+  const url=request.nextUrl.clone();
+  url.pathname="/home"+pathname.slice("/dashboard".length);
+  return NextResponse.redirect(url,307);
+ }
  // The public company site is reachable without a credential; it carries no
  // client, personnel or financial data.
  if(PUBLIC_SITE_PATHS.has(pathname))return pass();
@@ -51,8 +57,8 @@ export async function proxy(request:NextRequest){
     if(pathname.startsWith("/api/"))return passwordChangeRequired();
     const url=request.nextUrl.clone();
     url.pathname="/login";
-    url.search="?next=%2Fdashboard&passwordChangeRequired=1";
-    return NextResponse.redirect(url,302);
+    url.search="?next=%2Fhome&passwordChangeRequired=1";
+    return NextResponse.redirect(url,307);
    }
    return pass();
   }
@@ -63,17 +69,15 @@ export async function proxy(request:NextRequest){
  // session exists; valid forced-change sessions were handled above.
  if(isCashPortalPath(pathname))return pass();
  if(mode==="on"){
-  // Only 'on' may answer a browser navigation with the sign-in page. In
-  // 'shadow' protected routes keep the fail-closed 401 challenge
-  // (WWW-Authenticate) instead of redirecting to /login: a shadow session does
-  // not authorise workspace pages yet, and machine clients need the explicit
-  // authentication failure rather than an HTML sign-in page.
-  if(prefersDocumentNavigation(request.headers)){
+  // Every workspace page sends an unauthenticated visitor to the sign-in page:
+  // browsers, curl and plain fetches of a page all get a 307 to /login. Only the
+  // API namespace keeps the machine-readable 401 JSON.
+  if(!pathname.startsWith("/api/")){
    const target=sanitizeReturnTo(pathname+(request.nextUrl.search||""));
    const url=request.nextUrl.clone();
    url.pathname="/login";
    url.search=`?next=${encodeURIComponent(target)}`;
-   return NextResponse.redirect(url,302);
+   return NextResponse.redirect(url,307);
   }
   // The application has its own login/session. Do not emit a competing Basic
   // challenge for API and background requests.
