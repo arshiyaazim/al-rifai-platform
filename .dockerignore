@@ -11,3 +11,6 @@ data/*
 **/*.pyc
 .next/cache
 .next/diagnostics
+.next
+coverage
+*.log
