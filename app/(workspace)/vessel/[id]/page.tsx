@@ -1,3 +1,4 @@
+import {displayMobile} from '@/lib/display-mobile';
 import Link from 'next/link';
 import {notFound} from 'next/navigation';
 import {countPrograms, getProgram, listPrograms, potentialDuplicates} from '@/lib/standalone/programs';
@@ -127,9 +128,9 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
               <tr><th>Mother vessel</th><td>{program.mother_vessel}</td></tr>
               <tr><th>Lighter vessel</th><td>{program.lighter_vessel}</td></tr>
               <tr><th>Master name</th><td><span className="muted">NOT_STORED — the schema stores the Master Mobile only</span></td></tr>
-              <tr><th>Master mobile</th><td>{program.master_mobile ?? '—'}</td></tr>
+              <tr><th>Master mobile</th><td>{program.master_mobile ? displayMobile(program.master_mobile) : '—'}</td></tr>
               <tr><th>Destination</th><td>{program.destination ?? '—'}</td></tr>
-              <tr><th>Escort</th><td>{program.escort_name ?? '—'} {program.escort_mobile ? `· ${program.escort_mobile}` : ''}</td></tr>
+              <tr><th>Escort</th><td>{program.escort_name ?? '—'} {program.escort_mobile ? `· ${displayMobile(program.escort_mobile)}` : ''}</td></tr>
               <tr><th>Pay</th><td>{money(payable?.total_minor ?? null)} {payable?.state === 'UNRESOLVED' ? '(unresolved)' : ''}</td></tr>
               <tr><th>Source</th><td>{program.source_channel}{program.source_message_id ? ` · ${program.source_message_id}` : ''}</td></tr>
               <tr><th>Confirmation</th><td>{program.confirmation_message_id ?? '—'}</td></tr>
@@ -334,7 +335,7 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
             <tbody>
               {assignments.map((assignment) => (
                 <tr key={String(assignment.id)}>
-                  <td>{String(assignment.preferred_name ?? assignment.employee_mobile)}</td>
+                  <td>{String(assignment.preferred_name ?? displayMobile(String(assignment.employee_mobile ?? '')))}</td>
                   <td>{String(assignment.start_date)} · {String(assignment.start_shift)}</td>
                   <td>{assignment.end_date ? `${String(assignment.end_date)} · ${String(assignment.end_shift ?? '')}` : 'open'}</td>
                 </tr>

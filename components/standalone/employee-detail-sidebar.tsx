@@ -1,5 +1,6 @@
 'use client';
 
+import {displayMobile} from '@/lib/display-mobile';
 import {useEffect, useState} from 'react';
 import Link from 'next/link';
 import {toast} from 'sonner';
@@ -221,7 +222,7 @@ export function EmployeeDetailSidebar({
       open={open}
       onClose={() => { setEditing(mode !== 'view'); onClose(); }}
       title={title}
-      description={employee ? `${employee.employee_mobile} · ${employee.state}` : creating ? 'Create a profile' : undefined}
+      description={employee ? `${displayMobile(employee.employee_mobile)} · ${employee.state}` : creating ? 'Create a profile' : undefined}
       footer={editing ? (
         <>
           <Button type="button" size="sm" variant="outline" onClick={() => { if (creating) onClose(); else setEditing(false); }} disabled={busy}>Cancel</Button>
@@ -308,9 +309,9 @@ export function EmployeeDetailSidebar({
           <section>
             <h4 className="mb-2 text-sm font-semibold">Profile</h4>
             <dl className="grid grid-cols-[150px_1fr] gap-x-3 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Mobile</dt><dd>{employee.employee_mobile}</dd>
-              <dt className="text-muted-foreground">Alt mobile</dt><dd>{dash(employee.alt_mobile)}</dd>
-              <dt className="text-muted-foreground">Home phone</dt><dd>{dash(employee.home_phone)}</dd>
+              <dt className="text-muted-foreground">Mobile</dt><dd>{displayMobile(employee.employee_mobile)}</dd>
+              <dt className="text-muted-foreground">Alt mobile</dt><dd>{dash(displayMobile(employee.alt_mobile))}</dd>
+              <dt className="text-muted-foreground">Home phone</dt><dd>{dash(displayMobile(employee.home_phone))}</dd>
               <dt className="text-muted-foreground">Date of join</dt><dd>{dash(employee.date_of_join ?? employee.joined_on)}</dd>
               <dt className="text-muted-foreground">Designation</dt><dd>{dash(employee.designation)}</dd>
               <dt className="text-muted-foreground">Duty type</dt><dd>{dash(employee.duty_type)}</dd>

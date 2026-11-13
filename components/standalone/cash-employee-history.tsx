@@ -12,7 +12,8 @@ import {Input} from '@/components/ui/input';
 import {useRealtimeUpdates} from '@/hooks/use-realtime-updates';
 import type {CashTransaction, CashTransactionPage} from './cash-transactions-table';
 import {cashStateTone} from '@/lib/status-tone';
-import {dateDdMmYyyy, dhakaTime12, localMobile} from '@/lib/export-format';
+import {dateDdMmYyyy, dhakaTime12} from '@/lib/export-format';
+import {displayMobile} from '@/lib/display-mobile';
 
 export type CashEmployeeSummary = {
   employeeId: string | null;
@@ -146,7 +147,7 @@ export function CashEmployeeHistory({employeeId, initial, canManage = false, gen
           </div>
         </div>
         <div className="grid-cards">
-          <div className="stat"><div className="label">Employee ID</div><div className="value" style={{fontSize: 18}}>{dash(localMobile(employee?.employeeId ?? employeeId))}</div></div>
+          <div className="stat"><div className="label">Employee ID</div><div className="value" style={{fontSize: 18}}>{dash(displayMobile(employee?.employeeId ?? employeeId))}</div></div>
           <div className="stat"><div className="label">Name</div><div className="value" style={{fontSize: 18}}>{dash(employee?.nameOfEmployee)}</div></div>
           <div className="stat"><div className="label">Designation</div><div className="value" style={{fontSize: 18}}>{dash(employee?.designation)}</div></div>
           <div className="stat"><div className="label">Date of Join</div><div className="value" style={{fontSize: 18}}>{dash(employee?.dateOfJoin)}</div></div>

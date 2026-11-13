@@ -1,3 +1,4 @@
+import {displayMobile} from '@/lib/display-mobile';
 import Link from 'next/link';
 import {pageUser, money} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
@@ -167,8 +168,8 @@ export async function BusinessPaidView({
                     <td>{(currentPage - 1) * PAGE_SIZE + index + 1}</td>
                     <td>
                       {registered
-                        ? <Link href={`/employees/${encodeURIComponent(item.employee_mobile)}`}>{item.employee_mobile}</Link>
-                        : <span>{item.employee_mobile} <small className="muted">(unregistered)</small></span>}
+                        ? <Link href={`/employees/${encodeURIComponent(item.employee_mobile)}`}>{displayMobile(item.employee_mobile)}</Link>
+                        : <span>{displayMobile(item.employee_mobile)} <small className="muted">(unregistered)</small></span>}
                     </td>
                     <td>
                       <div>{name}</div>

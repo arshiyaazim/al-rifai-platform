@@ -1,3 +1,4 @@
+import {displayMobile} from '@/lib/display-mobile';
 import {notFound} from 'next/navigation';
 import {getEmployee} from '@/lib/standalone/employees';
 import {money} from '@/lib/standalone/session';
@@ -29,7 +30,7 @@ export default async function EmployeeDetailPage({params}: {params: Promise<{mob
       <div className="page-head">
         <div>
           <h1>{employee.preferred_name}</h1>
-          <p className="muted">{employee.employee_mobile} · {employee.duty_type ?? 'no duty type'} · {employee.state}</p>
+          <p className="muted">{displayMobile(employee.employee_mobile)} · {employee.duty_type ?? 'no duty type'} · {employee.state}</p>
         </div>
       </div>
 

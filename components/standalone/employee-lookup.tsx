@@ -1,5 +1,6 @@
 'use client';
 
+import {displayMobile} from '@/lib/display-mobile';
 import {useEffect, useRef, useState} from 'react';
 
 export type EmployeeSuggestion = {
@@ -156,7 +157,7 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
                 {employee.preferred_name}
                 {employee.designation ? <small>{employee.designation}</small> : null}
               </span>
-              <span className="cash-lookup__mobile">{employee.employee_mobile}</span>
+              <span className="cash-lookup__mobile">{displayMobile(employee.employee_mobile)}</span>
             </button>
           ))}
           {!suggestions.length ? (

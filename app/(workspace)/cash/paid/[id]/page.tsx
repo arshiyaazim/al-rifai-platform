@@ -1,3 +1,4 @@
+import {displayMobile} from '@/lib/display-mobile';
 import Link from 'next/link';
 import {notFound} from 'next/navigation';
 import {getBusinessPaidEventDetail, paidEventsEnabled} from '@/lib/standalone/finance';
@@ -98,7 +99,7 @@ export default async function BusinessPaidDetailPage({params}: {params: Promise<
 
       <div className="grid-cards">
         <div className="stat"><div className="label">Business Paid</div><div className="value">{money(latestAmount)}</div><div className="muted">{event.status}</div></div>
-        <div className="stat"><div className="label">Method</div><div className="value">{event.method}</div><div className="muted">{formatPayoutNumber(event.payout_mobile, event.method)}</div></div>
+        <div className="stat"><div className="label">Method</div><div className="value">{event.method}</div><div className="muted">{formatPayoutNumber(displayMobile(event.payout_mobile), event.method)}</div></div>
         <div className="stat"><div className="label">Source</div><div className="value">{event.source_category}</div><div className="muted">Business layer</div></div>
         <div className="stat"><div className="label">Financial</div><div className="value">{postingLink ? 'POSTED' : 'NOT POSTED'}</div><div className="muted">Separate ledger status</div></div>
       </div>
@@ -111,8 +112,8 @@ export default async function BusinessPaidDetailPage({params}: {params: Promise<
               <tr><th>Event ID</th><td>{event.id}</td></tr>
               <tr><th>Type / status</th><td><span className={`pill ${eventTone(event.event_type)}`}>{event.event_type} · {event.status}</span></td></tr>
               <tr><th>Employee name</th><td>{cleanEmployeeName(event.employee_name)}</td></tr>
-              <tr><th>Employee ID / mobile</th><td>{event.employee_mobile}</td></tr>
-              <tr><th>Payout number</th><td>{event.payout_mobile}</td></tr>
+              <tr><th>Employee ID / mobile</th><td>{displayMobile(event.employee_mobile)}</td></tr>
+              <tr><th>Payout number</th><td>{displayMobile(event.payout_mobile)}</td></tr>
               <tr><th>Amount</th><td>{money(event.amount_minor)}</td></tr>
               <tr><th>Method</th><td>{event.method}</td></tr>
               <tr><th>Business paid at</th><td>{dhakaTimestamp(event.paid_at)}</td></tr>
@@ -127,8 +128,8 @@ export default async function BusinessPaidDetailPage({params}: {params: Promise<
           <h3>Employee &amp; Payout</h3>
           <table>
             <tbody>
-              <tr><th>Canonical employee mobile</th><td>{event.employee_mobile}</td></tr>
-              <tr><th>Payout number</th><td>{event.payout_mobile}</td></tr>
+              <tr><th>Canonical employee mobile</th><td>{displayMobile(event.employee_mobile)}</td></tr>
+              <tr><th>Payout number</th><td>{displayMobile(event.payout_mobile)}</td></tr>
               <tr><th>Employee link</th><td>{event.employee_link_status}</td></tr>
               <tr><th>Registered name</th><td>{employee?.preferred_name ?? '—'}</td></tr>
               <tr><th>Designation</th><td>{employee?.designation ?? '—'}</td></tr>

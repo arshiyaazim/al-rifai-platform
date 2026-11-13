@@ -1,5 +1,6 @@
 'use client';
 
+import {displayMobile} from '@/lib/display-mobile';
 import Link from 'next/link';
 import {useState} from 'react';
 import {toast} from 'sonner';
@@ -220,7 +221,7 @@ export function CashTransactionSidebar({
           <section>
             <h4 className="mb-2 text-sm font-semibold">Employee</h4>
             <dl className="grid grid-cols-[130px_1fr] gap-x-3 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Employee ID</dt><dd>{dash(transaction.employeeId)}</dd>
+              <dt className="text-muted-foreground">Employee ID</dt><dd>{dash(displayMobile(transaction.employeeId))}</dd>
               <dt className="text-muted-foreground">Name</dt><dd>{dash(transaction.nameOfEmployee)}</dd>
               <dt className="text-muted-foreground">Designation</dt>
               <dd>{editing ? <Input value={edit.designation} onChange={(e) => setEdit({...edit, designation: e.target.value})} disabled={!transaction.employeeId} /> : dash(transaction.designation)}

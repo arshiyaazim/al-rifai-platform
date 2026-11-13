@@ -1,3 +1,4 @@
+import {displayMobile} from '@/lib/display-mobile';
 import Link from 'next/link';
 import {notFound} from 'next/navigation';
 import {getInstructionDetail} from '@/lib/standalone/finance';
@@ -60,8 +61,8 @@ export default async function CashInstructionPage({params}: {params: Promise<{id
           <table>
             <tbody>
               <tr><th>Payee</th><td>{cleanEmployeeName(instruction.employee_name)}</td></tr>
-              <tr><th>Employee mobile</th><td>{instruction.employee_mobile ?? '—'}</td></tr>
-              <tr><th>Payout mobile</th><td>{instruction.payout_mobile ?? '—'}</td></tr>
+              <tr><th>Employee mobile</th><td>{instruction.employee_mobile ? displayMobile(instruction.employee_mobile) : '—'}</td></tr>
+              <tr><th>Payout mobile</th><td>{instruction.payout_mobile ? displayMobile(instruction.payout_mobile) : '—'}</td></tr>
               <tr><th>Purpose</th><td>{instruction.purpose ?? '—'}</td></tr>
               <tr><th>Account</th><td>{instruction.account_name ?? instruction.account_code ?? '—'}</td></tr>
               <tr><th>Created</th><td>{when(instruction.created_at)} · {instruction.created_by.slice(0, 12)}</td></tr>

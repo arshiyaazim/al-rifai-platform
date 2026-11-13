@@ -1,5 +1,6 @@
 'use client';
 
+import {displayMobile} from '@/lib/display-mobile';
 import Link from 'next/link';
 import {useState} from 'react';
 import {Eye} from 'lucide-react';
@@ -27,7 +28,7 @@ export function EmployeesTable({rows, canManage}: {rows: EmployeeRowView[]; canM
           {rows.map((employee) => (
             <tr key={employee.employee_mobile}>
               <td><Link href={`/employees/${encodeURIComponent(employee.employee_mobile)}`}>{employee.preferred_name}</Link></td>
-              <td>{employee.employee_mobile}</td>
+              <td>{displayMobile(employee.employee_mobile)}</td>
               <td>{employee.duty_type ?? '—'}</td>
               <td><span className={`pill ${employee.state === 'ACTIVE' ? 'ok' : 'warn'}`}>{employee.state}</span></td>
               <td>{employee.programs}</td>
