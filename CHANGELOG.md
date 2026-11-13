@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.3.0-escort-release — Escort Release parser + review UI (Batch 10)
+
+- Structured release-slip parser now handles multiple escort numbers on one
+  label and food bills written inline with the duty-day count.
+- New `/release` page: 8 metric cards, search/date/status/mother filters,
+  paginated review table, approve (applies the release) and decline
+  (records a decision), plus a read-only cash cross-check.
+- Structured backfill applied for the eligible slip (1 of 14; 5 already applied,
+  3 incomplete, 5 without an eligible program). Payment-line slips were not
+  bulk-applied.
+- Previous releases: `v3.2.0-home-security` (Batch 9), `v3.0.0-phase4-merged`
+  (Batch 8), `v2.9.1-cash-autoconfirm` (Batch 6).
+
 ## v1.12.0 — Cash Pipeline Overhaul
 
 - Cash data re-derived from WhatsApp messages (`whatsapp_messages`) as the source of truth.

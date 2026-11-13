@@ -6,7 +6,7 @@ in `docs/` and the Phase 3 reports.
 
 ## Current release (2026-11-13)
 
-- **Version**: `v3.2.0-home-security`, deployed image `local/al-rifai-platform:v3.2.0-home-security`. **App and sync are always recreated together on the same tag**; never leave sync on an older image.
+- **Version**: `v3.3.0-escort-release`, deployed image `local/al-rifai-platform:v3.3.0-escort-release`. **App and sync are always recreated together on the same tag**; never leave sync on an older image.
 - **Attendance**: *Vessel* = derived from programs; *Security* = every other attendance day (legacy `attendance` + `attendance_records`, deduplicated by employee/day/shift, excluding dates covered by a vessel assignment). Vessel + Security = total attendance days.
 - **Routes/auth**: the workspace home is `/home` (`/dashboard` 307-redirects to `/home`). Unauthenticated page requests redirect 307 to `/login`; the `/api/` namespace keeps JSON `401`.
 - **Join date**: `employees.date_of_join` = `joined_on` = earlier of first cash-payment message time and first vessel assignment start date (Asia/Dhaka). Never `created_at`/import time. Backfill: `scripts/backfill-employee-join-date.ts` (dry-run by default).
@@ -18,8 +18,14 @@ in `docs/` and the Phase 3 reports.
   after building and setting `ALRIFAI_TAG` in both `.env` files.
 - **Rollback**: `local/al-rifai-platform:v2.9.1-cash-autoconfirm`.
 - **Mobile display**: every mobile number shown in the UI goes through
-  `displayMobile()` (`lib/display-mobile.ts`). It formats for display only;
-  stored values and canonical keys are never rewritten.
+  `displayMobile()` (`lib/display-mobile.ts`): **11 digits, no country code**
+  (`+8801…`/`8801…` → `01…`). It formats for display only; stored values and
+  canonical keys are never rewritten.
+- **Escort Release**: `/release` reviews slips parsed from the release group;
+  approving applies the release to one matching program, declining records a
+  `message_review_queue` decision. No cash instruction is created from a slip.
+- **Recent batches**: 6 cash autoconfirm · 7 UI diagnosis · 8 merge · 9 UI polish
+  and `/home` · 10 escort release (`v3.3.0-escort-release`).
 - Historical version/schema numbers below (v1.12.0, 1.13.x intermediate levels)
   describe past releases, not the running system.
 

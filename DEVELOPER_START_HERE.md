@@ -1,11 +1,13 @@
 # DEVELOPER_START_HERE.md — AL-RIFA'I Platform
 
 **Last Updated**: 2026-11-13
-**Current Version**: v3.2.0-home-security (Phase 4A–4E UI + home rename + security attendance)
+**Current Version**: v3.3.0-escort-release (Phase 4A–4E UI + escort release parser and `/release` review page)
 **Schema Version**: 1.13.7 (60 tables; 25 migration files 001–026)
-**Main Release HEAD**: `de518ea` (merge `8062f6e` plus post-merge fixes). `feat/15-task-roadmap` is **merged and no longer the source of truth**; the branch is retained for history, not deleted.
-**Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.2.0-home-security` (app and sync on the same tag)
+**Main Release HEAD**: `74e9717` (escort release + structured backfill). `feat/15-task-roadmap` is **merged and no longer the source of truth**; the branch is retained for history, not deleted.
+**Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.3.0-escort-release` (app and sync on the same tag)
 **Rollback image**: `local/al-rifai-platform:v2.9.1-cash-autoconfirm`
+
+> **Recent batches:** 6 cash autoconfirm · 7 UI diagnosis (Phase 4 UI was only on `feat/15-task-roadmap`) · 8 merge + `v3.0.0-phase4-merged` · 9 UI polish, `/home`, security attendance, join-date backfill (`v3.2.0-home-security`) · 10 Escort Release parser + `/release` + structured backfill (`v3.3.0-escort-release`). See `README.md` for one-line detail.
 
 > **Historical — Vessel Phase 2 complete (2026-11-10):** Migration 019 applied.
 > All five stages are active: processing, draft-to-Admin, draft-to-Office,
@@ -1393,7 +1395,7 @@ docker logs --since 10m al-rifai-phase3-sync-1
 ```
 
 Current production evidence: health `200`, schema `1.13.7`, image
-`v3.2.0-home-security`, app/sync healthy, 0 restarts, 0 error log lines
+`v3.3.0-escort-release`, app/sync healthy, 0 restarts, 0 error log lines
 after deployment. Cash backfill (historical): 2,359 POSTED / 2,359 postings / 2,359 ledger
 entries, 8 pending review submissions, 222 employees, 1,211,555.00 BDT.
 Backup: `/opt/al-rifai-backups/alrifai_v2_phase3_20261109T101559Z.pre-cash-overhaul.sql.gz`
