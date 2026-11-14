@@ -1,8 +1,9 @@
 import {pageUser} from '@/lib/standalone/session';
-import {listCashReviewCandidates, reviewQueueCounts} from '@/lib/standalone/review';
+import {listCashReviewCandidates, listPendingProgramReviews, reviewQueueCounts} from '@/lib/standalone/review';
 import {listUnifiedVesselReview} from '@/lib/standalone/vessel-review';
 import {ReviewQueueTables} from '@/components/standalone/review-queue-tables';
 import {ReviewQueueClient} from '@/components/standalone/review-queue-client';
+import {VesselReviewPanel} from '@/components/standalone/vessel-review-panel';
 import {ActionForm} from '@/components/standalone/action-form';
 import {RealtimeRefresher} from '@/components/standalone/realtime-refresher';
 
@@ -14,12 +15,14 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
   const user = await pageUser();
   await searchParams;
 
-  const [rows, cashCandidates, counts] = await Promise.all([
+  const [rows, cashCandidates, counts, programReviews] = await Promise.all([
     listUnifiedVesselReview(300),
     listCashReviewCandidates({state: 'PENDING_REVIEW', actor: user as never}),
     reviewQueueCounts(),
+    listPendingProgramReviews(300),
   ]);
-  const messageCount = rows.filter((row) => row.kind === 'message').length;
+  const messageRows = rows.filter((row) => row.kind === 'message');
+  const messageCount = messageRows.length;
 
   return (
     <div className="vessel-workspace">
@@ -32,7 +35,7 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
           </p>
         </div>
         <div className="row-actions">
-          <span className="pill warn">{rows.length} vessel item(s)</span>
+          <span className="pill warn">{programReviews.length} pending program(s)</span>
           <span className="pill warn">{messageCount} raw message(s)</span>
           <span className="pill warn">{counts.cashPending} cash candidate(s)</span>
           <RealtimeRefresher domain="REVIEW" label="Live queue" />
@@ -54,12 +57,14 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
         </details>
       ) : null}
 
+      <VesselReviewPanel items={programReviews} />
+
       <section className="card" style={{marginBottom: 18, padding: 14}}>
         <div className="page-head" style={{marginBottom: 8}}>
-          <div><h3 style={{margin: 0}}>Vessel / message review</h3></div>
+          <div><h3 style={{margin: 0}}>Raw WhatsApp message review</h3></div>
           <span className="muted">Sender · chat type · Bengali problem · full message · correction fields</span>
         </div>
-        <ReviewQueueClient rows={rows} />
+        <ReviewQueueClient rows={messageRows} />
       </section>
 
       <section className="card" style={{marginBottom: 18, padding: 14}}>

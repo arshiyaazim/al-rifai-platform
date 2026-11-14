@@ -1,7 +1,8 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../_shared';
-import {assertCapability} from '@/lib/standalone/authz';
+import {assertCapability, can} from '@/lib/standalone/authz';
 import {assignEscort, countPrograms, createProgram, listPrograms, motherFacets} from '@/lib/standalone/programs';
 import {recordAudit} from '@/lib/standalone/audit';
+import {submitForReview} from '@/lib/standalone/review';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,6 +23,7 @@ export async function GET(request: Request) {
       to: url.searchParams.get('to') ?? undefined,
       limit: Number(url.searchParams.get('limit') ?? 100),
       offset: Number(url.searchParams.get('offset') ?? 0),
+      includePending: true,
     };
     const [rows, total] = await Promise.all([listPrograms(filters), countPrograms(filters)]);
     const mothers = await motherFacets({q: filters.q, state: filters.state});
@@ -35,20 +37,34 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const actor = await actorFor(request);
-    assertCapability(actor as never, 'vessel.command');
+    assertCapability(actor as never, 'vessel.submit');
     const body = await bodyOf<{
       motherVessel?: string; lighterName?: string; lighterVessel?: string;
       masterMobile?: string; startDate?: string; startShift?: string;
       escortMobile?: string; escortName?: string; notes?: string;
     }>(request);
-    const result = await createProgram(actor as never, {
+    const payload = {
       motherVessel: String(body.motherVessel ?? ''),
       lighterVessel: String(body.lighterVessel ?? body.lighterName ?? ''),
       masterMobile: body.masterMobile ?? null,
       startDate: String(body.startDate ?? ''),
       startShift: String(body.startShift ?? 'D'),
       notes: body.notes ?? null,
-    }, {channel: 'WEB', sourceType: 'MANUAL'});
+    };
+    if (!can(actor as never, 'vessel.command')) {
+      // USER submissions are staged for review and never counted as programs.
+      const review = await submitForReview(actor as never, {
+        domain: 'PROGRAM',
+        action: 'CREATE',
+        payload: {
+          ...payload,
+          escortMobile: body.escortMobile ?? null,
+          escortName: body.escortName ?? null,
+        },
+      });
+      return ok({pending: true, review}, 202);
+    }
+    const result = await createProgram(actor as never, payload, {channel: 'WEB', sourceType: 'MANUAL'});
     if (body.escortMobile) {
       await assignEscort(actor as never, result.program.id, {
         employeeMobile: body.escortMobile,

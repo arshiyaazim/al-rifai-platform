@@ -48,8 +48,17 @@ export async function POST(request: Request) {
       return ok(result, 201);
     }
     if (action === 'update') {
-      assertCapability(actor as never, 'vessel.command');
       if (!body.programId) return ok({error: 'PROGRAM_REQUIRED'}, 400);
+      assertCapability(actor as never, 'vessel.submit');
+      if (!can(actor as never, 'vessel.command')) {
+        const review = await submitForReview(actor as never, {
+          domain: 'PROGRAM',
+          action: 'UPDATE',
+          targetRef: String(body.programId),
+          payload: body,
+        });
+        return ok({pending: true, review}, 202);
+      }
       return ok(await updateProgram(actor as never, String(body.programId), body as never));
     }
     if (action === 'assign') {

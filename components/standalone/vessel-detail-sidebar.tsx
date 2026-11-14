@@ -45,7 +45,7 @@ async function csrfToken(): Promise<string> {
 }
 
 export function VesselDetailSidebar({
-  programId, onClose, onUpdated, onFilterEscort, canCommand, canRelease,
+  programId, onClose, onUpdated, onFilterEscort, canCommand, canRelease, canSubmit,
 }: {
   programId: string | null;
   onClose: () => void;
@@ -53,6 +53,7 @@ export function VesselDetailSidebar({
   onFilterEscort?: (mobile: string, name?: string | null) => void;
   canCommand: boolean;
   canRelease: boolean;
+  canSubmit: boolean;
 }) {
   const [detail, setDetail] = useState<VesselDetail | null>(null);
   const [editing, setEditing] = useState(false);
@@ -106,6 +107,13 @@ export function VesselDetailSidebar({
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
+      if (response.status === 202) {
+        setEditing(false);
+        toast.success('Submitted for approval. The pending icon is shown until an admin approves it.');
+        onUpdated?.();
+        onClose();
+        return;
+      }
       setDetail(body as VesselDetail);
       setEditing(false);
       toast.success('Program updated.');
@@ -160,7 +168,7 @@ export function VesselDetailSidebar({
         ) : (
           <>
             <Button type="button" size="sm" variant="outline" onClick={() => { setEditing(false); onClose(); }}>Close</Button>
-            {canCommand ? <Button type="button" size="sm" onClick={startEdit}>Edit</Button> : null}
+            {canSubmit ? <Button type="button" size="sm" onClick={startEdit}>Edit</Button> : null}
             {program.escort_mobile && onFilterEscort ? (
               <Button type="button" size="sm" variant="outline"
                 onClick={() => { onFilterEscort(String(program.escort_mobile), program.escort_name); onClose(); }}>

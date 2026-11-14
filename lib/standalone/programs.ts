@@ -66,6 +66,11 @@ export type ProgramListRow = ProgramRow & {
   total_minor: string | null;
   salary_minor: string | null;
   conveyance_minor: string | null;
+  /** PENDING review submission rendered as a flagged pseudo-row (never a program). */
+  is_pending?: boolean;
+  /** A real program with a pending USER edit waiting for approval. */
+  has_pending_review?: boolean;
+  review_id?: string;
 };
 
 const programId = (mother: string, lighter: string, startDate: string, startShift: string) =>
@@ -517,9 +522,14 @@ export type ProgramUpdateInput = {
 };
 
 /** Edit an active program without changing its immutable identity or history. */
-export async function updateProgram(actor: Actor, programIdValue: string, input: ProgramUpdateInput) {
+export async function updateProgram(
+  actor: Actor,
+  programIdValue: string,
+  input: ProgramUpdateInput,
+  existingClient?: Pick<PoolClient, 'query'>,
+) {
   assertCapability(actor, 'vessel.command');
-  return tx(async (client) => {
+  const run = async (client: Pick<PoolClient, 'query'>) => {
     const found = await client.query<ProgramRow>('SELECT * FROM programs WHERE id = $1 FOR UPDATE', [programIdValue]);
     if (!found.rowCount) throw new DomainError('PROGRAM_NOT_FOUND', 404);
     const current = found.rows[0];
@@ -569,7 +579,9 @@ export async function updateProgram(actor: Actor, programIdValue: string, input:
     await recordAudit({actor, action: 'PROGRAM_UPDATED', entity: 'program', entityId: current.id,
       detail: {startDate, startShift, destination}}, client);
     return {program: updated.rows[0]};
-  }).then((result) => {
+  };
+  if (existingClient) return run(existingClient);
+  return tx(run).then((result) => {
     emitDomainEvent('VESSEL', 'PROGRAM_UPDATED', programIdValue);
     return result;
   });
@@ -627,6 +639,8 @@ function lower(value: string): string {
 
 export type ProgramListFilters = {
   q?: string;
+  /** Include PENDING review submissions as flagged pseudo-rows (never counted). */
+  includePending?: boolean;
   state?: string;
   escort?: string;
   escortMobile?: string;
@@ -722,6 +736,116 @@ export async function resolveVesselSearchKeys(
   return {keys: matches, ambiguous: true, tolerant: true, reason: 'AMBIGUOUS'};
 }
 
+/**
+ * PENDING PROGRAM review submissions as list rows.
+ *
+ * They are deliberately NOT programs: `countPrograms`, payroll and every
+ * aggregate read the `programs` table, so these rows can never change a total.
+ * They are only merged into the register list when the caller asks for them.
+ */
+export type PendingProgramRow = ProgramListRow & {
+  is_pending: true;
+  review_id: string;
+  review_action: string;
+  review_category: string | null;
+  raw_text: string | null;
+};
+
+export async function listPendingProgramRows(filters: ProgramListFilters = {}): Promise<PendingProgramRow[]> {
+  if (filters.state && filters.state !== 'PENDING_REVIEW') return [];
+  const items = (await rows<{
+    id: string; action: string; target_ref: string | null; category: string | null;
+    payload: Record<string, unknown>; created_at: string;
+  }>(
+    `SELECT id, action, target_ref, category, payload, created_at::text AS created_at
+       FROM review_items r
+      WHERE domain = 'PROGRAM' AND state = 'PENDING'
+        AND (action <> 'UPDATE' OR target_ref IS NULL
+             OR NOT EXISTS (SELECT 1 FROM programs p WHERE p.id = r.target_ref))
+      ORDER BY created_at DESC LIMIT 500`,
+  ));
+  const pick = (payload: Record<string, unknown>, keys: string[]): string | null => {
+    for (const key of keys) {
+      const value = payload[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+    }
+    return null;
+  };
+  const needle = (filters.q ?? '').trim().toLowerCase();
+  return items.map((item) => {
+    const payload = item.payload ?? {};
+    const mother = pick(payload, ['motherVessel', 'originalMotherVessel', 'normalizedMotherVessel']);
+    const lighter = pick(payload, ['lighterVessel', 'originalLighterVessel', 'normalizedLighterVessel']);
+    const escortName = pick(payload, ['escortName']);
+    const escortMobile = pick(payload, ['escortMobile']);
+    const rawText = pick(payload, ['rawText']);
+    const eventAt = pick(payload, ['sourceTimestamp', 'source_timestamp', 'timestamp']) ?? item.created_at;
+    const row = {
+      id: `review:${item.id}`,
+      review_id: item.id,
+      review_action: item.action,
+      review_category: item.category,
+      raw_text: rawText,
+      is_pending: true,
+      revision: 0,
+      mother_vessel: mother ?? '—',
+      lighter_vessel: lighter ?? null,
+      mother_vessel_normalized: mother,
+      lighter_vessel_normalized: lighter,
+      master_mobile: pick(payload, ['masterMobile']),
+      master_name: null,
+      destination: pick(payload, ['destination']),
+      escort_name: escortName,
+      escort_mobile: escortMobile,
+      start_date: pick(payload, ['startDate']) ?? '',
+      start_shift: pick(payload, ['startShift']) ?? 'D',
+      end_date: pick(payload, ['endDate']),
+      end_shift: pick(payload, ['endShift']),
+      state: 'PENDING_REVIEW',
+      source_channel: 'REVIEW',
+      source_type: item.action,
+      source_message_id: pick(payload, ['sourceMessageId']) ?? null,
+      source_chat_jid: pick(payload, ['sourceChatJid']) ?? null,
+      confirmation_message_id: null,
+      notes: pick(payload, ['notes']),
+      created_by: 'review',
+      created_at: item.created_at,
+      updated_at: item.created_at,
+      event_at: eventAt,
+      pay_state: null,
+      shifts: null,
+      total_minor: null,
+      salary_minor: null,
+      conveyance_minor: null,
+    } as unknown as PendingProgramRow;
+    return row;
+  }).filter((row) => {
+    if (needle) {
+      const haystack = [row.mother_vessel, row.lighter_vessel, row.escort_name, row.escort_mobile, row.raw_text]
+        .join(' ').toLowerCase();
+      if (!haystack.includes(needle)) return false;
+    }
+    if (filters.mother && !String(row.mother_vessel ?? '').toLowerCase().includes(filters.mother.toLowerCase())) return false;
+    if (filters.escortMobile && row.escort_mobile !== filters.escortMobile) return false;
+    return true;
+  });
+}
+
+/**
+ * PENDING UPDATE submissions that target an existing program.
+ * Returned as a target→review map so the register can flag the real row
+ * without changing its identity, count or pay.
+ */
+export async function pendingProgramUpdateMap(): Promise<Map<string, string>> {
+  const items = await rows<{id: string; target_ref: string}>(
+    `SELECT id, target_ref
+       FROM review_items
+      WHERE domain = 'PROGRAM' AND action = 'UPDATE' AND state = 'PENDING'
+        AND target_ref IS NOT NULL`,
+  );
+  return new Map(items.map((item) => [item.target_ref, item.id]));
+}
+
 export async function listPrograms(filters: ProgramListFilters = {}) {
   const limit = Math.min(Math.max(Number(filters.limit) || 200, 1), 10000);
   const offset = Math.max(Number(filters.offset) || 0, 0);
@@ -740,14 +864,26 @@ export async function listPrograms(filters: ProgramListFilters = {}) {
       [...values, limit, offset],
     );
   let {clause, values} = programFilterSql(resolved, [], qKey);
-  const found = await select(clause, values);
-  if (found.length || qKey.length < 5) return found;
-  // No literal match: fall back to the bounded spelling tolerance, which only
-  // ever widens the result when the match is unambiguous.
-  const tolerance = await resolveVesselSearchKeys(filters.q ?? '', filters);
-  if (!tolerance.keys.length) return found;
-  ({clause, values} = programFilterSql(resolved, tolerance.keys, qKey));
-  return select(clause, values);
+  let found = await select(clause, values);
+  if (!found.length && qKey.length >= 5) {
+    // No literal match: fall back to the bounded spelling tolerance, which only
+    // ever widens the result when the match is unambiguous.
+    const tolerance = await resolveVesselSearchKeys(filters.q ?? '', filters);
+    if (tolerance.keys.length) {
+      ({clause, values} = programFilterSql(resolved, tolerance.keys, qKey));
+      found = await select(clause, values);
+    }
+  }
+  if (!filters.includePending || offset > 0) return found;
+  const [pending, updateMap] = await Promise.all([listPendingProgramRows(filters), pendingProgramUpdateMap()]);
+  if (updateMap.size) {
+    found = found.map((row) => {
+      const reviewId = updateMap.get(row.id);
+      return reviewId ? {...row, has_pending_review: true, review_id: reviewId} : row;
+    });
+  }
+  if (!pending.length) return found;
+  return [...pending, ...found].slice(0, limit);
 }
 
 export async function countPrograms(filters: ProgramListFilters = {}) {

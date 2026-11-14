@@ -1,5 +1,6 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../../_shared';
-import {assertCapability} from '@/lib/standalone/authz';
+import {assertCapability, can} from '@/lib/standalone/authz';
+import {submitForReview} from '@/lib/standalone/review';
 import {assignEscort, getProgram, releaseProgram, updateProgram, voidProgram} from '@/lib/standalone/programs';
 import {listProgramSourcesForPrograms} from '@/lib/standalone/review';
 import {getMessageEvidence} from '@/lib/standalone/messages';
@@ -64,13 +65,39 @@ export async function DELETE(request: Request, context: {params: Promise<{id: st
 export async function PATCH(request: Request, context: {params: Promise<{id: string}>}) {
   try {
     const actor = await actorFor(request);
-    assertCapability(actor as never, 'vessel.command');
     const {id} = await context.params;
     const programId = decodeURIComponent(id);
     const body = await bodyOf<{
       escortMobile?: string; escortName?: string; masterMobile?: string | null;
       startDate?: string; startShift?: string; endDate?: string | null; endShift?: string | null; notes?: string | null;
     }>(request);
+    if (!can(actor as never, 'vessel.command')) {
+      // USER edits stage for review instead of writing directly. Escort and
+      // release changes still need the operational capabilities.
+      const current = await getProgram(programId);
+      if (current.program.state === 'VOIDED') throw new DomainError('PROGRAM_VOIDED', 409);
+      if (current.program.state === 'COMPLETED') throw new DomainError('PROGRAM_COMPLETED', 409);
+      const digits = (value: unknown) => String(value ?? '')
+        .replace(/[^0-9]/g, '').replace(/^880(1[3-9][0-9]{8})$/, '0$1');
+      const escortChanged = body.escortMobile !== undefined
+        && digits(body.escortMobile) !== digits(current.program.escort_mobile);
+      const releaseChanged = (body.endDate !== undefined && String(body.endDate ?? '') !== String(current.program.end_date ?? ''))
+        || (body.endShift !== undefined && String(body.endShift ?? '') !== String(current.program.end_shift ?? ''));
+      if (escortChanged) assertCapability(actor as never, 'vessel.command');
+      if (releaseChanged) assertCapability(actor as never, 'vessel.release');
+      assertCapability(actor as never, 'vessel.submit');
+      const payload: Record<string, unknown> = {};
+      if (body.masterMobile !== undefined) payload.masterMobile = body.masterMobile;
+      if (body.startDate !== undefined) payload.startDate = body.startDate;
+      if (body.startShift !== undefined) payload.startShift = body.startShift;
+      if (body.notes !== undefined) payload.notes = body.notes;
+      if (!Object.keys(payload).length) return ok({pending: false, unchanged: true}, 200);
+      const review = await submitForReview(actor as never, {
+        domain: 'PROGRAM', action: 'UPDATE', targetRef: programId, payload,
+      });
+      return ok({pending: true, review}, 202);
+    }
+    assertCapability(actor as never, 'vessel.command');
     const current = await getProgram(programId);
     if (current.program.state === 'VOIDED') throw new DomainError('PROGRAM_VOIDED', 409);
 

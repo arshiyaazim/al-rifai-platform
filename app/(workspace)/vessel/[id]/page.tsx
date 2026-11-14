@@ -29,6 +29,7 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
   }
   const user = await pageUser();
   const canCommand = can(user as never, 'vessel.command');
+  const canSubmit = can(user as never, 'vessel.submit');
   const canRelease = can(user as never, 'vessel.release');
   const sources = await listProgramSourcesForPrograms([programId]);
   const {program, pay, assignments, events} = data;
@@ -60,7 +61,7 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
     ...(program.release_timestamp ? [{state: 'RELEASED', at: program.release_timestamp, actor: program.release_sender_jid ?? '—', note: 'Release information'}] : []),
   ];
   const closed = program.state === 'VOIDED' || program.state === 'COMPLETED';
-  const editable = canCommand && !closed;
+  const editable = canSubmit && !closed;
   const payable = pay as {state?: string; total_minor?: string | null} | null;
 
   return (
@@ -108,6 +109,7 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
         fixedMother={program.mother_vessel}
         canCommand={canCommand}
         canRelease={canRelease}
+        canSubmit={canSubmit}
         showNew={false}
       />
 
@@ -268,24 +270,26 @@ export default async function VesselProgramPage({params}: {params: Promise<{id: 
             ]}
           />
 
-          <ActionForm
-            title={program.escort_mobile ? 'Replace escort' : 'Assign escort'}
-            endpoint="/api/programs"
-            action="assign"
-            submitLabel={program.escort_mobile ? 'Replace escort' : 'Assign escort'}
-            hidden={{programId: program.id}}
-            fields={[
-              {name: 'employeeMobile', label: 'Escort mobile', required: true, defaultValue: program.escort_mobile ?? '', placeholder: '01812345678'},
-              {name: 'employeeName', label: 'Escort name', defaultValue: program.escort_name ?? ''},
-              {name: 'startDate', label: 'Start date', type: 'date', defaultValue: program.start_date},
-              {name: 'startShift', label: 'Shift', type: 'select', defaultValue: program.start_shift, options: [
-                {value: 'D', label: 'Day (D)'}, {value: 'N', label: 'Night (N)'},
-              ]},
-              {name: 'replace', label: 'Close previous assignment', type: 'select', defaultValue: program.escort_mobile ? 'yes' : 'no', options: [
-                {value: 'no', label: 'No'}, {value: 'yes', label: 'Yes'},
-              ]},
-            ]}
-          />
+          {canCommand ? (
+            <ActionForm
+              title={program.escort_mobile ? 'Replace escort' : 'Assign escort'}
+              endpoint="/api/programs"
+              action="assign"
+              submitLabel={program.escort_mobile ? 'Replace escort' : 'Assign escort'}
+              hidden={{programId: program.id}}
+              fields={[
+                {name: 'employeeMobile', label: 'Escort mobile', required: true, defaultValue: program.escort_mobile ?? '', placeholder: '01812345678'},
+                {name: 'employeeName', label: 'Escort name', defaultValue: program.escort_name ?? ''},
+                {name: 'startDate', label: 'Start date', type: 'date', defaultValue: program.start_date},
+                {name: 'startShift', label: 'Shift', type: 'select', defaultValue: program.start_shift, options: [
+                  {value: 'D', label: 'Day (D)'}, {value: 'N', label: 'Night (N)'},
+                ]},
+                {name: 'replace', label: 'Close previous assignment', type: 'select', defaultValue: program.escort_mobile ? 'yes' : 'no', options: [
+                  {value: 'no', label: 'No'}, {value: 'yes', label: 'Yes'},
+                ]},
+              ]}
+            />
+          ) : null}
         </div>
       ) : null}
 

@@ -1,16 +1,37 @@
 import type {PoolClient} from 'pg';
+import {createHash, randomUUID} from 'node:crypto';
 import {rows, row, tx, text, optionalText, optionalMobile, isoDate, shift, DomainError, type Actor} from './db.ts';
 import {recordAudit, newId} from './audit.ts';
 import {emitDomainEvent} from '../realtime/server.ts';
 import {assertCapability} from './authz.ts';
 import {createEmployee, updateEmployee} from './employees.ts';
-import {createProgram} from './programs.ts';
+import {createProgram, updateProgram} from './programs.ts';
 import {createAttendanceRecord} from './attendance-records.ts';
 
 export type Domain = 'EMPLOYEE' | 'PROGRAM' | 'ATTENDANCE' | 'CASH';
 export type Action = 'CREATE' | 'UPDATE' | 'DELETE';
 
 const DOMAINS: Domain[] = ['EMPLOYEE', 'PROGRAM', 'ATTENDANCE', 'CASH'];
+
+/**
+ * Mirror review actions into the Cash portal audit table as well as the
+ * platform `audit_events` trail. The Cash portal table is append-only and
+ * shared by every portal action, so reviewers see one audit surface.
+ */
+async function portalAudit(
+  actorId: string,
+  targetId: string,
+  action: string,
+  details: Record<string, unknown>,
+  client?: Pick<PoolClient, 'query'>,
+): Promise<void> {
+  const id = createHash('sha256').update(`${actorId}:${targetId}:${action}:${randomUUID()}`).digest('hex');
+  const sql = `INSERT INTO cash_portal_audit (id, actor_id, target_id, action, details)
+               VALUES ($1,$2,$3,$4,$5::jsonb)`;
+  const params = [id, actorId, targetId, action, JSON.stringify(details ?? {})];
+  if (client) await client.query(sql, params);
+  else await row(sql, params);
+}
 
 // ── Review Queue reads ─────────────────────────────────────────────────────
 export type ReviewQueueFilters = {
@@ -496,6 +517,7 @@ export async function correctReviewItem(actor: Actor, id: string, corrections: R
       entityId: id,
       detail: {domain: item.domain, corrections: clean, state: 'PENDING'},
     }, client);
+    await portalAudit(actor.id, id, 'REVIEW_ITEM_CORRECTED', {domain: item.domain, corrections: clean}, client);
     return {id, corrected: true, fields: Object.keys(clean), state: 'PENDING'};
   }).then((result) => {
     emitDomainEvent('REVIEW', 'REVIEW_ITEM_CORRECTED', id);
@@ -562,6 +584,7 @@ export async function submitForReview(
   );
   if (!created) throw new DomainError('PENDING_REVIEW_EXISTS', 409);
   await recordAudit({actor, action: 'REVIEW_SUBMITTED', entity: 'review_item', entityId: id, detail: {domain, category}});
+  await portalAudit(actor.id, id, 'REVIEW_SUBMITTED', {domain, action: input.action, category});
   emitDomainEvent('REVIEW', 'REVIEW_SUBMITTED', id);
   return created;
 }
@@ -577,8 +600,138 @@ async function applyItem(
     return updateEmployee(actor, item.target_ref, item.payload as never, client);
   }
   if (item.domain === 'PROGRAM' && item.action === 'CREATE') return createProgram(actor, item.payload as never, {}, client);
+  if (item.domain === 'PROGRAM' && item.action === 'UPDATE') {
+    // A real USER edit targets a program id. Parser failures can carry a
+    // message id instead; approving those creates the program from the
+    // reviewed fields rather than failing on a missing target.
+    if (!item.target_ref || !item.target_ref.startsWith('prog_')) {
+      return createProgram(actor, item.payload as never, {}, client);
+    }
+    return updateProgram(actor, item.target_ref, item.payload as never, client);
+  }
   if (item.domain === 'ATTENDANCE' && item.action === 'CREATE') return createAttendanceRecord(actor, item.payload as never, client);
   throw new DomainError(`DOMAIN_NOT_IMPLEMENTED:${item.domain}:${item.action}`, 501);
+}
+
+export type PendingProgramReview = {
+  id: string;
+  action: string;
+  category: string | null;
+  target_ref: string | null;
+  payload: Record<string, unknown>;
+  submitted_by: string;
+  submitter_name: string | null;
+  created_at: string;
+  source_message_id: string | null;
+  source_timestamp: string | null;
+  raw_text: string | null;
+  sender_name: string | null;
+  sender_mobile: string | null;
+  /** Current program values for an UPDATE submission (merged for display). */
+  target: {
+    motherVessel: string | null;
+    lighterVessel: string | null;
+    masterMobile: string | null;
+    destination: string | null;
+    escortName: string | null;
+    escortMobile: string | null;
+    startDate: string | null;
+    startShift: string | null;
+    endDate: string | null;
+    endShift: string | null;
+    notes: string | null;
+  } | null;
+};
+
+/**
+ * PENDING PROGRAM review items with their original WhatsApp evidence resolved.
+ * Used by the /review vessel table (source-message and submitted-data dialogs).
+ */
+export async function listPendingProgramReviews(limit = 300): Promise<PendingProgramReview[]> {
+  const items = await rows<{
+    id: string; action: string; category: string | null; target_ref: string | null;
+    payload: Record<string, unknown>; submitted_by: string; submitter_name: string | null;
+    created_at: string; source_message_id: string | null; source_timestamp: string | null;
+    raw_text: string | null; sender_label: string | null; sender_jid: string | null;
+    target_mother_vessel: string | null; target_lighter_vessel: string | null;
+    target_master_mobile: string | null; target_destination: string | null;
+    target_escort_name: string | null; target_escort_mobile: string | null;
+    target_start_date: string | null; target_start_shift: string | null;
+    target_end_date: string | null; target_end_shift: string | null; target_notes: string | null;
+    queue_sender_mobile: string | null;
+  }>(
+    `SELECT r.id, r.action, r.category, r.target_ref, r.payload, r.submitted_by,
+            u.display_name AS submitter_name, r.created_at::text AS created_at,
+            wm.message_id AS source_message_id, wm.source_timestamp::text AS source_timestamp,
+            coalesce(wm.text_content, r.payload->>'rawText') AS raw_text,
+            coalesce(qm.sender_display_name, wc.label) AS sender_label, wm.sender_jid,
+            qm.sender_mobile AS queue_sender_mobile,
+            p.mother_vessel AS target_mother_vessel, p.lighter_vessel AS target_lighter_vessel,
+            p.master_mobile AS target_master_mobile, p.destination AS target_destination,
+            p.escort_name AS target_escort_name, p.escort_mobile AS target_escort_mobile,
+            p.start_date::text AS target_start_date, p.start_shift AS target_start_shift,
+            p.end_date::text AS target_end_date, p.end_shift AS target_end_shift,
+            p.notes AS target_notes
+       FROM review_items r
+       LEFT JOIN cash_portal_users u ON u.id = r.submitted_by
+       LEFT JOIN programs p ON p.id = r.target_ref
+       LEFT JOIN LATERAL (
+         SELECT m.account_id, m.chat_jid, m.message_id, m.source_timestamp, m.text_content, m.sender_jid
+           FROM whatsapp_messages m
+          WHERE m.message_id = coalesce(r.payload->>'sourceMessageId', r.target_ref)
+          ORDER BY m.source_timestamp DESC
+          LIMIT 1
+       ) wm ON true
+       LEFT JOIN whatsapp_chats wc ON wc.account_id = wm.account_id AND wc.chat_jid = wm.chat_jid
+       LEFT JOIN LATERAL (
+         SELECT q.sender_display_name, q.sender_mobile
+           FROM message_review_queue q
+          WHERE q.source_message_id = coalesce(r.payload->>'sourceMessageId', r.target_ref)
+          ORDER BY q.created_at DESC
+          LIMIT 1
+       ) qm ON true
+      WHERE r.domain = 'PROGRAM' AND r.state = 'PENDING'
+      ORDER BY r.created_at DESC
+      LIMIT $1`,
+    [limit],
+  );
+  return items.map((item) => {
+    const jid = String(item.sender_jid ?? '');
+    const jidDigits = jid.endsWith('@s.whatsapp.net') ? jid.replace(/[^0-9]/g, '') : '';
+    const queueDigits = String(item.queue_sender_mobile ?? '').replace(/[^0-9]/g, '');
+    const digits = queueDigits.length >= 11 ? queueDigits : jidDigits;
+    const mobile = digits.length >= 11 ? `0${digits.slice(-10)}` : null;
+    return {
+      id: item.id,
+      action: item.action,
+      category: item.category,
+      target_ref: item.target_ref,
+      payload: item.payload ?? {},
+      submitted_by: item.submitted_by,
+      submitter_name: item.submitter_name,
+      created_at: item.created_at,
+      source_message_id: item.source_message_id,
+      source_timestamp: item.source_timestamp,
+      raw_text: item.raw_text,
+      sender_name: item.sender_label,
+      sender_mobile: mobile,
+      target: item.target_mother_vessel || item.target_lighter_vessel
+        ? {
+            motherVessel: item.target_mother_vessel,
+            lighterVessel: item.target_lighter_vessel,
+            masterMobile: item.target_master_mobile,
+            destination: item.target_destination,
+            escortName: item.target_escort_name,
+            escortMobile: item.target_escort_mobile,
+            startDate: item.target_start_date,
+            startShift: item.target_start_shift,
+            endDate: item.target_end_date,
+            endShift: item.target_end_shift,
+            notes: item.target_notes,
+          }
+        : null,
+    };
+  });
 }
 
 export async function decideReview(actor: Actor, id: string, decision: 'APPROVED' | 'REJECTED', reason?: string) {
@@ -608,6 +761,7 @@ export async function decideReview(actor: Actor, id: string, decision: 'APPROVED
     );
     await recordAudit({actor, action: `REVIEW_${decision}`, entity: 'review_item', entityId: id,
       detail: {domain: item.domain, action: item.action}}, client);
+    await portalAudit(actor.id, id, `REVIEW_${decision}`, {domain: item.domain, action: item.action, reason: why}, client);
     return {id, state: decision, applied};
   }).then((result) => {
     emitDomainEvent('REVIEW', `REVIEW_${decision}`, id);
@@ -627,6 +781,7 @@ export async function withdrawReview(actor: Actor, id: string) {
       `UPDATE review_items SET state = 'WITHDRAWN', decided_at = now(), updated_at = now() WHERE id = $1`, [id],
     );
     await recordAudit({actor, action: 'REVIEW_WITHDRAWN', entity: 'review_item', entityId: id}, client);
+    await portalAudit(actor.id, id, 'REVIEW_WITHDRAWN', {}, client);
     return {id, state: 'WITHDRAWN'};
   }).then((result) => {
     emitDomainEvent('REVIEW', 'REVIEW_WITHDRAWN', id);

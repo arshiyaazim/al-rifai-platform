@@ -225,6 +225,7 @@ export function DraftInlineAssign({
         onUpdated={() => router.refresh()}
         canCommand={canCommand}
         canRelease={false}
+        canSubmit={canCommand}
       />
     </>
   );

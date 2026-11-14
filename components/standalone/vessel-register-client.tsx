@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import {useEffect, useMemo, useRef, useState} from 'react';
-import {Eye, Plus} from 'lucide-react';
+import {Eye, Plus, TriangleAlert} from 'lucide-react';
 import {toast} from 'sonner';
 import {AppToaster} from '@/components/standalone/app-toaster';
 import {ChatImportDialog} from '@/components/standalone/chat-import-dialog';
@@ -34,6 +34,12 @@ export type VesselRow = VesselProgram & {
   salary_minor?: string | null;
   conveyance_minor?: string | null;
   total_minor?: string | null;
+  /** PENDING review submission rendered as a flagged pseudo-row. */
+  is_pending?: boolean;
+  has_pending_review?: boolean;
+  review_id?: string;
+  review_action?: string;
+  raw_text?: string | null;
 };
 
 export type VesselPage = {
@@ -131,7 +137,7 @@ function LookupFilter({
 export function VesselRegisterClient({
   initial, escorts, mothers: initialMothers, lighters: initialLighters,
   escortNames: initialEscortNames, escortMobiles: initialEscortMobiles,
-  clients, fixedMother, initialMother = '', initialEscortMobile = '', canCommand, canRelease, showNew = true,
+  clients, fixedMother, initialMother = '', initialEscortMobile = '', canCommand, canRelease, canSubmit, showNew = true,
 }: {
   initial: VesselPage;
   escorts: Array<{mobile: string; name: string}>;
@@ -147,6 +153,7 @@ export function VesselRegisterClient({
   initialEscortMobile?: string;
   canCommand: boolean;
   canRelease: boolean;
+  canSubmit: boolean;
   showNew?: boolean;
 }) {
   const [allRows, setAllRows] = useState<VesselRow[]>(initial.rows);
@@ -238,9 +245,11 @@ export function VesselRegisterClient({
     const day = eventDateIso(value);
     return Boolean(day && day >= bounds.from && day <= bounds.to);
   };
-  const totalCount = allRows.length;
-  const lastMonthCount = allRows.filter((row) => inMonth(row.event_at, lastMonth)).length;
-  const thisMonthCount = allRows.filter((row) => inMonth(row.event_at, thisMonth)).length;
+  // Pending review rows are never counted as programs.
+  const realRows = allRows.filter((row) => !row.is_pending);
+  const totalCount = realRows.length;
+  const lastMonthCount = realRows.filter((row) => inMonth(row.event_at, lastMonth)).length;
+  const thisMonthCount = realRows.filter((row) => inMonth(row.event_at, thisMonth)).length;
   const activeEscortName = escortFilterLabel
     || allRows.find((row) => String(row.escort_mobile ?? '') === escortMobileFilter)?.escort_name
     || escortMobileFilter;
@@ -249,7 +258,9 @@ export function VesselRegisterClient({
   const safePage = Math.min(page, totalPages);
   const pageRows = filteredRows.slice((safePage - 1) * limit, safePage * limit);
   const offset = (safePage - 1) * limit;
-  const exportRows: ExportRow[] = pageRows.map((row, index) => ({...row, sl: offset + index + 1}));
+  const exportRows: ExportRow[] = pageRows
+    .filter((row) => !row.is_pending)
+    .map((row, index) => ({...row, sl: offset + index + 1}));
   const columns: ExportColumn<ExportRow>[] = [
     {header: 'Date', value: (row) => eventDate(row.event_at)},
     {header: 'Mother Vessel', value: (row) => withMv(row.mother_vessel_normalized ?? row.mother_vessel)},
@@ -328,7 +339,9 @@ export function VesselRegisterClient({
   }
 
   async function fetchAllForExport(): Promise<ExportRow[]> {
-    return filteredRows.map((row, index) => ({...row, sl: index + 1}));
+    return filteredRows
+      .filter((row) => !row.is_pending)
+      .map((row, index) => ({...row, sl: index + 1}));
   }
 
   const create = async () => {
@@ -343,7 +356,9 @@ export function VesselRegisterClient({
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
-      toast.success('Program created.');
+      toast.success(response.status === 202
+        ? 'Submitted for approval. The pending row is flagged and excluded from totals.'
+        : 'Program created.');
       setNewOpen(false);
       setForm({motherVessel: fixedMother ?? '', lighterName: '', masterMobile: '', startDate: '', startShift: 'D', escortName: '', escortMobile: '', notes: ''});
       await loadAll(true);
@@ -360,7 +375,12 @@ export function VesselRegisterClient({
       <section className="card print-area" style={{marginBottom: 18}}>
         <div className="page-head" style={{marginBottom: 8}}>
           <div>
-            <h3>Vessel Register ({filteredRows.length.toLocaleString()})</h3>
+            <h3>Vessel Register ({filteredRows.filter((row) => !row.is_pending).length.toLocaleString()})</h3>
+            {filteredRows.some((row) => row.is_pending || row.has_pending_review) ? (
+              <span className="pill warn" title="অপেক্ষমাণ অনুমোদন / Pending approval">
+                {filteredRows.filter((row) => row.is_pending || row.has_pending_review).length} pending review
+              </span>
+            ) : null}
             <p className="muted" style={{marginTop: 0}}>
               WhatsApp orders, Admin confirmations and release updates, newest first.
             </p>
@@ -379,7 +399,7 @@ export function VesselRegisterClient({
                 onImported={() => void loadAll(true)}
               />
             ) : null}
-            {showNew && canCommand ? (
+            {showNew && canSubmit ? (
               <Button type="button" size="sm" onClick={() => setNewOpen(true)}><Plus className="size-4" />New Program</Button>
             ) : null}
           </div>
@@ -489,8 +509,19 @@ export function VesselRegisterClient({
                     <td style={{width: 32}}>{offset + index + 1}</td>
                     <td>{eventDate(program.event_at)}</td>
                     <td className="vessel-ellipsis" title={program.mother_vessel}>{withMv(program.mother_vessel_normalized ?? program.mother_vessel)}</td>
-                    <td className="vessel-ellipsis" title={program.lighter_vessel}>
-                      <div>{withMv(program.lighter_vessel_normalized ?? program.lighter_vessel)}</div>
+                    <td className="vessel-ellipsis" title={program.lighter_vessel ?? undefined}>
+                      <div style={{display: 'flex', alignItems: 'center', gap: 6}}>
+                        {program.is_pending || program.has_pending_review ? (
+                          <span title="অপেক্ষমাণ অনুমোদন / Pending approval" style={{display: 'inline-flex', color: '#b45309'}}>
+                            <TriangleAlert size={15} aria-label="Pending approval" />
+                          </span>
+                        ) : null}
+                        <span>
+                          {program.lighter_vessel
+                            ? withMv(program.lighter_vessel_normalized ?? program.lighter_vessel)
+                            : (program.is_pending ? '[অমীমাংসিত বার্তা / Unparsed Message]' : '—')}
+                        </span>
+                      </div>
                       {program.master_mobile ? <small className="muted">{displayMobile(program.master_mobile)}</small> : null}
                     </td>
                     <td className="vessel-escort-cell">
@@ -511,9 +542,15 @@ export function VesselRegisterClient({
                     <td className="num">{pay.conveyance.value}</td>
                     <td className="num">{pay.total.value}</td>
                     <td>
-                      <Button type="button" size="icon-sm" variant="ghost" aria-label={`View ${program.lighter_vessel}`} onClick={() => setSelectedId(program.id)}>
-                        <Eye className="size-4" />
-                      </Button>
+                      {program.is_pending && program.review_id ? (
+                        <Link href={`/review/${encodeURIComponent(program.review_id)}`} aria-label="Review pending submission">
+                          <Eye className="size-4" />
+                        </Link>
+                      ) : (
+                        <Button type="button" size="icon-sm" variant="ghost" aria-label={`View ${program.lighter_vessel}`} onClick={() => setSelectedId(program.id)}>
+                          <Eye className="size-4" />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -546,6 +583,7 @@ export function VesselRegisterClient({
         onFilterEscort={applyEscortFilter}
         canCommand={canCommand}
         canRelease={canRelease}
+        canSubmit={canSubmit}
       />
 
       <DetailSidebar

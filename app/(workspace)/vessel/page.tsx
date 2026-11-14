@@ -19,6 +19,7 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
   const filters = await searchParams;
   const user = await pageUser();
   const canCommand = can(user as never, 'vessel.command');
+  const canSubmit = can(user as never, 'vessel.submit');
   const canRelease = can(user as never, 'vessel.release');
   const q = (filters.q ?? '').trim();
   const state = filters.state ?? '';
@@ -60,6 +61,7 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
         initialEscortMobile={escortMobile}
         canCommand={canCommand}
         canRelease={canRelease}
+        canSubmit={canSubmit}
       />
 
       <div className="split">
