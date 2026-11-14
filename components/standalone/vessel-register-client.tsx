@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import {useEffect, useMemo, useRef, useState} from 'react';
-import {Eye, Plus, TriangleAlert} from 'lucide-react';
+import {Eye, Plus} from 'lucide-react';
 import {toast} from 'sonner';
 import {AppToaster} from '@/components/standalone/app-toaster';
 import {ChatImportDialog} from '@/components/standalone/chat-import-dialog';
@@ -34,12 +34,6 @@ export type VesselRow = VesselProgram & {
   salary_minor?: string | null;
   conveyance_minor?: string | null;
   total_minor?: string | null;
-  /** PENDING review submission rendered as a flagged pseudo-row. */
-  is_pending?: boolean;
-  has_pending_review?: boolean;
-  review_id?: string;
-  review_action?: string;
-  raw_text?: string | null;
 };
 
 export type VesselPage = {
@@ -245,11 +239,9 @@ export function VesselRegisterClient({
     const day = eventDateIso(value);
     return Boolean(day && day >= bounds.from && day <= bounds.to);
   };
-  // Pending review rows are never counted as programs.
-  const realRows = allRows.filter((row) => !row.is_pending);
-  const totalCount = realRows.length;
-  const lastMonthCount = realRows.filter((row) => inMonth(row.event_at, lastMonth)).length;
-  const thisMonthCount = realRows.filter((row) => inMonth(row.event_at, thisMonth)).length;
+  const totalCount = allRows.length;
+  const lastMonthCount = allRows.filter((row) => inMonth(row.event_at, lastMonth)).length;
+  const thisMonthCount = allRows.filter((row) => inMonth(row.event_at, thisMonth)).length;
   const activeEscortName = escortFilterLabel
     || allRows.find((row) => String(row.escort_mobile ?? '') === escortMobileFilter)?.escort_name
     || escortMobileFilter;
@@ -259,7 +251,6 @@ export function VesselRegisterClient({
   const pageRows = filteredRows.slice((safePage - 1) * limit, safePage * limit);
   const offset = (safePage - 1) * limit;
   const exportRows: ExportRow[] = pageRows
-    .filter((row) => !row.is_pending)
     .map((row, index) => ({...row, sl: offset + index + 1}));
   const columns: ExportColumn<ExportRow>[] = [
     {header: 'Date', value: (row) => eventDate(row.event_at)},
@@ -340,7 +331,6 @@ export function VesselRegisterClient({
 
   async function fetchAllForExport(): Promise<ExportRow[]> {
     return filteredRows
-      .filter((row) => !row.is_pending)
       .map((row, index) => ({...row, sl: index + 1}));
   }
 
@@ -375,12 +365,7 @@ export function VesselRegisterClient({
       <section className="card print-area" style={{marginBottom: 18}}>
         <div className="page-head" style={{marginBottom: 8}}>
           <div>
-            <h3>Vessel Register ({filteredRows.filter((row) => !row.is_pending).length.toLocaleString()})</h3>
-            {filteredRows.some((row) => row.is_pending || row.has_pending_review) ? (
-              <span className="pill warn" title="অপেক্ষমাণ অনুমোদন / Pending approval">
-                {filteredRows.filter((row) => row.is_pending || row.has_pending_review).length} pending review
-              </span>
-            ) : null}
+            <h3>Vessel Register ({filteredRows.length.toLocaleString()})</h3>
             <p className="muted" style={{marginTop: 0}}>
               WhatsApp orders, Admin confirmations and release updates, newest first.
             </p>
@@ -404,6 +389,13 @@ export function VesselRegisterClient({
             ) : null}
           </div>
         </div>
+
+        {!canCommand ? (
+          <div style={{padding: '10px 12px', marginBottom: 16, background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, color: '#1e3a8a', fontSize: 13}}>
+            আপনার জমা দেওয়া পেন্ডিং এন্ট্রি রিভিউ কিউ-তে আছে →{' '}
+            <Link href="/review" style={{fontWeight: 600, textDecoration: 'underline'}}>Review Queue দেখুন</Link>
+          </div>
+        ) : null}
 
         {/* 12-cell filter + dashboard grid (4 columns × 3 rows) */}
         <div className="card vessel-filter-card" style={{padding: 16, marginBottom: 16}}>
@@ -510,18 +502,7 @@ export function VesselRegisterClient({
                     <td>{eventDate(program.event_at)}</td>
                     <td className="vessel-ellipsis" title={program.mother_vessel}>{withMv(program.mother_vessel_normalized ?? program.mother_vessel)}</td>
                     <td className="vessel-ellipsis" title={program.lighter_vessel ?? undefined}>
-                      <div style={{display: 'flex', alignItems: 'center', gap: 6}}>
-                        {program.is_pending || program.has_pending_review ? (
-                          <span title="অপেক্ষমাণ অনুমোদন / Pending approval" style={{display: 'inline-flex', color: '#b45309'}}>
-                            <TriangleAlert size={15} aria-label="Pending approval" />
-                          </span>
-                        ) : null}
-                        <span>
-                          {program.lighter_vessel
-                            ? withMv(program.lighter_vessel_normalized ?? program.lighter_vessel)
-                            : (program.is_pending ? '[অমীমাংসিত বার্তা / Unparsed Message]' : '—')}
-                        </span>
-                      </div>
+                      <div>{withMv(program.lighter_vessel_normalized ?? program.lighter_vessel)}</div>
                       {program.master_mobile ? <small className="muted">{displayMobile(program.master_mobile)}</small> : null}
                     </td>
                     <td className="vessel-escort-cell">
@@ -542,15 +523,9 @@ export function VesselRegisterClient({
                     <td className="num">{pay.conveyance.value}</td>
                     <td className="num">{pay.total.value}</td>
                     <td>
-                      {program.is_pending && program.review_id ? (
-                        <Link href={`/review/${encodeURIComponent(program.review_id)}`} aria-label="Review pending submission">
-                          <Eye className="size-4" />
-                        </Link>
-                      ) : (
-                        <Button type="button" size="icon-sm" variant="ghost" aria-label={`View ${program.lighter_vessel}`} onClick={() => setSelectedId(program.id)}>
-                          <Eye className="size-4" />
-                        </Button>
-                      )}
+                      <Button type="button" size="icon-sm" variant="ghost" aria-label={`View ${program.lighter_vessel}`} onClick={() => setSelectedId(program.id)}>
+                        <Eye className="size-4" />
+                      </Button>
                     </td>
                   </tr>
                 );

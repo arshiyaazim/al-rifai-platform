@@ -8,7 +8,7 @@ import {ownerDraftFromReviewPayload} from '@/lib/order-draft-from-record';
 import type {ReviewDetail} from '@/lib/standalone/review';
 import {
   formatReviewAmount,
-  formatReviewTimestamp,
+  formatDhakaDateTime,
   reviewActionsFor,
   reviewCategoryLabel,
   reviewCategoryTone,
@@ -79,20 +79,16 @@ function normalize(detail: ReviewDetail): NormalizedItem {
 
 function RelatedProgram({program}: {program: Record<string, unknown> | null}) {
   if (!program) return null;
-  const confirmation = typeof program.confirmation_message_id === 'string' ? program.confirmation_message_id : null;
   return (
     <section className="card">
       <h3>Related vessel program</h3>
       <table>
         <tbody>
-          <tr><th style={{width: 180}}>Program ID</th><td style={{fontFamily: 'ui-monospace, monospace', fontSize: 12}}>{String(program.id)}</td></tr>
           <tr><th>Mother → lighter</th><td>{String(program.mother_vessel ?? '—')} → {String(program.lighter_vessel ?? '—')}</td></tr>
           <tr><th>State</th><td><span className="pill">{String(program.state ?? '—')}</span></td></tr>
           <tr><th>Escort</th><td>{String(program.escort_name ?? '—')}<div className="muted">{String(program.escort_mobile ?? '')}</div></td></tr>
           <tr><th>Start</th><td>{String(program.start_date ?? '—')} · {String(program.start_shift ?? '—')}</td></tr>
           <tr><th>End</th><td>{program.end_date ? `${String(program.end_date)} · ${String(program.end_shift ?? '—')}` : '—'}</td></tr>
-          <tr><th>Source message</th><td style={{fontFamily: 'ui-monospace, monospace', fontSize: 12}}>{String(program.source_message_id ?? '—')}</td></tr>
-          <tr><th>Confirmation message</th><td style={{fontFamily: 'ui-monospace, monospace', fontSize: 12}}>{confirmation ?? '—'}</td></tr>
         </tbody>
       </table>
       <p className="muted">Confirmation is applied from the admin&apos;s outgoing WhatsApp reply via applyConfirmation(); no second confirmation is required.</p>
@@ -107,13 +103,10 @@ function RelatedInstruction({instruction}: {instruction: Record<string, unknown>
       <h3>Related cash instruction</h3>
       <table>
         <tbody>
-          <tr><th style={{width: 180}}>Instruction ID</th><td style={{fontFamily: 'ui-monospace, monospace', fontSize: 12}}>{String(instruction.id)}</td></tr>
           <tr><th>Payee</th><td>{cleanEmployeeName(instruction.employee_name)}<div className="muted">{String(instruction.employee_mobile ?? '')}</div></td></tr>
           <tr><th>Method</th><td>{String(instruction.method ?? '—')}</td></tr>
           <tr><th>Amount</th><td>{formatReviewAmount(instruction.amount_minor as string | number | null)}</td></tr>
           <tr><th>State</th><td><span className="pill">{String(instruction.state ?? '—')}</span></td></tr>
-          <tr><th>Source message</th><td style={{fontFamily: 'ui-monospace, monospace', fontSize: 12}}>{String(instruction.source_message_id ?? '—')}</td></tr>
-          <tr><th>Source block key</th><td style={{fontFamily: 'ui-monospace, monospace', fontSize: 12}}>{String(instruction.source_block_key ?? '—')}</td></tr>
         </tbody>
       </table>
       <p className="muted">The instruction remains in REVIEW until an authorized admin approves and posts it through the existing Cash workflow.</p>
@@ -156,9 +149,9 @@ export function ReviewItemDetail({detail, actor}: Props) {
           <div className="muted" style={{fontSize: 12}}>
             <Link href="/review">← Review Queue</Link>
           </div>
-          <h1>{reviewDomainLabel(item.domain)} review · {item.id.slice(0, 18)}</h1>
+          <h1>{reviewDomainLabel(item.domain)} review</h1>
           <p className="muted">
-            {reviewCategoryLabel(item.category)} · {reviewStateLabel(item.state)} · submitted by {item.submitter_name ?? item.submitted_by.slice(0, 12)}
+            {reviewCategoryLabel(item.category)} · {reviewStateLabel(item.state)} · submitted by {item.submitter_name ?? (item.submitted_by.startsWith('system:') ? 'WhatsApp parser' : 'Unknown')}
           </p>
         </div>
         <div className="row-actions">
@@ -167,11 +160,9 @@ export function ReviewItemDetail({detail, actor}: Props) {
         </div>
       </div>
 
-      <div className="grid-cards">
-        <div className="stat"><div className="label">Item ID</div><div className="value" style={{fontSize: 13, fontFamily: 'ui-monospace, monospace', wordBreak: 'break-all'}}>{item.id}</div></div>
-        <div className="stat"><div className="label">Domain / action</div><div className="value" style={{fontSize: 14}}>{reviewDomainLabel(item.domain)} · {item.action}</div></div>
-        <div className="stat"><div className="label">Created</div><div className="value" style={{fontSize: 14}}>{formatReviewTimestamp(item.created_at)}</div></div>
-        <div className="stat"><div className="label">Decided</div><div className="value" style={{fontSize: 14}}>{item.decided_at ? formatReviewTimestamp(item.decided_at) : '—'}</div></div>
+      <div className="row-actions" style={{marginBottom: 12}}>
+        <span className="muted">Submitted {formatDhakaDateTime(item.created_at)}</span>
+        {item.decided_at ? <span className="muted">Decided {formatDhakaDateTime(item.decided_at)}</span> : null}
       </div>
 
       <div className="split">
@@ -237,12 +228,7 @@ export function ReviewItemDetail({detail, actor}: Props) {
           {item.domain === 'PROGRAM' ? (
             <section className="card">
               <h3>Confirmation evidence</h3>
-              <table>
-                <tbody>
-                  <tr><th style={{width: 220}}>confirmation_message_id</th><td style={{fontFamily: 'ui-monospace, monospace', fontSize: 12}}>{confirmation.messageId ?? '—'}</td></tr>
-                </tbody>
-              </table>
-              {confirmation.href ? <p><Link href={confirmation.href}>Open confirmation message in the WhatsApp inbox →</Link></p> : null}
+              {confirmation.href ? <p><Link href={confirmation.href}>Open confirmation message in the WhatsApp inbox →</Link></p> : <p className="muted">No confirmation message is linked.</p>}
               {escortConflict ? <p><span className="pill bad">Escort assignment conflict</span> {escortConflict}</p> : null}
               <p className="muted">Confirmation is applied from the admin&apos;s outgoing WhatsApp reply via applyConfirmation(); no second confirmation is required.</p>
             </section>
@@ -268,8 +254,7 @@ export function ReviewItemDetail({detail, actor}: Props) {
               <tbody>
                 <tr><th style={{width: 140}}>Decision</th><td>{item.decision ? <span className={`pill ${reviewStateTone(item.decision)}`}>{reviewStateLabel(item.decision)}</span> : <span className="muted">Pending</span>}</td></tr>
                 <tr><th>Reason</th><td>{item.decision_reason ?? '—'}</td></tr>
-                <tr><th>Decided by</th><td style={{fontFamily: 'ui-monospace, monospace', fontSize: 12}}>{detail.decision?.actor ?? '—'}</td></tr>
-                <tr><th>Decided at</th><td>{detail.decision?.created_at ? formatReviewTimestamp(detail.decision.created_at) : '—'}</td></tr>
+                <tr><th>Decided at</th><td>{detail.decision?.created_at ? formatDhakaDateTime(detail.decision.created_at) : '—'}</td></tr>
               </tbody>
             </table>
           </section>

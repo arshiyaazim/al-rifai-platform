@@ -65,11 +65,22 @@ docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d -
 - **9** — UI polish, security attendance, join-date backfill, `/home`, login redirect (`v3.2.0-home-security`).
 - **10** — escort release parser + `/release` review page + structured backfill (`v3.3.0-escort-release`).
 - **11** — docs/image/git cleanup; **12** — recruitment AI 5-step flow + follow-ups (`0.1.12-flow`).
+- **13** — **v3.3.4 hotfix (2026-11-14):** Approve/Reject fix, applicability preflight, hidden backend fields, pending rows removed from `/vessel`.
+
+## v3.3.4 hotfix (2026-11-14)
+
+**Summary:** Hotfix for Approve/Reject on `/review/[id]`. Flattened PROGRAM payloads (`payload.fields`/`extractedFields` → top-level, with Admin corrections winning). Added applicability preflight for release slips/evidence, confirmation/assignment messages, and Bridge-1 → Accountant cash messages misrouted to PROGRAM. Fixed Reject reason UX with soft validation and an inline error. Hid backend technical fields (message ID, account/chat JIDs, sender JID, parser, classification, raw timestamps) and resolved sender name/mobile from `identity_aliases`. Removed pending review rows from the `/vessel` main list; USERs now see a banner linking to `/review`.
+
+**Scope note:** v3.3.5 will deliver the review UI restructure (two tables), manual program matching, escort assign flow, and fuzzy vessel matching (same master+escort mobile + start date within 5 days = same program after mother-vessel normalization). v3.3.4 does not implement those features.
+
+**Files changed:** `lib/standalone/review.ts`, `lib/standalone/programs.ts`, `app/api/vessel/route.ts`, `components/standalone/action-form.tsx`, `components/standalone/review-actions.tsx`, `components/standalone/source-evidence.tsx`, `components/standalone/review-item-detail.tsx`, `components/standalone/audit-history.tsx`, `components/standalone/vessel-register-client.tsx`, `lib/review-ui.ts`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
+
+**Rollback:** set `ALRIFAI_TAG=v3.3.3` in both `.env` files and re-run `docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync`.
 
 ## Rollback
 
-- Current: `local/al-rifai-platform:v3.3.0-escort-release`
-- Available: `local/al-rifai-platform:v3.2.0-home-security`, `local/al-rifai-platform:v2.9.1-cash-autoconfirm`
+- Current: `local/al-rifai-platform:v3.3.4`
+- Available: `local/al-rifai-platform:v3.3.3`, `local/al-rifai-platform:v3.3.2`, `local/al-rifai-platform:v3.2.0-home-security`
 - Set `ALRIFAI_TAG` in both `.env` files and re-run the compose command.
 
 ## Safety boundary

@@ -139,6 +139,8 @@ export type SourceMessageRow = {
   message_id: string;
   direction: string;
   sender_jid: string | null;
+  sender_name?: string | null;
+  sender_mobile?: string | null;
   source_timestamp: string;
   text_content: string | null;
   media_type: string | null;
@@ -193,18 +195,52 @@ async function sourceMessagesFor(messageId: string | null, accountId?: string | 
     params.push(accountId);
     accountClause = `AND m.account_id = $${params.length}`;
   }
-  return rows<SourceMessageRow>(
+  const found = await rows<SourceMessageRow & {sender_canonical_jid: string | null}>(
     `SELECT m.id::text, m.account_id, m.chat_jid, m.message_id, m.direction, m.sender_jid,
             m.source_timestamp::text, m.text_content, m.media_type,
-            wm.status AS media_status, m.processing_status, m.classification
+            wm.status AS media_status, m.processing_status, m.classification,
+            coalesce(ident.display_name, emp.preferred_name) AS sender_name,
+            ident.canonical_jid AS sender_canonical_jid
        FROM whatsapp_messages m
        LEFT JOIN whatsapp_media wm
               ON wm.account_id = m.account_id AND wm.chat_jid = m.chat_jid AND wm.message_id = m.message_id
+       LEFT JOIN LATERAL (
+         SELECT ia.display_name, ia.canonical_jid
+           FROM identity_aliases ia
+          WHERE ia.account_id = m.account_id
+            AND (ia.jid = m.sender_jid
+                 OR ia.jid = m.sender_jid || '@lid'
+                 OR ia.canonical_jid = m.sender_jid)
+          ORDER BY (ia.canonical_jid IS NOT NULL) DESC,
+                   (ia.display_name IS NOT NULL) DESC,
+                   ia.updated_at DESC
+          LIMIT 1
+       ) ident ON true
+       LEFT JOIN LATERAL (
+         SELECT e.preferred_name
+           FROM employees e
+          WHERE right(regexp_replace(e.employee_mobile, '[^0-9]', '', 'g'), 10)
+                = right(regexp_replace(coalesce(ident.canonical_jid, m.sender_jid), '[^0-9]', '', 'g'), 10)
+          LIMIT 1
+       ) emp ON true
       WHERE m.message_id = $1 ${accountClause}
       ORDER BY m.source_timestamp DESC
       LIMIT 10`,
     params,
   );
+  return found.map((row) => {
+    const canonical = String(row.sender_canonical_jid ?? '');
+    const canonicalDigits = canonical.replace(/[^0-9]/g, '').replace(/^880/, '0');
+    const jid = String(row.sender_jid ?? '');
+    const jidDigits = jid.endsWith('@s.whatsapp.net')
+      ? jid.replace(/[^0-9]/g, '').replace(/^880/, '0')
+      : '';
+    const digits = canonicalDigits.length >= 11 ? canonicalDigits : jidDigits;
+    const sender_mobile = digits.length >= 11 ? digits.slice(-11) : null;
+    const sender_name = row.sender_name
+      ?? (jid ? `Unknown ${jid.replace(/[^0-9]/g, '').slice(-8)}` : null);
+    return {...row, sender_name, sender_mobile};
+  });
 }
 
 async function programSourcesFor(programId: string | null): Promise<ProgramSourceRow[]> {
@@ -599,15 +635,75 @@ async function applyItem(
     if (!item.target_ref) throw new DomainError('TARGET_REQUIRED');
     return updateEmployee(actor, item.target_ref, item.payload as never, client);
   }
-  if (item.domain === 'PROGRAM' && item.action === 'CREATE') return createProgram(actor, item.payload as never, {}, client);
-  if (item.domain === 'PROGRAM' && item.action === 'UPDATE') {
+  if (item.domain === 'PROGRAM' && (item.action === 'CREATE' || item.action === 'UPDATE')) {
+    const payload = item.payload ?? {};
+    const parser = typeof payload.parser === 'string' ? payload.parser : '';
+    const classification = typeof payload.classification === 'string' ? payload.classification : '';
+
+    // Preflight: release slips/evidence need a matched program (v3.3.5).
+    if (parser === 'release-slip' || payload.releaseCategory) {
+      throw new DomainError('RELEASE_NOT_APPROVABLE', 400,
+        'This is an escort release slip. Manual program matching will be available in v3.3.5. Please Decline for now.');
+    }
+
+    // Preflight: confirmations/assignments need the v3.3.5 matching/assign flow.
+    if (parser === 'applyConfirmation' || classification.startsWith('CONFIRMATION_')) {
+      throw new DomainError('CONFIRMATION_NOT_APPROVABLE', 400,
+        'This is an escort assignment/confirmation message. Manual program matching and escort assign flow will be available in v3.3.5.');
+    }
+
+    // Preflight: cash instructions misrouted to PROGRAM. Only messages from
+    // the Bridge-1 -> Accountant chat are treated as cash.
+    if (parser === 'message-router') {
+      const accountantJid = process.env.ACCOUNTANT_CHAT_JID;
+      const sourceMessageId = typeof payload.sourceMessageId === 'string' ? payload.sourceMessageId : null;
+      const sourceAccountId = typeof payload.sourceAccountId === 'string' ? payload.sourceAccountId : null;
+      if (accountantJid && sourceMessageId && sourceAccountId === 'wa-01') {
+        const message = await client.query<{chat_jid: string; text_content: string | null}>(
+          `SELECT chat_jid, text_content
+             FROM whatsapp_messages
+            WHERE message_id = $1 AND account_id = $2
+            ORDER BY source_timestamp DESC
+            LIMIT 1`,
+          [sourceMessageId, sourceAccountId],
+        );
+        const chatJid = message.rows[0]?.chat_jid ?? null;
+        const body = message.rows[0]?.text_content ?? '';
+        const cashPattern = /\bI\s*D\s*:?\s*[+\d\s()-]{10,18}\s+.+?\s+[+\d\s()-]{10,18}\s*\(\s*[BNRC]\s*\)\s*[-/\s]*\d[\d,]*\s*[-/\s]+/i;
+        if (chatJid === accountantJid && cashPattern.test(body)) {
+          throw new DomainError('CASH_MESSAGE_MISROUTED', 400,
+            'This is a cash instruction from Bridge-1 to Accountant, not a vessel order. Please Decline.');
+        }
+      }
+    }
+
+    // Flatten parser output. Top-level corrections (Admin "correct") win.
+    const asRecord = (value: unknown): Record<string, unknown> =>
+      value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+    const merged: Record<string, unknown> = {
+      ...asRecord(payload.fields),
+      ...asRecord(payload.extractedFields),
+      ...payload,
+    };
+    for (const key of ['parser', 'rawText', 'sourceMessageId', 'sourceTimestamp', 'sourceAccountId',
+      'senderJid', 'candidates', 'releaseCategory', 'category', 'fields', 'extractedFields',
+      'classification', 'error']) {
+      delete merged[key];
+    }
+
+    if (typeof merged.motherVessel !== 'string' || !merged.motherVessel.trim()) {
+      throw new DomainError('MISSING_REQUIRED_FIELDS', 400,
+        'Mother Vessel is required. Use Correct to fill in vessel fields, then Approve.');
+    }
+
+    if (item.action === 'CREATE') return createProgram(actor, merged as never, {}, client);
     // A real USER edit targets a program id. Parser failures can carry a
     // message id instead; approving those creates the program from the
     // reviewed fields rather than failing on a missing target.
     if (!item.target_ref || !item.target_ref.startsWith('prog_')) {
-      return createProgram(actor, item.payload as never, {}, client);
+      return createProgram(actor, merged as never, {}, client);
     }
-    return updateProgram(actor, item.target_ref, item.payload as never, client);
+    return updateProgram(actor, item.target_ref, merged as never, client);
   }
   if (item.domain === 'ATTENDANCE' && item.action === 'CREATE') return createAttendanceRecord(actor, item.payload as never, client);
   throw new DomainError(`DOMAIN_NOT_IMPLEMENTED:${item.domain}:${item.action}`, 501);
@@ -652,20 +748,20 @@ export async function listPendingProgramReviews(limit = 300): Promise<PendingPro
     id: string; action: string; category: string | null; target_ref: string | null;
     payload: Record<string, unknown>; submitted_by: string; submitter_name: string | null;
     created_at: string; source_message_id: string | null; source_timestamp: string | null;
-    raw_text: string | null; sender_label: string | null; sender_jid: string | null;
+    raw_text: string | null; sender_name: string | null; sender_jid: string | null;
+    sender_canonical_jid: string | null;
     target_mother_vessel: string | null; target_lighter_vessel: string | null;
     target_master_mobile: string | null; target_destination: string | null;
     target_escort_name: string | null; target_escort_mobile: string | null;
     target_start_date: string | null; target_start_shift: string | null;
     target_end_date: string | null; target_end_shift: string | null; target_notes: string | null;
-    queue_sender_mobile: string | null;
   }>(
     `SELECT r.id, r.action, r.category, r.target_ref, r.payload, r.submitted_by,
             u.display_name AS submitter_name, r.created_at::text AS created_at,
             wm.message_id AS source_message_id, wm.source_timestamp::text AS source_timestamp,
             coalesce(wm.text_content, r.payload->>'rawText') AS raw_text,
-            coalesce(qm.sender_display_name, wc.label) AS sender_label, wm.sender_jid,
-            qm.sender_mobile AS queue_sender_mobile,
+            coalesce(ident.display_name, emp.preferred_name) AS sender_name,
+            wm.sender_jid, ident.canonical_jid AS sender_canonical_jid,
             p.mother_vessel AS target_mother_vessel, p.lighter_vessel AS target_lighter_vessel,
             p.master_mobile AS target_master_mobile, p.destination AS target_destination,
             p.escort_name AS target_escort_name, p.escort_mobile AS target_escort_mobile,
@@ -682,14 +778,25 @@ export async function listPendingProgramReviews(limit = 300): Promise<PendingPro
           ORDER BY m.source_timestamp DESC
           LIMIT 1
        ) wm ON true
-       LEFT JOIN whatsapp_chats wc ON wc.account_id = wm.account_id AND wc.chat_jid = wm.chat_jid
        LEFT JOIN LATERAL (
-         SELECT q.sender_display_name, q.sender_mobile
-           FROM message_review_queue q
-          WHERE q.source_message_id = coalesce(r.payload->>'sourceMessageId', r.target_ref)
-          ORDER BY q.created_at DESC
+         SELECT ia.display_name, ia.canonical_jid
+           FROM identity_aliases ia
+          WHERE ia.account_id = wm.account_id
+            AND (ia.jid = wm.sender_jid
+                 OR ia.jid = wm.sender_jid || '@lid'
+                 OR ia.canonical_jid = wm.sender_jid)
+          ORDER BY (ia.canonical_jid IS NOT NULL) DESC,
+                   (ia.display_name IS NOT NULL) DESC,
+                   ia.updated_at DESC
           LIMIT 1
-       ) qm ON true
+       ) ident ON true
+       LEFT JOIN LATERAL (
+         SELECT e.preferred_name
+           FROM employees e
+          WHERE right(regexp_replace(e.employee_mobile, '[^0-9]', '', 'g'), 10)
+                = right(regexp_replace(coalesce(ident.canonical_jid, wm.sender_jid), '[^0-9]', '', 'g'), 10)
+          LIMIT 1
+       ) emp ON true
       WHERE r.domain = 'PROGRAM' AND r.state = 'PENDING'
       ORDER BY r.created_at DESC
       LIMIT $1`,
@@ -697,10 +804,15 @@ export async function listPendingProgramReviews(limit = 300): Promise<PendingPro
   );
   return items.map((item) => {
     const jid = String(item.sender_jid ?? '');
-    const jidDigits = jid.endsWith('@s.whatsapp.net') ? jid.replace(/[^0-9]/g, '') : '';
-    const queueDigits = String(item.queue_sender_mobile ?? '').replace(/[^0-9]/g, '');
-    const digits = queueDigits.length >= 11 ? queueDigits : jidDigits;
-    const mobile = digits.length >= 11 ? `0${digits.slice(-10)}` : null;
+    const canonical = String(item.sender_canonical_jid ?? '');
+    const canonicalDigits = canonical.replace(/[^0-9]/g, '').replace(/^880/, '0');
+    const jidDigits = jid.endsWith('@s.whatsapp.net')
+      ? jid.replace(/[^0-9]/g, '').replace(/^880/, '0')
+      : '';
+    const digits = canonicalDigits.length >= 11 ? canonicalDigits : jidDigits;
+    const mobile = digits.length >= 11 ? digits.slice(-11) : null;
+    const senderName = item.sender_name
+      ?? (jid ? `Unknown ${jid.replace(/[^0-9]/g, '').slice(-8)}` : null);
     return {
       id: item.id,
       action: item.action,
@@ -713,7 +825,7 @@ export async function listPendingProgramReviews(limit = 300): Promise<PendingPro
       source_message_id: item.source_message_id,
       source_timestamp: item.source_timestamp,
       raw_text: item.raw_text,
-      sender_name: item.sender_label,
+      sender_name: senderName,
       sender_mobile: mobile,
       target: item.target_mother_vessel || item.target_lighter_vessel
         ? {

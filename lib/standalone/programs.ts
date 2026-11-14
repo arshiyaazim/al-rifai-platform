@@ -874,16 +874,9 @@ export async function listPrograms(filters: ProgramListFilters = {}) {
       found = await select(clause, values);
     }
   }
-  if (!filters.includePending || offset > 0) return found;
-  const [pending, updateMap] = await Promise.all([listPendingProgramRows(filters), pendingProgramUpdateMap()]);
-  if (updateMap.size) {
-    found = found.map((row) => {
-      const reviewId = updateMap.get(row.id);
-      return reviewId ? {...row, has_pending_review: true, review_id: reviewId} : row;
-    });
-  }
-  if (!pending.length) return found;
-  return [...pending, ...found].slice(0, limit);
+  // v3.3.4: pending review rows are intentionally not merged into /vessel.
+  // They live only on /review; the helpers remain for the v3.3.5 UI.
+  return found;
 }
 
 export async function countPrograms(filters: ProgramListFilters = {}) {

@@ -23,7 +23,6 @@ export async function GET(request: Request) {
       to: url.searchParams.get('to') ?? undefined,
       limit: Number(url.searchParams.get('limit') ?? 100),
       offset: Number(url.searchParams.get('offset') ?? 0),
-      includePending: true,
     };
     const [rows, total] = await Promise.all([listPrograms(filters), countPrograms(filters)]);
     const mothers = await motherFacets({q: filters.q, state: filters.state});

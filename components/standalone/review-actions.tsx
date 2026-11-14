@@ -87,6 +87,7 @@ export function ReviewActionsPanel({id, kind, domain, state, actions, values}: P
           {actions.canApprove ? (
             <ActionForm
               compact
+              errorFirst
               endpoint="/api/review"
               action="decide"
               submitLabel="Approve"
@@ -97,11 +98,12 @@ export function ReviewActionsPanel({id, kind, domain, state, actions, values}: P
           {actions.canReject ? (
             <ActionForm
               compact
+              errorFirst
               endpoint="/api/review"
               action="decide"
               submitLabel="Reject"
               hidden={{...hidden, decision: 'REJECTED'}}
-              fields={[{name: 'reason', label: 'Reason', required: true}]}
+              fields={[{name: 'reason', label: 'Reason', softRequired: true}]}
             />
           ) : null}
           {actions.canMarkDuplicate ? (
@@ -110,11 +112,12 @@ export function ReviewActionsPanel({id, kind, domain, state, actions, values}: P
               <div style={{paddingTop: 10}}>
                 <ActionForm
                   compact
+                  errorFirst
                   endpoint="/api/review"
                   action="decide"
                   submitLabel="Mark duplicate"
                   hidden={{...hidden, decision: 'REJECTED'}}
-                  fields={[{name: 'reason', label: 'Duplicate of (id / program)', required: true, placeholder: 'DUPLICATE_OF:…'}]}
+                  fields={[{name: 'reason', label: 'Duplicate of (id / program)', softRequired: true, placeholder: 'DUPLICATE_OF:…'}]}
                 />
               </div>
             </details>

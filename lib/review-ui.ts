@@ -139,6 +139,8 @@ export type SourceEvidence = {
   accountId: string | null;
   timestamp: string | null;
   senderJid: string | null;
+  senderName: string | null;
+  senderMobile: string | null;
   direction: string | null;
   rawText: string | null;
   parser: string | null;
@@ -156,6 +158,8 @@ export function reviewSourceEvidence(item: {payload?: unknown; sourceMessageId?:
   const accountId = asString(item.sourceAccountId) ?? pick(payload, ['sourceAccountId', 'account_id', 'accountId']) ?? pick(fields, ['sourceAccountId', 'account_id']);
   const timestamp = pick(payload, ['sourceTimestamp', 'timestamp', 'source_timestamp']);
   const senderJid = pick(payload, ['senderJid', 'sender_jid']);
+  const senderName = pick(payload, ['senderName', 'sender_name']);
+  const senderMobile = pick(payload, ['senderMobile', 'sender_mobile']);
   const direction = pick(payload, ['direction']);
   const rawText = pick(payload, ['rawText', 'raw_text', 'text']);
   const parser = pick(payload, ['parser']);
@@ -170,6 +174,8 @@ export function reviewSourceEvidence(item: {payload?: unknown; sourceMessageId?:
     accountId,
     timestamp,
     senderJid,
+    senderName,
+    senderMobile,
     direction,
     rawText,
     parser,
@@ -330,6 +336,22 @@ export function sourceMessageHref(messageId: string | null | undefined, chatJid?
   if (chatJid) params.set('chat', chatJid);
   if (accountId) params.set('account', accountId);
   return `/messages?${params.toString()}`;
+}
+
+/** Human-readable Asia/Dhaka date and time for operator-facing screens. */
+export function formatDhakaDateTime(value: string | null | undefined): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Dhaka',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
 }
 
 export function formatReviewTimestamp(value: string | null | undefined): string {

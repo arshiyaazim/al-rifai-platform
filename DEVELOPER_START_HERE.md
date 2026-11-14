@@ -1,15 +1,25 @@
 # DEVELOPER_START_HERE.md — AL-RIFA'I Platform
 
-**Last Updated**: 2026-11-13
-**Current Version**: v3.3.0-escort-release (Phase 4A–4E UI + escort release parser and `/release` review page)
+**Last Updated**: 2026-11-14
+**Current Version**: v3.3.4 hotfix (review approve/reject, applicability preflight, hidden backend fields, pending removed from `/vessel`)
 **Schema Version**: 1.13.7 (60 tables; 25 migration files 001–026)
-**Main Release HEAD**: `74e9717` (escort release + structured backfill). `feat/15-task-roadmap` is **merged and no longer the source of truth**; the branch is retained for history, not deleted.
-**Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.3.0-escort-release` (app and sync on the same tag)
-**Rollback image**: `local/al-rifai-platform:v2.9.1-cash-autoconfirm`
+**Main Release HEAD**: v3.3.4 hotfix commit (previous v3.3.3 = `e1c566a`). `feat/15-task-roadmap` is **merged and no longer the source of truth**; the branch is retained for history, not deleted.
+**Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.3.4` (app and sync on the same tag)
+**Rollback image**: `local/al-rifai-platform:v3.3.3`
 
 > **Agent reference:** for agent-readable system state, see `AGENTS.md` in this repo and `/opt/al-rifai-recruitment-ai/AGENTS.md`.
 >
-> **Recent batches:** 6 cash autoconfirm · 7 UI diagnosis (Phase 4 UI was only on `feat/15-task-roadmap`) · 8 merge + `v3.0.0-phase4-merged` · 9 UI polish, `/home`, security attendance, join-date backfill (`v3.2.0-home-security`) · 10 Escort Release parser + `/release` + structured backfill (`v3.3.0-escort-release`). See `README.md` for one-line detail.
+> **Recent batches:** 6 cash autoconfirm · 7 UI diagnosis (Phase 4 UI was only on `feat/15-task-roadmap`) · 8 merge + `v3.0.0-phase4-merged` · 9 UI polish, `/home`, security attendance, join-date backfill (`v3.2.0-home-security`) · 10 Escort Release parser + `/release` + structured backfill (`v3.3.0-escort-release`) · 11 vessel review queue (`v3.3.3`) · 12/13 **v3.3.4 hotfix**. See `README.md` for one-line detail.
+
+### v3.3.4 hotfix (2026-11-14)
+
+**Summary:** Hotfix for Approve/Reject on `/review/[id]`. Flattened PROGRAM payloads (`payload.fields`/`extractedFields` → top-level, with Admin corrections winning). Added applicability preflight for release slips/evidence, confirmation/assignment messages, and Bridge-1 → Accountant cash messages misrouted to PROGRAM. Fixed Reject reason UX with soft validation and an inline error. Hid backend technical fields (message ID, account/chat JIDs, sender JID, parser, classification, raw timestamps) and resolved sender name/mobile from `identity_aliases`. Removed pending review rows from the `/vessel` main list; USERs now see a banner linking to `/review`.
+
+**Scope note:** v3.3.5 will deliver the review UI restructure (two tables), manual program matching, escort assign flow, and fuzzy vessel matching (same master+escort mobile + start date within 5 days = same program after mother-vessel normalization). v3.3.4 does not implement those features.
+
+**Files changed:** `lib/standalone/review.ts`, `lib/standalone/programs.ts`, `app/api/vessel/route.ts`, `components/standalone/action-form.tsx`, `components/standalone/review-actions.tsx`, `components/standalone/source-evidence.tsx`, `components/standalone/review-item-detail.tsx`, `components/standalone/audit-history.tsx`, `components/standalone/vessel-register-client.tsx`, `lib/review-ui.ts`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
+
+**Rollback:** set `ALRIFAI_TAG=v3.3.3` in both `.env` files and re-run `docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync`.
 
 > **Historical — Vessel Phase 2 complete (2026-11-10):** Migration 019 applied.
 > All five stages are active: processing, draft-to-Admin, draft-to-Office,
