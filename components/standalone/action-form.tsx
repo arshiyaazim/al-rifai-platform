@@ -7,11 +7,13 @@ import {buildActionFormRequest, type ActionFormMethod, type ActionFormRequestInp
 export type Field = {
   name: string;
   label: string;
-  type?: 'text' | 'number' | 'date' | 'select' | 'textarea' | 'hidden';
+  type?: 'text' | 'number' | 'date' | 'select' | 'textarea' | 'hidden' | 'password';
   placeholder?: string;
   required?: boolean;
   options?: Array<{value: string; label: string}>;
   defaultValue?: string;
+  /** Password field: render a second "confirm" input and require both to match. */
+  confirm?: boolean;
 };
 
 type Props = {
@@ -37,6 +39,16 @@ export function ActionForm({title, endpoint, action, method, fields, submitLabel
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
+    // Confirm-password fields must match before any request is made.
+    for (const field of fields) {
+      if (!field.confirm) continue;
+      const primary = (form.elements.namedItem(field.name) as HTMLInputElement | null)?.value ?? '';
+      const confirmation = (form.elements.namedItem(`${field.name}Confirm`) as HTMLInputElement | null)?.value ?? '';
+      if (primary !== confirmation) {
+        setState({busy: false, error: 'পাসওয়ার্ড দুটি মিলছে না — আবার লিখুন। / Passwords do not match.'});
+        return;
+      }
+    }
     const values: Record<string, unknown> = {...hidden};
     for (const field of fields) {
       const input = form.elements.namedItem(field.name) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
@@ -91,8 +103,15 @@ export function ActionForm({title, endpoint, action, method, fields, submitLabel
                 required={field.required}
                 placeholder={field.placeholder}
                 defaultValue={field.defaultValue}
+                autoComplete={field.type === 'password' ? 'new-password' : undefined}
               />
             )}
+          </label>
+        ))}
+        {fields.filter((field) => field.confirm).map((field) => (
+          <label key={`${field.name}-confirm`}>
+            <span>{field.label} (confirm)</span>
+            <input name={`${field.name}Confirm`} type="password" required autoComplete="new-password" />
           </label>
         ))}
       </div>

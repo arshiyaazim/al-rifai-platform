@@ -128,8 +128,8 @@ export default async function SettingsPage() {
             endpoint="/api/auth/password"
             submitLabel="Update password"
             fields={[
-              {name: 'newPassword', label: 'New password (min 8)', required: true},
-              {name: 'confirmPassword', label: 'Confirm password', required: true},
+              {name: 'newPassword', label: 'New password (min 8)', required: true, type: 'password'},
+              {name: 'confirmPassword', label: 'Confirm password', required: true, type: 'password'},
             ]}
           />
         </section>
@@ -180,7 +180,7 @@ export default async function SettingsPage() {
                 {name: 'displayName', label: 'Display name'},
                 {name: 'role', label: 'Role', type: 'select', options: [
                   {value: 'USER', label: 'User'}, {value: 'ADMIN', label: 'Admin'}]},
-                {name: 'password', label: 'Initial password (min 8)', required: true},
+                {name: 'password', label: 'Initial password (min 8)', required: true, type: 'password'},
               ]}
             />
             <ActionForm
@@ -204,7 +204,7 @@ export default async function SettingsPage() {
               hidden={{action: 'reset-password'}}
               fields={[
                 {name: 'user', label: 'Username or id', required: true},
-                {name: 'password', label: 'New password (min 8)', required: true},
+                {name: 'password', label: 'New password (min 8)', required: true, type: 'password', confirm: true},
               ]}
             />
           </div>
