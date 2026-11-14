@@ -7,6 +7,8 @@
 **Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.3.0-escort-release` (app and sync on the same tag)
 **Rollback image**: `local/al-rifai-platform:v2.9.1-cash-autoconfirm`
 
+> **Agent reference:** for agent-readable system state, see `AGENTS.md` in this repo and `/opt/al-rifai-recruitment-ai/AGENTS.md`.
+>
 > **Recent batches:** 6 cash autoconfirm · 7 UI diagnosis (Phase 4 UI was only on `feat/15-task-roadmap`) · 8 merge + `v3.0.0-phase4-merged` · 9 UI polish, `/home`, security attendance, join-date backfill (`v3.2.0-home-security`) · 10 Escort Release parser + `/release` + structured backfill (`v3.3.0-escort-release`). See `README.md` for one-line detail.
 
 > **Historical — Vessel Phase 2 complete (2026-11-10):** Migration 019 applied.

@@ -1,33 +1,76 @@
-# AGENTS.md — AL-RIFA'I platform invariants
+# AGENTS.md — AL-RIFA'I platform (agent reference)
 
-This file records the rules an automated agent or engineer must preserve when
-changing this repository. It is intentionally short; detailed design notes live
-in `docs/` and the Phase 3 reports.
+## System Overview
 
-## Current release (2026-11-13)
+- **App:** AL-RIFA'I Integrated Services business platform — employees, vessel orders/releases, cash & accounts, attendance, payroll, reports, admin.
+- **Source:** `/opt/al-rifai-platform`
+- **Repo:** `git@github.com:arshiyaazim/al-rifai-platform.git`
+- **Branch:** `main` @ `1e68ff1` (2026-11-13)
+- **Current version:** `v3.3.0-escort-release`
+- **Current image:** `local/al-rifai-platform:v3.3.0-escort-release` (app + sync, same tag)
+- **Schema:** `1.13.7` — 25 migrations; 60 migration-managed tables plus 6 runtime `*_snapshot` tables (66 in production)
+- **Web URL:** `https://app.al-rifai.iamazim.com` (also `alrifai.iamazim.com`, `al-rifai.iamazim.com`)
 
-- **Version**: `v3.3.0-escort-release`, deployed image `local/al-rifai-platform:v3.3.0-escort-release`. **App and sync are always recreated together on the same tag**; never leave sync on an older image.
-- **Attendance**: *Vessel* = derived from programs; *Security* = every other attendance day (legacy `attendance` + `attendance_records`, deduplicated by employee/day/shift, excluding dates covered by a vessel assignment). Vessel + Security = total attendance days.
-- **Routes/auth**: the workspace home is `/home` (`/dashboard` 307-redirects to `/home`). Unauthenticated page requests redirect 307 to `/login`; the `/api/` namespace keeps JSON `401`.
-- **Join date**: `employees.date_of_join` = `joined_on` = earlier of first cash-payment message time and first vessel assignment start date (Asia/Dhaka). Never `created_at`/import time. Backfill: `scripts/backfill-employee-join-date.ts` (dry-run by default).
-- **Schema**: `1.13.7`, 60 tables, **25 migrations (001–026)**. Live DB `alrifai_v2_phase3`.
-- **Branch**: Phase 4A–4E UI is merged into `main`. `feat/15-task-roadmap` is
-  merged and **no longer the source of truth**; do not treat it as current, and
-  do not delete the branch. Build production images from `/opt/al-rifai-platform` (`main`).
-- **Deploy**: `docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app`
-  after building and setting `ALRIFAI_TAG` in both `.env` files.
-- **Rollback**: `local/al-rifai-platform:v2.9.1-cash-autoconfirm`.
-- **Mobile display**: every mobile number shown in the UI goes through
-  `displayMobile()` (`lib/display-mobile.ts`): **11 digits, no country code**
-  (`+8801…`/`8801…` → `01…`). It formats for display only; stored values and
-  canonical keys are never rewritten.
-- **Escort Release**: `/release` reviews slips parsed from the release group;
-  approving applies the release to one matching program, declining records a
-  `message_review_queue` decision. No cash instruction is created from a slip.
-- **Recent batches**: 6 cash autoconfirm · 7 UI diagnosis · 8 merge · 9 UI polish
-  and `/home` · 10 escort release (`v3.3.0-escort-release`).
-- Historical version/schema numbers below (v1.12.0, 1.13.x intermediate levels)
-  describe past releases, not the running system.
+## Key Paths
+
+| What | Path |
+|---|---|
+| Repo `.env` (compose interpolation) | `/opt/al-rifai-platform/.env` |
+| Live container `.env` (`env_file`) | `/opt/vps/al-rifai-standalone/apps/al-rifai/.env` |
+| Compose files | `compose.yaml`, `compose.phase3.yaml` |
+| App entry (Next.js App Router) | `app/` |
+| Sync worker | `scripts/sync-worker.mjs` |
+| Cash parser | `lib/cash-elements.mjs` |
+| Release parsers | `lib/release-slip.ts`, `lib/release-parser.ts` |
+| Message router | `lib/message-router.ts` |
+| Display helpers | `lib/display-mobile.ts`, `lib/display-name.ts` |
+| Install / migrate | `scripts/standalone/install.mjs`, `scripts/standalone/migrate.mjs` |
+| Release backfill / join-date backfill | `scripts/backfill-release-slips.ts`, `scripts/backfill-employee-join-date.ts` |
+
+UI routes under `app/(workspace)/`: `/home`, `/insights`, `/assistant`, `/employees`, `/employees/[mobile]`, `/employee`, `/employee/[phone]`, `/vessel`, `/vessel/[id]`, `/vessel/drafts`, `/vessel-register`, `/vessel/register`, `/vessel/vessel-register`, `/release`, `/attendance`, `/cash`, `/cash/[id]`, `/cash/archive`, `/cash/employee/[employeeId]`, `/cash/paid`, `/cash/paid/[id]`, `/cash/submissions`, `/cash/transactions`, `/payroll`, `/review`, `/review/[id]`, `/messages`, `/message-mirror`, `/conversations`, `/reports`, `/archive`, `/audit`, `/settings`, `/settings/api-keys`, `/settings/recruitment`, `/sources-review`, `/submissions`, `/transactions`, `/transactions/employee/[phone]`, `/income-expenditure`, `/register`. `/dashboard` 307-redirects to `/home`.
+
+## Deploy
+
+```bash
+cd /opt/al-rifai-platform
+docker build -t local/al-rifai-platform:<tag> .
+# set ALRIFAI_TAG=<tag> in BOTH .env files
+docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync
+```
+
+**App and sync always deploy together on the same tag.**
+
+## Database
+
+- Production: PostgreSQL container `vps-infra-postgres-1`, database `alrifai_v2_phase3`, owner user `alrifai_app` (runtime role `alrifai_v2_runtime`).
+- Migrations: 25 files (`db/standalone/001`–`026`), checksum-locked in `schema_migrations`.
+- Key tables: `employees`, `programs`, `vessels`, `program_assignments`, `program_pay`, `cash_instructions`, `cash_postings`, `ledger_entries`, `cash_submissions`, `review_items`, `attendance`, `attendance_records`, `whatsapp_messages`, `whatsapp_media`, `api_keys`, `recruitment_reply_log`.
+- Fresh install: `node scripts/standalone/install.mjs`; incremental: `node scripts/standalone/migrate.mjs` (both read the PG env).
+
+## Operator rules
+
+- `displayMobile()`: **11 digits, no country code** (`+8801…`/`8801…` → `01…`); display only, never rewrite stored values.
+- Join date = earlier of first cash-payment message time and first vessel assignment start date (Asia/Dhaka); never `created_at`/import time.
+- Security attendance = every attendance day not covered by a vessel program assignment; Vessel + Security = total days.
+- Cash parser is element-based (mobile + name + amount).
+- No technical columns in the UI (hash, JID, proc numbers, internal IDs).
+- Pagination dropdown sits at the bottom of tables.
+- Unauthenticated page requests → 307 `/login`; the `/api/` namespace keeps JSON `401`.
+
+## Recent batches
+
+- **6** — cash autoconfirm fixes (element parser, employee auto-create, accountant gate).
+- **7** — UI diagnosis: Phase 4 UI existed only on `feat/15-task-roadmap`.
+- **8** — merge into `main` (`v3.0.0-phase4-merged`); install-grant and `programs.event_at` fixes.
+- **9** — UI polish, security attendance, join-date backfill, `/home`, login redirect (`v3.2.0-home-security`).
+- **10** — escort release parser + `/release` review page + structured backfill (`v3.3.0-escort-release`).
+- **11** — docs/image/git cleanup; **12** — recruitment AI 5-step flow + follow-ups (`0.1.12-flow`).
+
+## Rollback
+
+- Current: `local/al-rifai-platform:v3.3.0-escort-release`
+- Available: `local/al-rifai-platform:v3.2.0-home-security`, `local/al-rifai-platform:v2.9.1-cash-autoconfirm`
+- Set `ALRIFAI_TAG` in both `.env` files and re-run the compose command.
 
 ## Safety boundary
 
@@ -59,8 +102,9 @@ in `docs/` and the Phase 3 reports.
 - Never invent a payment method. Accept only the verified markers and labels
   already used by the parser (`B/N/C/R`, `BKASH/NAGAD/CASH/ROCKET/BANK`, including
   the Bangla equivalents). A missing method is an incomplete instruction.
-- An unregistered employee mobile is recorded as `UNREGISTERED`; never attach
-  the payment to a different employee and never auto-create an unrelated one.
+- A cash payment for an unknown mobile auto-creates that employee identity
+  (`AUTO_CREATED_FROM_CASH`) and records the link as `REGISTERED`; never attach
+  the payment to a different employee.
 
 ## Cash source of truth and event time
 
@@ -121,7 +165,7 @@ in `docs/` and the Phase 3 reports.
   event is never counted twice.
 - All date boundaries use `Asia/Dhaka`.
 
-## Database
+## Database — migration rules
 
 - Technical references:
   `docs/MIGRATION_010_VESSEL_DRAFT_DELIVERY.md`,
@@ -259,3 +303,18 @@ pnpm build
 Set `PGHOST`, `PGPORT`, `PGDATABASE`, `PGSCHEMA`, `PGUSER`, `PGPASSWORD`,
 `ALRIFAI_REVIEW_DB_USER` and `ALRIFAI_REVIEW_PASSWORD` to a disposable database.
 Never point these at production.
+
+## Pending work (operator)
+
+1. **165 pending release slips** — manual review on `/release` (5 have no matching cash payment).
+2. **5 release slips without a cash payment** — verify manually on `/release`.
+3. **3 incomplete structured slips** — missing escort mobile or end date.
+4. **5 structured slips without an eligible program** — create/correct the program first.
+5. **`al-rifai-app-1` stopped container + `local/al-rifai:target02-final`** — remove the container, then the image.
+6. **`/opt/vps/AGENTS.md` §0 is stale** (old container/DB/image, 75-migration ledger) — operator edit.
+7. **6 `*_snapshot` tables** are outside the migration chain (66 vs 60 tables) — decide whether to add a migration.
+8. **4.93 GB unused Docker volumes** — inspect before removing.
+9. **8 git worktrees** (7 under `/opt`, 1 under `/tmp/opencode`) — all merged; remove when no longer needed.
+10. **Dead release code**: `lib/release-scan.ts`, `release-apply.ts`, `release-retry.ts`, `release-evidence.ts`, `food-bill-match.ts`.
+11. **9 known `test:standalone` failures** (Phase 4 semantic drift) — see the Batch 10 report.
+12. **Admin page separation** — user/key management currently lives in `/settings`.
