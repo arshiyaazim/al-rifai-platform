@@ -691,19 +691,20 @@ async function applyItem(
       delete merged[key];
     }
 
-    if (typeof merged.motherVessel !== 'string' || !merged.motherVessel.trim()) {
+    // A real USER edit targets an existing program and may legitimately omit
+    // identity fields (updateProgram keeps the current values). Creates and
+    // parser fallbacks must carry at least the mother vessel.
+    const isRealUpdate = item.action === 'UPDATE' && Boolean(item.target_ref?.startsWith('prog_'));
+    if (!isRealUpdate && (typeof merged.motherVessel !== 'string' || !merged.motherVessel.trim())) {
       throw new DomainError('MISSING_REQUIRED_FIELDS', 400,
         'Mother Vessel is required. Use Correct to fill in vessel fields, then Approve.');
     }
 
     if (item.action === 'CREATE') return createProgram(actor, merged as never, {}, client);
-    // A real USER edit targets a program id. Parser failures can carry a
-    // message id instead; approving those creates the program from the
-    // reviewed fields rather than failing on a missing target.
-    if (!item.target_ref || !item.target_ref.startsWith('prog_')) {
-      return createProgram(actor, merged as never, {}, client);
-    }
-    return updateProgram(actor, item.target_ref, merged as never, client);
+    // Parser failures can carry a message id instead of a program id;
+    // approving those creates the program from the reviewed fields.
+    if (!isRealUpdate) return createProgram(actor, merged as never, {}, client);
+    return updateProgram(actor, item.target_ref as string, merged as never, client);
   }
   if (item.domain === 'ATTENDANCE' && item.action === 'CREATE') return createAttendanceRecord(actor, item.payload as never, client);
   throw new DomainError(`DOMAIN_NOT_IMPLEMENTED:${item.domain}:${item.action}`, 501);
