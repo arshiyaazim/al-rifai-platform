@@ -12,7 +12,7 @@ const HEALTH_PATH="/api/health";
 // Public marketing surface. These paths render no business data and are the only
 // unauthenticated application routes besides the Cash portal.
 const PUBLIC_SITE_PATHS=new Set(["/","/signup"]);
-const PASSWORD_CHANGE_PATHS=new Set(["/login","/api/auth/session","/api/auth/password","/api/auth/logout","/api/cash/logout"]);
+const PASSWORD_CHANGE_PATHS=new Set(["/login","/change-password","/api/auth/session","/api/auth/password","/api/auth/logout","/api/cash/logout"]);
 const unauthorized=()=>new NextResponse("Private validation authentication required",{status:401,headers:{"WWW-Authenticate":'Basic realm="Al-Rifai private validation", charset="UTF-8"',"Cache-Control":"no-store"}});
 const passwordChangeRequired=()=>new NextResponse(
  JSON.stringify({error:"PASSWORD_CHANGE_REQUIRED"}),
@@ -56,8 +56,8 @@ export async function proxy(request:NextRequest){
    if(identity.mustChangePassword&&!PASSWORD_CHANGE_PATHS.has(pathname)){
     if(pathname.startsWith("/api/"))return passwordChangeRequired();
     const url=request.nextUrl.clone();
-    url.pathname="/login";
-    url.search="?next=%2Fhome&passwordChangeRequired=1";
+    url.pathname="/change-password";
+    url.search="";
     return NextResponse.redirect(url,307);
    }
    return pass();

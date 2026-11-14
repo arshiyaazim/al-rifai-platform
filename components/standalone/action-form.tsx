@@ -14,6 +14,10 @@ export type Field = {
   defaultValue?: string;
   /** Password field: render a second "confirm" input and require both to match. */
   confirm?: boolean;
+  /** Compare this field against another field by name before submitting. */
+  confirmWith?: string;
+  /** Optional HTML minLength for the input. */
+  minLength?: number;
 };
 
 type Props = {
@@ -26,13 +30,15 @@ type Props = {
   submitLabel: string;
   hidden?: Record<string, string>;
   compact?: boolean;
+  /** Navigate here after a successful submit instead of refreshing in place. */
+  redirectTo?: string;
 };
 
 /**
  * Minimal, real form: posts JSON to an authenticated API with the session CSRF
  * token, surfaces the API error, and refreshes server data on success.
  */
-export function ActionForm({title, endpoint, action, method, fields, submitLabel, hidden = {}, compact}: Props) {
+export function ActionForm({title, endpoint, action, method, fields, submitLabel, hidden = {}, compact, redirectTo}: Props) {
   const router = useRouter();
   const [state, setState] = useState<{busy: boolean; error?: string; ok?: string}>({busy: false});
 
@@ -41,12 +47,21 @@ export function ActionForm({title, endpoint, action, method, fields, submitLabel
     const form = event.currentTarget;
     // Confirm-password fields must match before any request is made.
     for (const field of fields) {
-      if (!field.confirm) continue;
-      const primary = (form.elements.namedItem(field.name) as HTMLInputElement | null)?.value ?? '';
-      const confirmation = (form.elements.namedItem(`${field.name}Confirm`) as HTMLInputElement | null)?.value ?? '';
-      if (primary !== confirmation) {
-        setState({busy: false, error: 'পাসওয়ার্ড দুটি মিলছে না — আবার লিখুন। / Passwords do not match.'});
-        return;
+      if (field.confirm) {
+        const primary = (form.elements.namedItem(field.name) as HTMLInputElement | null)?.value ?? '';
+        const confirmation = (form.elements.namedItem(`${field.name}Confirm`) as HTMLInputElement | null)?.value ?? '';
+        if (primary !== confirmation) {
+          setState({busy: false, error: 'পাসওয়ার্ড দুটি মিলছে না — আবার লিখুন। / Passwords do not match.'});
+          return;
+        }
+      }
+      if (field.confirmWith) {
+        const value = (form.elements.namedItem(field.name) as HTMLInputElement | null)?.value ?? '';
+        const other = (form.elements.namedItem(field.confirmWith) as HTMLInputElement | null)?.value ?? '';
+        if (value !== other) {
+          setState({busy: false, error: 'পাসওয়ার্ড দুটি মিলছে না — আবার লিখুন। / Passwords do not match.'});
+          return;
+        }
       }
     }
     const values: Record<string, unknown> = {...hidden};
@@ -75,7 +90,8 @@ export function ActionForm({title, endpoint, action, method, fields, submitLabel
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
       form.reset();
       setState({busy: false, ok: 'Saved'});
-      router.refresh();
+      if (redirectTo) window.location.assign(redirectTo);
+      else router.refresh();
     } catch (error) {
       setState({busy: false, error: error instanceof Error ? error.message : 'FAILED'});
     }
@@ -101,6 +117,7 @@ export function ActionForm({title, endpoint, action, method, fields, submitLabel
                 name={field.name}
                 type={field.type ?? 'text'}
                 required={field.required}
+                minLength={field.minLength}
                 placeholder={field.placeholder}
                 defaultValue={field.defaultValue}
                 autoComplete={field.type === 'password' ? 'new-password' : undefined}

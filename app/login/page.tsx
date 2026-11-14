@@ -26,7 +26,7 @@ export default async function LoginPage({searchParams}: {searchParams: Promise<{
               marginBottom: 14,
             }}
           >
-            Your password was changed by an admin. Please sign in with your new password.
+            Your password was changed by an admin. Sign in, then choose a new password to continue.
           </p>
         ) : null}
         <LoginForm />
