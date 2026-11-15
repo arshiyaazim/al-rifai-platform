@@ -26,7 +26,7 @@ const NAV = [
   {href: '/settings/recruitment', label: 'Recruitment AI'},
 ];
 
-const ADMIN_ONLY_NAV = new Set(['/audit', '/settings/api-keys', '/settings/recruitment']);
+const USER_NAV = new Set(['/home', '/employees', '/attendance', '/cash', '/vessel']);
 
 export default async function WorkspaceLayout({children}: {children: ReactNode}) {
   const user = await pageUser();
@@ -34,7 +34,7 @@ export default async function WorkspaceLayout({children}: {children: ReactNode})
   const pendingReviews = reviewCounts.pending + reviewCounts.cashPending;
   return (
     <WorkspaceSidebar
-      navItems={user.role === 'ADMIN' ? NAV : NAV.filter((item) => !ADMIN_ONLY_NAV.has(item.href))}
+      navItems={user.role === 'ADMIN' ? NAV : NAV.filter((item) => USER_NAV.has(item.href))}
       pendingReviews={pendingReviews}
       user={{displayName: user.displayName, role: user.role}}
     >

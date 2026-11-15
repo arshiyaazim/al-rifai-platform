@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import {pageUser} from '@/lib/standalone/session';
 import {
   listCashReviewCandidates, listPendingAttendanceReviews, listPendingEmployeeReviews,
@@ -7,6 +8,7 @@ import {listEmployees} from '@/lib/standalone/employees';
 import {listAccounts} from '@/lib/standalone/finance';
 import {rows} from '@/lib/standalone/db';
 import {can} from '@/lib/standalone/authz';
+import {reviewCategoryLabel} from '@/lib/review-ui';
 import {VesselReviewPanel} from '@/components/standalone/vessel-review-panel';
 import {EmployeeReviewPanel} from '@/components/standalone/employee-review-panel';
 import {AttendanceReviewPanel} from '@/components/standalone/attendance-review-panel';
@@ -16,11 +18,12 @@ import {RealtimeRefresher} from '@/components/standalone/realtime-refresher';
 
 export const dynamic = 'force-dynamic';
 
-type SearchParams = Promise<{state?: string}>;
+type SearchParams = Promise<{state?: string; category?: string}>;
 
 export default async function ReviewQueuePage({searchParams}: {searchParams: SearchParams}) {
   const user = await pageUser();
-  await searchParams;
+  const search = await searchParams;
+  const category = (search.category ?? '').trim();
 
   const [vesselRows, employeeRows, attendanceRows, cashCandidates, employees, accounts, motherRows, lighterRows, escortNameRows, escortMobileRows] = await Promise.all([
     listUnifiedVesselReview(300),
@@ -35,6 +38,10 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
     rows<{escort_mobile: string}>('SELECT DISTINCT escort_mobile FROM programs WHERE escort_mobile IS NOT NULL ORDER BY escort_mobile'),
   ]);
   const canDecide = can(user as never, 'review.decide');
+  const filteredVesselRows = category
+    ? vesselRows.filter((row) => row.reasonCode === category)
+    : vesselRows;
+  const showOtherDomains = !category;
 
   return (
     <div className="vessel-workspace">
@@ -46,10 +53,10 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
           </p>
         </div>
         <div className="row-actions">
-          <span className="pill warn">{vesselRows.length} vessel</span>
-          <span className="pill warn">{employeeRows.length} employee</span>
-          <span className="pill warn">{attendanceRows.length} attendance</span>
-          <span className="pill warn">{cashCandidates.length} cash</span>
+          <span className="pill warn">{filteredVesselRows.length} vessel</span>
+          {showOtherDomains ? <span className="pill warn">{employeeRows.length} employee</span> : null}
+          {showOtherDomains ? <span className="pill warn">{attendanceRows.length} attendance</span> : null}
+          {showOtherDomains ? <span className="pill warn">{cashCandidates.length} cash</span> : null}
           <RealtimeRefresher domain="REVIEW" label="Live queue" />
         </div>
       </div>
@@ -69,8 +76,15 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
         </details>
       ) : null}
 
+      {category ? (
+        <div className="card" style={{marginBottom: 12, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+          <span>Filtered: <strong>{reviewCategoryLabel(category)}</strong> · {filteredVesselRows.length} row(s)</span>
+          <Link href="/review" className="muted">Clear category filter</Link>
+        </div>
+      ) : null}
+
       <VesselReviewPanel
-        rows={vesselRows}
+        rows={filteredVesselRows}
         mothers={motherRows.map((row) => row.vessel_name)}
         lighters={lighterRows.map((row) => row.vessel_name)}
         escortNames={escortNameRows.map((row) => row.escort_name)}
@@ -78,21 +92,25 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
         canDecide={canDecide}
       />
 
-      <EmployeeReviewPanel rows={employeeRows} canDecide={canDecide} />
+      {showOtherDomains ? (
+        <>
+          <EmployeeReviewPanel rows={employeeRows} canDecide={canDecide} />
 
-      <AttendanceReviewPanel rows={attendanceRows} canDecide={canDecide} />
+          <AttendanceReviewPanel rows={attendanceRows} canDecide={canDecide} />
 
-      <CashReviewPanel
-        rows={cashCandidates}
-        employees={employees.map((employee) => ({
-          mobile: employee.employee_mobile,
-          name: employee.preferred_name,
-          designation: employee.designation ?? null,
-          dateOfJoin: employee.date_of_join ?? null,
-        }))}
-        accounts={accounts.map((account) => ({id: account.id, code: account.code, name: account.name}))}
-        canDecide={canDecide}
-      />
+          <CashReviewPanel
+            rows={cashCandidates}
+            employees={employees.map((employee) => ({
+              mobile: employee.employee_mobile,
+              name: employee.preferred_name,
+              designation: employee.designation ?? null,
+              dateOfJoin: employee.date_of_join ?? null,
+            }))}
+            accounts={accounts.map((account) => ({id: account.id, code: account.code, name: account.name}))}
+            canDecide={canDecide}
+          />
+        </>
+      ) : null}
 
       <section className="card">
         <h3>How this queue works</h3>

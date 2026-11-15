@@ -69,6 +69,7 @@ docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d -
 - **14** — **v3.3.4.1 hotfix (2026-11-15):** Raw WhatsApp review Approve timestamp crash + error surfacing.
 - **15** — **v3.3.5 (2026-11-15):** Domain-separated review tables, Vessel View sidebar, Employee/Attendance/Cash review, attendance USER edit gate.
 - **16** — **v3.3.5.1 hotfix (2026-11-15):** Review Decline works without a typed reason (cash + all domains).
+- **17** — **v3.3.6 (2026-11-15):** 20-card dashboard, domain list tables, quick-action cards, admin review status, USER sidebar restriction, review pagination.
 
 ## v3.3.4 hotfix (2026-11-14)
 
@@ -106,10 +107,18 @@ docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d -
 
 **Rollback:** set `ALRIFAI_TAG=v3.3.5` in both `.env` files and re-run the compose command.
 
+## v3.3.6 (2026-11-15)
+
+**Summary:** Home dashboard rebuilt as a 5×4 card grid (All Time, Last Month, This Month, Yesterday, Today) for Employees, Attendance, Payments and Vessels. Clicking a card opens a paginated domain list table that mirrors the corresponding domain page. Quick Actions are now icon cards; admin-only review status cards link to `/review?category=...`; Recent Activity was removed from the UI. USER sidebar is restricted to Home, Employees, Vessels, Attendance and Cash. `/review` tables now paginate at 20 rows/page.
+
+**Files changed:** `lib/standalone/dashboard.ts`, `app/(workspace)/home/page.tsx`, `app/(workspace)/layout.tsx`, `app/(workspace)/review/page.tsx`, `components/standalone/dashboard-domain-table.tsx`, `components/standalone/vessel-review-panel.tsx`, `components/standalone/employee-review-panel.tsx`, `components/standalone/attendance-review-panel.tsx`, `components/standalone/cash-review-panel.tsx`, `app/standalone.css`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
+
+**Rollback:** set `ALRIFAI_TAG=v3.3.5.1` in both `.env` files and re-run the compose command.
+
 ## Rollback
 
-- Current: `local/al-rifai-platform:v3.3.5.1`
-- Available: `local/al-rifai-platform:v3.3.5`, `local/al-rifai-platform:v3.3.4.1`, `local/al-rifai-platform:v3.3.4`
+- Current: `local/al-rifai-platform:v3.3.6`
+- Available: `local/al-rifai-platform:v3.3.5.1`, `local/al-rifai-platform:v3.3.5`, `local/al-rifai-platform:v3.3.4.1`
 - Set `ALRIFAI_TAG` in both `.env` files and re-run the compose command.
 
 ## Safety boundary

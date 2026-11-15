@@ -75,6 +75,11 @@ export function CashReviewPanel({
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<CashReviewCandidate | null>(null);
+  const [page, setPage] = useState(1);
+  const limit = 20;
+  const pages = Math.max(1, Math.ceil(rows.length / limit));
+  const safePage = Math.min(page, pages);
+  const pageRows = rows.slice((safePage - 1) * limit, safePage * limit);
   const byMobile = new Map(employees.map((employee) => [employee.mobile.replace(/[^0-9]/g, '').slice(-10), employee]));
 
   return (
@@ -101,7 +106,7 @@ export function CashReviewPanel({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {pageRows.map((row) => {
                 const p = row.payload ?? {};
                 const mobile = String(nested(p, 'employeeId') ?? nested(p, 'employeeMobile') ?? '');
                 const employee = byMobile.get(mobile.replace(/[^0-9]/g, '').slice(-10));
@@ -131,6 +136,14 @@ export function CashReviewPanel({
           </table>
         </div>
       )}
+
+      {pages > 1 ? (
+        <div className="row-actions" style={{marginTop: 12, justifyContent: 'space-between'}}>
+          <Button type="button" size="sm" variant="outline" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>← Previous</Button>
+          <span className="muted">Page {safePage} / {pages}</span>
+          <Button type="button" size="sm" variant="outline" disabled={safePage >= pages} onClick={() => setPage(safePage + 1)}>Next →</Button>
+        </div>
+      ) : null}
 
       <CashReviewSidebar
         key={selected?.id ?? 'none'}

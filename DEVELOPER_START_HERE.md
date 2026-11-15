@@ -1,15 +1,15 @@
 # DEVELOPER_START_HERE.md — AL-RIFA'I Platform
 
 **Last Updated**: 2026-11-14
-**Current Version**: v3.3.5.1 hotfix (review Decline without a typed reason)
+**Current Version**: v3.3.6 (dashboard card grid + domain tables + review pagination)
 **Schema Version**: 1.13.7 (60 tables; 25 migration files 001–026)
-**Main Release HEAD**: v3.3.5.1 hotfix commit (previous v3.3.5 = `2104850`). `feat/15-task-roadmap` is **merged and no longer the source of truth**; the branch is retained for history, not deleted.
-**Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.3.5.1` (app and sync on the same tag)
-**Rollback image**: `local/al-rifai-platform:v3.3.5`
+**Main Release HEAD**: v3.3.6 commit (previous v3.3.5.1 = `ffaad13`). `feat/15-task-roadmap` is **merged and no longer the source of truth**; the branch is retained for history, not deleted.
+**Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.3.6` (app and sync on the same tag)
+**Rollback image**: `local/al-rifai-platform:v3.3.5.1`
 
 > **Agent reference:** for agent-readable system state, see `AGENTS.md` in this repo and `/opt/al-rifai-recruitment-ai/AGENTS.md`.
 >
-> **Recent batches:** 6 cash autoconfirm · 7 UI diagnosis (Phase 4 UI was only on `feat/15-task-roadmap`) · 8 merge + `v3.0.0-phase4-merged` · 9 UI polish, `/home`, security attendance, join-date backfill (`v3.2.0-home-security`) · 10 Escort Release parser + `/release` + structured backfill (`v3.3.0-escort-release`) · 11 vessel review queue (`v3.3.3`) · 12/13 **v3.3.4 hotfix** · 14 **v3.3.4.1 hotfix** · 15 **v3.3.5 review restructure** · 16 **v3.3.5.1 decline hotfix**. See `README.md` for one-line detail.
+> **Recent batches:** 6 cash autoconfirm · 7 UI diagnosis (Phase 4 UI was only on `feat/15-task-roadmap`) · 8 merge + `v3.0.0-phase4-merged` · 9 UI polish, `/home`, security attendance, join-date backfill (`v3.2.0-home-security`) · 10 Escort Release parser + `/release` + structured backfill (`v3.3.0-escort-release`) · 11 vessel review queue (`v3.3.3`) · 12/13 **v3.3.4 hotfix** · 14 **v3.3.4.1 hotfix** · 15 **v3.3.5 review restructure** · 16 **v3.3.5.1 decline hotfix** · 17 **v3.3.6 dashboard**. See `README.md` for one-line detail.
 
 ### v3.3.4 hotfix (2026-11-14)
 
@@ -46,6 +46,14 @@
 **Files changed:** `components/standalone/vessel-review-sidebar.tsx`, `components/standalone/employee-review-panel.tsx`, `components/standalone/attendance-review-panel.tsx`, `components/standalone/cash-review-panel.tsx`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
 
 **Rollback:** set `ALRIFAI_TAG=v3.3.5` in both `.env` files and re-run the compose command.
+
+### v3.3.6 (2026-11-15)
+
+**Summary:** Home dashboard rebuilt as a 5×4 card grid (All Time, Last Month, This Month, Yesterday, Today) for Employees, Attendance, Payments and Vessels. Clicking a card opens a paginated domain list table that mirrors the corresponding domain page. Quick Actions are now icon cards; admin-only review status cards link to `/review?category=...`; Recent Activity was removed from the UI. USER sidebar is restricted to Home, Employees, Vessels, Attendance and Cash. `/review` tables now paginate at 20 rows/page.
+
+**Files changed:** `lib/standalone/dashboard.ts`, `app/(workspace)/home/page.tsx`, `app/(workspace)/layout.tsx`, `app/(workspace)/review/page.tsx`, `components/standalone/dashboard-domain-table.tsx`, `components/standalone/vessel-review-panel.tsx`, `components/standalone/employee-review-panel.tsx`, `components/standalone/attendance-review-panel.tsx`, `components/standalone/cash-review-panel.tsx`, `app/standalone.css`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
+
+**Rollback:** set `ALRIFAI_TAG=v3.3.5.1` in both `.env` files and re-run the compose command.
 
 > **Historical — Vessel Phase 2 complete (2026-11-10):** Migration 019 applied.
 > All five stages are active: processing, draft-to-Admin, draft-to-Office,

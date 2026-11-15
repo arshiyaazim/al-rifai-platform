@@ -1,137 +1,252 @@
 import Link from 'next/link';
-import {row, rows} from '@/lib/standalone/db';
+import type {ReactNode} from 'react';
+import {
+  Anchor, Banknote, CalendarCheck, CalendarClock, CalendarDays, ClipboardList, FileWarning,
+  Ship, TriangleAlert, UserPlus, Users, Wallet, type LucideIcon,
+} from 'lucide-react';
+import {pageUser} from '@/lib/standalone/session';
 import {reviewQueueCounts} from '@/lib/standalone/review';
-import {money, when} from '@/lib/standalone/session';
-import {reviewCategoryLabel} from '@/lib/review-ui';
+import {
+  dashboardCounts, dashboardEmployeeRows, dashboardPeriodBounds, dashboardToday,
+  type DashboardCounts, type DashboardDomain, type DashboardPeriod,
+} from '@/lib/standalone/dashboard';
+import {unifiedAttendance} from '@/lib/standalone/attendance-records';
+import {cashTransactionView, countCashTransactions, listCashTransactions} from '@/lib/standalone/finance';
+import {countPrograms, listPrograms} from '@/lib/standalone/programs';
 import {RealtimeRefresher} from '@/components/standalone/realtime-refresher';
+import {
+  DashboardAttendanceTable, DashboardCashTable, DashboardEmployeesTable,
+  DashboardPagination, DashboardVesselTable, type DashboardAttendanceRow,
+} from '@/components/standalone/dashboard-domain-table';
 
 export const dynamic = 'force-dynamic';
 
-export default async function HomePage() {
-  const [stats, audit, reviewCounts] = await Promise.all([
-    row<{
-      employees: string; programs: string; reviews: string; cash_pending: string;
-      payable: string; unresolved: string; attendance_today: string; instructions: string;
-      draft: string; confirmed: string; released: string; new_today: string; new_week: string;
-      awaiting_confirmation: string; confirmed_open: string; review_required: string;
-    }>(`SELECT
-        (SELECT count(*)::text FROM employees WHERE state = 'ACTIVE') AS employees,
-        (SELECT count(*)::text FROM programs WHERE state NOT IN ('VOIDED','COMPLETED')) AS programs,
-        (SELECT count(*)::text FROM review_items WHERE state = 'PENDING') AS reviews,
-        (SELECT count(*)::text FROM cash_instructions WHERE state = 'REVIEW') AS cash_pending,
-        (SELECT coalesce(sum(total_minor),0)::text FROM program_pay WHERE state = 'CALCULATED') AS payable,
-        (SELECT count(*)::text FROM program_pay WHERE state = 'UNRESOLVED') AS unresolved,
-        (SELECT count(*)::text FROM attendance WHERE duty_date = current_date AND state = 'PRESENT') AS attendance_today,
-        (SELECT count(*)::text FROM cash_instructions) AS instructions,
-        (SELECT count(*)::text FROM programs WHERE state = 'DRAFT') AS draft,
-        (SELECT count(*)::text FROM programs WHERE state = 'CONFIRMED') AS confirmed,
-        (SELECT count(*)::text FROM programs WHERE state = 'RELEASED') AS released,
-        (SELECT count(*)::text FROM programs WHERE (created_at AT TIME ZONE 'Asia/Dhaka')::date = (now() AT TIME ZONE 'Asia/Dhaka')::date) AS new_today,
-        (SELECT count(*)::text FROM programs WHERE (created_at AT TIME ZONE 'Asia/Dhaka') >= date_trunc('week', now() AT TIME ZONE 'Asia/Dhaka')) AS new_week,
-        (SELECT count(*)::text FROM programs WHERE state = 'DRAFT') AS awaiting_confirmation,
-        (SELECT count(*)::text FROM programs WHERE state IN ('CONFIRMED','ASSIGNED','IN_DUTY')) AS confirmed_open,
-        (SELECT count(*)::text FROM review_items WHERE state = 'PENDING') AS review_required`),
-    rows<{at: string; actor: string; action: string; entity: string; entity_id: string | null}>(
-      'SELECT at, actor, action, entity, entity_id FROM audit_events ORDER BY at DESC, id DESC LIMIT 12',
-    ),
-    reviewQueueCounts(),
+type SearchParams = Promise<{domain?: string; period?: string; page?: string}>;
+
+type CardDef = {
+  domain: DashboardDomain;
+  period: DashboardPeriod;
+  label: string;
+  countKey: keyof DashboardCounts;
+  icon: LucideIcon;
+};
+
+const CARD_ROWS: Array<{label: string; cards: CardDef[]}> = [
+  {
+    label: 'All Time',
+    cards: [
+      {domain: 'employees', period: 'total', label: 'Total Employees', countKey: 'employeesTotal', icon: Users},
+      {domain: 'attendance', period: 'total', label: 'Total Attendance', countKey: 'attendanceTotal', icon: CalendarCheck},
+      {domain: 'cash', period: 'total', label: 'Total Payments', countKey: 'paymentsTotal', icon: Wallet},
+      {domain: 'vessel', period: 'total', label: 'Total Vessels', countKey: 'vesselsTotal', icon: Ship},
+    ],
+  },
+  {
+    label: 'Last Month',
+    cards: [
+      {domain: 'employees', period: 'last_month', label: 'Joined Last Month', countKey: 'employeesLastMonth', icon: UserPlus},
+      {domain: 'attendance', period: 'last_month', label: 'Attendance Last Month', countKey: 'attendanceLastMonth', icon: CalendarDays},
+      {domain: 'cash', period: 'last_month', label: 'Paid Last Month', countKey: 'paymentsLastMonth', icon: Banknote},
+      {domain: 'vessel', period: 'last_month', label: 'Vessels Last Month', countKey: 'vesselsLastMonth', icon: Anchor},
+    ],
+  },
+  {
+    label: 'This Month',
+    cards: [
+      {domain: 'employees', period: 'this_month', label: 'Joined This Month', countKey: 'employeesThisMonth', icon: UserPlus},
+      {domain: 'attendance', period: 'this_month', label: 'Attendance This Month', countKey: 'attendanceThisMonth', icon: CalendarDays},
+      {domain: 'cash', period: 'this_month', label: 'Payments This Month', countKey: 'paymentsThisMonth', icon: Wallet},
+      {domain: 'vessel', period: 'this_month', label: 'Vessels This Month', countKey: 'vesselsThisMonth', icon: Ship},
+    ],
+  },
+  {
+    label: 'Yesterday',
+    cards: [
+      {domain: 'employees', period: 'yesterday', label: 'Joined Yesterday', countKey: 'employeesYesterday', icon: UserPlus},
+      {domain: 'attendance', period: 'yesterday', label: 'Attendance Yesterday', countKey: 'attendanceYesterday', icon: CalendarClock},
+      {domain: 'cash', period: 'yesterday', label: 'Payments Yesterday', countKey: 'paymentsYesterday', icon: Wallet},
+      {domain: 'vessel', period: 'yesterday', label: 'Vessels Yesterday', countKey: 'vesselsYesterday', icon: Ship},
+    ],
+  },
+  {
+    label: 'Today',
+    cards: [
+      {domain: 'employees', period: 'today', label: 'Joined Today', countKey: 'employeesToday', icon: UserPlus},
+      {domain: 'attendance', period: 'today', label: 'Attendance Today', countKey: 'attendanceToday', icon: CalendarCheck},
+      {domain: 'cash', period: 'today', label: 'Payments Today', countKey: 'paymentsToday', icon: Wallet},
+      {domain: 'vessel', period: 'today', label: 'Vessels Today', countKey: 'vesselsToday', icon: Ship},
+    ],
+  },
+];
+
+const DOMAIN_LABELS: Record<DashboardDomain, string> = {
+  employees: 'Employees',
+  attendance: 'Attendance',
+  cash: 'Payments',
+  vessel: 'Vessels',
+};
+
+const DOMAIN_HREFS: Record<DashboardDomain, string> = {
+  employees: '/employees',
+  attendance: '/attendance',
+  cash: '/cash',
+  vessel: '/vessel',
+};
+
+const QUICK_ACTIONS = [
+  {href: '/employees', label: 'Add Employee', icon: UserPlus},
+  {href: '/vessel', label: 'New Vessel Program', icon: Ship},
+  {href: '/cash', label: 'Record Cash', icon: Wallet},
+  {href: '/review', label: 'Open Review Queue', icon: ClipboardList},
+];
+
+const ADMIN_REVIEW_CARDS = [
+  {category: 'AMBIGUOUS_VESSEL_CONFIRMATION', label: 'Ambiguous vessel confirmation', icon: TriangleAlert},
+  {category: 'EXTRACTION_FAILED', label: 'Extraction failed', icon: FileWarning},
+  {category: 'INCOMPLETE_VESSEL_ORDER', label: 'Incomplete vessel order', icon: ClipboardList},
+  {category: 'PROCESSING_ERROR', label: 'Processing error', icon: TriangleAlert},
+  {category: 'UNMATCHED_VESSEL_ASSIGNMENT', label: 'Unmatched vessel assignment', icon: FileWarning},
+];
+
+const DOMAINS: DashboardDomain[] = ['employees', 'attendance', 'cash', 'vessel'];
+const PERIODS: DashboardPeriod[] = ['total', 'last_month', 'this_month', 'yesterday', 'today'];
+
+function pickDomain(value: string | undefined): DashboardDomain {
+  return DOMAINS.includes(value as DashboardDomain) ? value as DashboardDomain : 'employees';
+}
+
+function pickPeriod(value: string | undefined): DashboardPeriod {
+  return PERIODS.includes(value as DashboardPeriod) ? value as DashboardPeriod : 'total';
+}
+
+export default async function HomePage({searchParams}: {searchParams: SearchParams}) {
+  const search = await searchParams;
+  const user = await pageUser();
+  const selectedDomain = pickDomain(search.domain);
+  const selectedPeriod = pickPeriod(search.period);
+  const requestedPage = Math.max(1, Number(search.page) || 1);
+  const limit = 20;
+  const bounds = dashboardPeriodBounds(selectedPeriod);
+
+  const [counts, reviewCounts] = await Promise.all([
+    dashboardCounts(),
+    user.role === 'ADMIN' ? reviewQueueCounts() : Promise.resolve(null),
   ]);
-  const alerts: string[] = [];
-  if (Number(stats?.unresolved)) alerts.push(`${stats?.unresolved} program(s) have unresolved pay — set a rate and an end date.`);
-  if (Number(stats?.reviews)) alerts.push(`${stats?.reviews} submission(s) await a decision.`);
-  if (!Number(stats?.employees)) alerts.push('No employees yet — add the first employee or create a program with an escort.');
+
+  let table: ReactNode = null;
+  let total = 0;
+  let page = requestedPage;
+
+  if (selectedDomain === 'employees') {
+    const all = await dashboardEmployeeRows(bounds.from, bounds.to);
+    total = all.length;
+    page = Math.min(requestedPage, Math.max(1, Math.ceil(total / limit)));
+    table = <DashboardEmployeesTable rows={all.slice((page - 1) * limit, page * limit)} />;
+  } else if (selectedDomain === 'attendance') {
+    const data = await unifiedAttendance({
+      from: bounds.from ?? '2000-01-01',
+      to: bounds.to ?? dashboardToday(),
+    });
+    total = data.rows.length;
+    page = Math.min(requestedPage, Math.max(1, Math.ceil(total / limit)));
+    table = <DashboardAttendanceTable rows={data.rows as DashboardAttendanceRow[]} />;
+  } else if (selectedDomain === 'cash') {
+    total = await countCashTransactions({from: bounds.from, to: bounds.to});
+    page = Math.min(requestedPage, Math.max(1, Math.ceil(total / limit)));
+    const rows = await listCashTransactions({
+      from: bounds.from, to: bounds.to, limit, offset: (page - 1) * limit,
+    });
+    table = <DashboardCashTable rows={rows.map(cashTransactionView)} />;
+  } else {
+    total = await countPrograms({from: bounds.from, to: bounds.to});
+    page = Math.min(requestedPage, Math.max(1, Math.ceil(total / limit)));
+    const rows = await listPrograms({
+      from: bounds.from, to: bounds.to, limit, offset: (page - 1) * limit,
+    });
+    table = <DashboardVesselTable rows={rows} />;
+  }
 
   return (
     <>
       <div className="page-head">
-        <div><h1>Home</h1><p className="muted">Business overview and pending work.</p></div>
+        <div><h1>Home</h1><p className="muted">Business overview, domain lists and pending work.</p></div>
         <RealtimeRefresher domain="ANY" label="Live dashboard" />
       </div>
 
-      <div className="grid-cards">
-        <div className="stat"><div className="label">Active employees</div><div className="value">{stats?.employees ?? 0}</div></div>
-        <div className="stat"><div className="label">Programs</div><div className="value">{stats?.programs ?? 0}</div></div>
-        <div className="stat"><div className="label">Payable (calculated)</div><div className="value">{money(stats?.payable)}</div></div>
-        <div className="stat"><div className="label">Cash awaiting approval</div><div className="value">{stats?.cash_pending ?? 0}</div></div>
-        <div className="stat"><div className="label">Pending reviews</div><div className="value">{stats?.reviews ?? 0}</div></div>
-        <div className="stat"><div className="label">Present today</div><div className="value">{stats?.attendance_today ?? 0}</div></div>
+      <div className="dashboard-card-rows">
+        {CARD_ROWS.map((row) => (
+          <div key={row.label} className="dashboard-card-row">
+            <div className="dashboard-period-label">{row.label}</div>
+            <div className="dashboard-cards-grid">
+              {row.cards.map((card) => {
+                const Icon = card.icon;
+                const selected = selectedDomain === card.domain && selectedPeriod === card.period;
+                return (
+                  <Link
+                    key={`${card.domain}-${card.period}`}
+                    href={`/home?domain=${card.domain}&period=${card.period}&page=1`}
+                    className={`dashboard-card dashboard-card--${card.domain}${selected ? ' is-selected' : ''}`}
+                    aria-current={selected ? 'page' : undefined}
+                  >
+                    <span className="dashboard-card__icon"><Icon size={22} aria-hidden /></span>
+                    <span className="dashboard-card__value">{counts[card.countKey].toLocaleString()}</span>
+                    <span className="dashboard-card__label">{card.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
+
+      <section className="card dashboard-table-card" style={{marginBottom: 18}}>
+        <div className="page-head" style={{marginBottom: 8}}>
+          <div>
+            <h3 style={{margin: 0}}>{DOMAIN_LABELS[selectedDomain]} — {bounds.label}</h3>
+            <p className="muted" style={{margin: '4px 0 0'}}>{total.toLocaleString()} row(s)</p>
+          </div>
+          <Link href={DOMAIN_HREFS[selectedDomain]}>Open {DOMAIN_LABELS[selectedDomain]} page →</Link>
+        </div>
+        {table}
+        <DashboardPagination domain={selectedDomain} period={selectedPeriod} page={page} total={total} limit={limit} />
+      </section>
 
       <section className="card" style={{marginBottom: 18}}>
-        <div className="page-head" style={{marginBottom: 8}}>
-          <div><h3>Vessel pipeline</h3></div>
-          <Link href="/vessel">Open Vessel Register →</Link>
-        </div>
-        <div className="grid-cards">
-          <div className="stat"><div className="label">DRAFT</div><div className="value">{stats?.draft ?? 0}</div><div className="muted">awaiting Admin assignment/confirmation</div></div>
-          <div className="stat"><div className="label">CONFIRMED</div><div className="value">{stats?.confirmed ?? 0}</div><div className="muted">confirmed, not yet released</div></div>
-          <div className="stat"><div className="label">RELEASED</div><div className="value">{stats?.released ?? 0}</div><div className="muted">release recorded</div></div>
-          <div className="stat"><div className="label">New orders today</div><div className="value">{stats?.new_today ?? 0}</div><div className="muted">{stats?.new_week ?? 0} this week (Asia/Dhaka)</div></div>
-          <div className="stat"><div className="label">Awaiting confirmation</div><div className="value">{stats?.awaiting_confirmation ?? 0}</div><div className="muted">state DRAFT</div></div>
-          <div className="stat"><div className="label">Confirmed open</div><div className="value">{stats?.confirmed_open ?? 0}</div><div className="muted">CONFIRMED / ASSIGNED / IN_DUTY</div></div>
-          <div className="stat"><div className="label">REVIEW_REQUIRED</div><div className="value">{stats?.review_required ?? 0}</div><div className="muted">pending review items</div></div>
-        </div>
-      </section>
-
-      {alerts.length ? (
-        <div className="card">
-          <h3>Attention</h3>
-          <ul>{alerts.map((alert) => <li key={alert}>{alert}</li>)}</ul>
-        </div>
-      ) : null}
-
-      <section className="card">
-        <div className="page-head" style={{marginBottom: 8}}>
-          <div><h3>Review Queue</h3></div>
-          <Link href="/review">Open queue →</Link>
-        </div>
-        <div className="grid-cards" style={{marginBottom: 12}}>
-          <div className="stat"><div className="label">Review items pending</div><div className="value">{reviewCounts.pending}</div></div>
-          <div className="stat"><div className="label">Cash candidates pending</div><div className="value">{reviewCounts.cashPending}</div></div>
-          <div className="stat"><div className="label">Total pending</div><div className="value">{reviewCounts.pending + reviewCounts.cashPending}</div></div>
-        </div>
-        {Object.keys(reviewCounts.byCategory).length ? (
-          <div className="row-actions">
-            {Object.entries(reviewCounts.byCategory).map(([category, count]) => (
-              <Link key={category} href={`/review?category=${encodeURIComponent(category)}`} className="pill warn">
-                {reviewCategoryLabel(category)} · {count}
+        <h3>Quick actions</h3>
+        <div className="dashboard-quick-grid">
+          {QUICK_ACTIONS.map((action) => {
+            const Icon = action.icon;
+            return (
+              <Link key={action.href} href={action.href} className="dashboard-quick-card">
+                <span className="dashboard-quick-card__icon"><Icon size={22} aria-hidden /></span>
+                <span>{action.label}</span>
               </Link>
-            ))}
-          </div>
-        ) : <p className="muted">No pending review items by category.</p>}
+            );
+          })}
+        </div>
       </section>
 
-      <div className="split">
+      {user.role === 'ADMIN' && reviewCounts ? (
         <section className="card">
-          <h3>Recent activity</h3>
-          <table>
-            <thead><tr><th>When</th><th>Action</th><th>Entity</th><th>Actor</th></tr></thead>
-            <tbody>
-              {audit.map((entry, index) => (
-                <tr key={`${entry.at}-${index}`}>
-                  <td>{when(entry.at)}</td>
-                  <td>{entry.action}</td>
-                  <td>{entry.entity}{entry.entity_id ? ` · ${entry.entity_id.slice(0, 18)}` : ''}</td>
-                  <td className="muted">{entry.actor.slice(0, 12)}</td>
-                </tr>
-              ))}
-              {!audit.length ? <tr><td colSpan={4} className="muted">No activity yet.</td></tr> : null}
-            </tbody>
-          </table>
-        </section>
-        <section className="card">
-          <h3>Quick actions</h3>
-          <div className="row-actions">
-            <Link href="/employees">Add employee</Link>
-            <Link href="/vessel">New vessel program</Link>
-            <Link href="/cash">Record cash</Link>
-            <Link href="/review">Open review queue</Link>
+          <div className="page-head" style={{marginBottom: 8}}>
+            <div><h3 style={{margin: 0}}>Review status</h3></div>
+            <Link href="/review">Open Review Queue →</Link>
           </div>
-          <p className="muted" style={{marginTop: 14}}>
-            {stats?.instructions ?? 0} payment instruction(s) recorded in total.
-          </p>
+          <div className="dashboard-review-grid">
+            {ADMIN_REVIEW_CARDS.map((card) => {
+              const Icon = card.icon;
+              const count = reviewCounts.byCategory[card.category] ?? 0;
+              return (
+                <Link key={card.category} href={`/review?category=${encodeURIComponent(card.category)}`} className="dashboard-review-card">
+                  <span className="dashboard-review-card__icon"><Icon size={18} aria-hidden /></span>
+                  <span className="dashboard-review-card__label">{card.label}</span>
+                  <span className="dashboard-review-card__badge">{count}</span>
+                </Link>
+              );
+            })}
+          </div>
         </section>
-      </div>
+      ) : null}
     </>
   );
 }

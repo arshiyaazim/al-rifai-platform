@@ -56,6 +56,11 @@ async function reviewPost(body: Record<string, unknown>) {
 export function AttendanceReviewPanel({rows, canDecide}: {rows: PendingAttendanceReview[]; canDecide: boolean}) {
   const router = useRouter();
   const [selected, setSelected] = useState<PendingAttendanceReview | null>(null);
+  const [page, setPage] = useState(1);
+  const limit = 20;
+  const pages = Math.max(1, Math.ceil(rows.length / limit));
+  const safePage = Math.min(page, pages);
+  const pageRows = rows.slice((safePage - 1) * limit, safePage * limit);
 
   return (
     <section className="card" style={{marginBottom: 18, padding: 14}}>
@@ -76,7 +81,7 @@ export function AttendanceReviewPanel({rows, canDecide}: {rows: PendingAttendanc
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {pageRows.map((row) => {
                 const p = row.payload ?? {};
                 const date = String(p.attendanceDate ?? p.dutyDate ?? '');
                 return (
@@ -102,6 +107,14 @@ export function AttendanceReviewPanel({rows, canDecide}: {rows: PendingAttendanc
           </table>
         </div>
       )}
+
+      {pages > 1 ? (
+        <div className="row-actions" style={{marginTop: 12, justifyContent: 'space-between'}}>
+          <Button type="button" size="sm" variant="outline" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>← Previous</Button>
+          <span className="muted">Page {safePage} / {pages}</span>
+          <Button type="button" size="sm" variant="outline" disabled={safePage >= pages} onClick={() => setPage(safePage + 1)}>Next →</Button>
+        </div>
+      ) : null}
 
       {selected ? (
         <AttendanceReviewModal
