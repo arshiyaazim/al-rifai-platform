@@ -121,17 +121,14 @@ export function VesselReviewSidebar({
 
   async function decline() {
     if (!row) return;
-    if (!reason.trim()) {
-      setError('Reason is required to decline.');
-      return;
-    }
+    const why = reason.trim() || 'Declined from review queue';
     setBusy('decline');
     setError('');
     try {
       await post({
         action: 'vessel_review_decide', kind: row.kind, id: row.id,
         decision: 'REJECTED', workflow: row.suggestedWorkflow,
-        payload: reviewPayload(form), comment: reason.trim(),
+        payload: reviewPayload(form), comment: why,
       });
       onDone();
     } catch (cause) {

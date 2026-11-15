@@ -4,9 +4,9 @@
 
 | Category | Value |
 |---|---|
-| **Version** | **v3.3.5** |
+| **Version** | **v3.3.5.1 hotfix** |
 | **Branch** | `main`. Phase 4A–4E UI is merged into `main`; `feat/15-task-roadmap` is merged and **no longer the source of truth** (the branch is retained, not deleted). |
-| **Deployed image** | `local/al-rifai-platform:v3.3.5` (app **and** sync always deploy together on the same tag) |
+| **Deployed image** | `local/al-rifai-platform:v3.3.5.1` (app **and** sync always deploy together on the same tag) |
 | **DB schema** | **1.13.7** — 60 tables, **25 migrations (001–026)** |
 | **Auth** | Application login/session. Unauthenticated workspace routes fail closed with JSON `401`; document navigations redirect to `/login`. |
 | **Attendance definitions** | **Vessel** attendance is derived from vessel programs (`program_assignments` + `program_pay`). **Security** attendance is every attendance day (legacy `attendance` + `attendance_records`, deduplicated by employee/day/shift) that is not already covered by a vessel program assignment on that date. Vessel + Security = total attendance days. |
@@ -14,7 +14,7 @@
 | **Join date** | `employees.date_of_join` (= `joined_on`), set to the earlier of (A) the WhatsApp timestamp of the first cash payment message and (B) the first vessel assignment's duty start date, as an Asia/Dhaka calendar date. `created_at`/import/backfill time is never used. |
 | **UI** | Phase 4A–4E plus the v3.1/v3.2 polish: 8-card metric rows and filter rows on `/employees` and `/attendance`, vessel SL column, cash payment side panel, employee-history links, and the **`/release` Escort Release review page** (cards, filters, approve/decline, cash cross-check). Mobile numbers are rendered through `displayMobile()` (`lib/display-mobile.ts`): **11 digits, no country code** (`+8801…`/`8801…` → `01…`); stored values are never rewritten. |
 | **Deploy** | `docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync` (after setting `ALRIFAI_TAG` in both `.env` files and building the image). **app and sync always share the tag.** See `DEVELOPER_START_HERE.md` §18. |
-| **Rollback image** | `local/al-rifai-platform:v3.3.4.1` (raw review hotfix). |
+| **Rollback image** | `local/al-rifai-platform:v3.3.5` (review restructure). |
 | **Recruitment AI** | Separate application `/opt/al-rifai-recruitment-ai`; untouched by this release. |
 
 ## Recent batches
@@ -28,6 +28,7 @@
 - **Batch 12/13** — **v3.3.4 hotfix:** Approve/Reject fix, applicability preflight, hidden backend fields, pending rows removed from `/vessel`.
 - **Batch 14** — **v3.3.4.1 hotfix:** Raw WhatsApp review Approve timestamp crash + error surfacing.
 - **Batch 15** — **v3.3.5:** domain-separated review tables + Vessel/Employee/Attendance/Cash review sidebars.
+- **Batch 16** — **v3.3.5.1:** review Decline without a typed reason (cash + all domains).
 
 ## v3.3.4 hotfix (2026-11-14)
 
@@ -56,6 +57,14 @@
 **Files changed:** `lib/standalone/vessel-review.ts`, `lib/standalone/review.ts`, `app/api/review/route.ts`, `app/(workspace)/review/page.tsx`, `app/(workspace)/attendance/page.tsx`, `components/standalone/vessel-review-panel.tsx`, `components/standalone/vessel-review-sidebar.tsx`, `components/standalone/employee-review-panel.tsx`, `components/standalone/attendance-review-panel.tsx`, `components/standalone/cash-review-panel.tsx`, `components/standalone/attendance-view.tsx`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
 
 **Rollback:** set `ALRIFAI_TAG=v3.3.4.1` in both `.env` files and re-run the compose command.
+
+## v3.3.5.1 hotfix (2026-11-15)
+
+**Summary:** Fixed the Review Decline dead-end. The client-side reason-required early return prevented the request from being sent when the reason field was empty. All four review domains now send a default reason (`Declined from review queue`) when the operator leaves the reason blank; the backend already accepts an empty/optional reason. Cash decline was verified end-to-end: button → `/api/review` → `decideCashSubmission` → `cash_submissions.state='REJECTED'` + `cash_submission_reviews` row.
+
+**Files changed:** `components/standalone/vessel-review-sidebar.tsx`, `components/standalone/employee-review-panel.tsx`, `components/standalone/attendance-review-panel.tsx`, `components/standalone/cash-review-panel.tsx`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
+
+**Rollback:** set `ALRIFAI_TAG=v3.3.5` in both `.env` files and re-run the compose command.
 
 ## Release status (verified 2026-11-09) — HISTORICAL
 

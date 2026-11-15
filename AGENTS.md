@@ -68,6 +68,7 @@ docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d -
 - **13** — **v3.3.4 hotfix (2026-11-14):** Approve/Reject fix, applicability preflight, hidden backend fields, pending rows removed from `/vessel`.
 - **14** — **v3.3.4.1 hotfix (2026-11-15):** Raw WhatsApp review Approve timestamp crash + error surfacing.
 - **15** — **v3.3.5 (2026-11-15):** Domain-separated review tables, Vessel View sidebar, Employee/Attendance/Cash review, attendance USER edit gate.
+- **16** — **v3.3.5.1 hotfix (2026-11-15):** Review Decline works without a typed reason (cash + all domains).
 
 ## v3.3.4 hotfix (2026-11-14)
 
@@ -97,10 +98,18 @@ docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d -
 
 **Rollback:** set `ALRIFAI_TAG=v3.3.4.1` in both `.env` files and re-run the compose command.
 
+## v3.3.5.1 hotfix (2026-11-15)
+
+**Summary:** Fixed the Review Decline dead-end. The client-side reason-required early return prevented the request from being sent when the reason field was empty. All four review domains now send a default reason (`Declined from review queue`) when the operator leaves the reason blank; the backend already accepts an empty/optional reason. Cash decline was verified end-to-end: button → `/api/review` → `decideCashSubmission` → `cash_submissions.state='REJECTED'` + `cash_submission_reviews` row.
+
+**Files changed:** `components/standalone/vessel-review-sidebar.tsx`, `components/standalone/employee-review-panel.tsx`, `components/standalone/attendance-review-panel.tsx`, `components/standalone/cash-review-panel.tsx`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
+
+**Rollback:** set `ALRIFAI_TAG=v3.3.5` in both `.env` files and re-run the compose command.
+
 ## Rollback
 
-- Current: `local/al-rifai-platform:v3.3.5`
-- Available: `local/al-rifai-platform:v3.3.4.1`, `local/al-rifai-platform:v3.3.4`, `local/al-rifai-platform:v3.3.3`
+- Current: `local/al-rifai-platform:v3.3.5.1`
+- Available: `local/al-rifai-platform:v3.3.5`, `local/al-rifai-platform:v3.3.4.1`, `local/al-rifai-platform:v3.3.4`
 - Set `ALRIFAI_TAG` in both `.env` files and re-run the compose command.
 
 ## Safety boundary

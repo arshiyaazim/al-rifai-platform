@@ -220,10 +220,10 @@ function CashReviewSidebar({
   }
 
   async function decline() {
-    if (!reason.trim()) { setError('Reason is required to decline.'); return; }
+    const why = reason.trim() || 'Declined from review queue';
     setBusy('decline'); setError('');
     try {
-      await reviewPost({action: 'decide', kind: 'cash_submission', id: row!.id, decision: 'REJECTED', reason: reason.trim()});
+      await reviewPost({action: 'decide', kind: 'cash_submission', id: row!.id, decision: 'REJECTED', reason: why});
       onDone();
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Decline failed.'); }
     finally { setBusy(''); }
