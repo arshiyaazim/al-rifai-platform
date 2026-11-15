@@ -3,7 +3,7 @@
 **Last Updated**: 2026-11-14
 **Current Version**: v3.3.4.1 hotfix (raw WhatsApp review Approve timestamp/error fix)
 **Schema Version**: 1.13.7 (60 tables; 25 migration files 001–026)
-**Main Release HEAD**: v3.3.4 hotfix commit (previous v3.3.3 = `e1c566a`). `feat/15-task-roadmap` is **merged and no longer the source of truth**; the branch is retained for history, not deleted.
+**Main Release HEAD**: v3.3.4.1 hotfix commit (previous v3.3.4 = `96b7898`). `feat/15-task-roadmap` is **merged and no longer the source of truth**; the branch is retained for history, not deleted.
 **Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.3.4.1` (app and sync on the same tag)
 **Rollback image**: `local/al-rifai-platform:v3.3.4`
 
