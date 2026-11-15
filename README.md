@@ -4,9 +4,9 @@
 
 | Category | Value |
 |---|---|
-| **Version** | **v3.3.4 hotfix** |
+| **Version** | **v3.3.4.1 hotfix** |
 | **Branch** | `main`. Phase 4A–4E UI is merged into `main`; `feat/15-task-roadmap` is merged and **no longer the source of truth** (the branch is retained, not deleted). |
-| **Deployed image** | `local/al-rifai-platform:v3.3.4` (app **and** sync always deploy together on the same tag) |
+| **Deployed image** | `local/al-rifai-platform:v3.3.4.1` (app **and** sync always deploy together on the same tag) |
 | **DB schema** | **1.13.7** — 60 tables, **25 migrations (001–026)** |
 | **Auth** | Application login/session. Unauthenticated workspace routes fail closed with JSON `401`; document navigations redirect to `/login`. |
 | **Attendance definitions** | **Vessel** attendance is derived from vessel programs (`program_assignments` + `program_pay`). **Security** attendance is every attendance day (legacy `attendance` + `attendance_records`, deduplicated by employee/day/shift) that is not already covered by a vessel program assignment on that date. Vessel + Security = total attendance days. |
@@ -14,7 +14,7 @@
 | **Join date** | `employees.date_of_join` (= `joined_on`), set to the earlier of (A) the WhatsApp timestamp of the first cash payment message and (B) the first vessel assignment's duty start date, as an Asia/Dhaka calendar date. `created_at`/import/backfill time is never used. |
 | **UI** | Phase 4A–4E plus the v3.1/v3.2 polish: 8-card metric rows and filter rows on `/employees` and `/attendance`, vessel SL column, cash payment side panel, employee-history links, and the **`/release` Escort Release review page** (cards, filters, approve/decline, cash cross-check). Mobile numbers are rendered through `displayMobile()` (`lib/display-mobile.ts`): **11 digits, no country code** (`+8801…`/`8801…` → `01…`); stored values are never rewritten. |
 | **Deploy** | `docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync` (after setting `ALRIFAI_TAG` in both `.env` files and building the image). **app and sync always share the tag.** See `DEVELOPER_START_HERE.md` §18. |
-| **Rollback image** | `local/al-rifai-platform:v3.3.3` (v3.3.3 vessel review queue). |
+| **Rollback image** | `local/al-rifai-platform:v3.3.4` (v3.3.4 review hotfix). |
 | **Recruitment AI** | Separate application `/opt/al-rifai-recruitment-ai`; untouched by this release. |
 
 ## Recent batches
@@ -26,6 +26,7 @@
 - **Batch 10** — Escort Release parser improvements, `/release` review page, structured release backfill (`v3.3.0-escort-release`).
 - **Batch 11** — vessel review queue with pending icons, source/data modals, admin approval (`v3.3.3`).
 - **Batch 12/13** — **v3.3.4 hotfix:** Approve/Reject fix, applicability preflight, hidden backend fields, pending rows removed from `/vessel`.
+- **Batch 14** — **v3.3.4.1 hotfix:** Raw WhatsApp review Approve timestamp crash + error surfacing.
 
 ## v3.3.4 hotfix (2026-11-14)
 
@@ -36,6 +37,14 @@
 **Files changed:** `lib/standalone/review.ts`, `lib/standalone/programs.ts`, `app/api/vessel/route.ts`, `components/standalone/action-form.tsx`, `components/standalone/review-actions.tsx`, `components/standalone/source-evidence.tsx`, `components/standalone/review-item-detail.tsx`, `components/standalone/audit-history.tsx`, `components/standalone/vessel-register-client.tsx`, `lib/review-ui.ts`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
 
 **Rollback:** set `ALRIFAI_TAG=v3.3.3` in both `.env` files and re-run `docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync`.
+
+## v3.3.4.1 hotfix (2026-11-15)
+
+**Summary:** Raw WhatsApp review Approve hotfix. Normalized PostgreSQL `Date` values to ISO before binding to `timestamptz` (the previous `String(Date)` caused `invalid input syntax for type timestamp with time zone` and a 500 rollback). Surfaced the server `detail` message in the raw review UI, converted known review errors to `DomainError`, and guarded release messages from being approved as vessel orders. Release/confirmation matching remains v3.3.5 scope.
+
+**Files changed:** `lib/standalone/message-review-queue.ts`, `lib/standalone/vessel-review.ts`, `components/standalone/review-queue-client.tsx`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
+
+**Rollback:** set `ALRIFAI_TAG=v3.3.4` in both `.env` files and re-run the compose command.
 
 ## Release status (verified 2026-11-09) — HISTORICAL
 

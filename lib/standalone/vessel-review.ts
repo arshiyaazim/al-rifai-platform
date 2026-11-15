@@ -9,13 +9,21 @@
 // description, the sender, the chat type, the full message and editable fields.
 
 import {parseEscortOrder} from '../escort-intake-candidate.mjs';
-import {row, rows, tx, type Actor} from './db.ts';
+import {DomainError, row, rows, tx, type Actor} from './db.ts';
 import {recordAudit, stableId} from './audit.ts';
 import {vesselKey} from '../vessel-match.ts';
 import {renderOwnerDraftFields} from '../order-draft-template.ts';
 import {approveMessageReviewQueue, resolveMessageReviewQueue} from './message-review-queue.ts';
 import {resolveMotherVesselAlias} from '../vessel-alias.ts';
 import {correctReviewItem} from './review.ts';
+
+/** Normalize pg Date/string values before binding to timestamptz. */
+const iso = (value: unknown): string => {
+  if (value instanceof Date) return value.toISOString();
+  const text = String(value ?? '');
+  const parsed = new Date(text);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : text;
+};
 
 export type ReviewFields = {
   motherVessel: string;
@@ -35,6 +43,7 @@ export type UnifiedVesselReview = {
   chatJid: string;
   problem: string;
   reasonCode: string;
+  suggestedWorkflow: string;
   message: string;
   timestamp: string;
   createdAt: string;
@@ -101,7 +110,7 @@ export async function listUnifiedVesselReview(limit = 200): Promise<UnifiedVesse
   const mapped: UnifiedVesselReview[] = [];
   for (const item of messages) {
     const text = String(item.message_text ?? '');
-    const timestamp = String(item.source_timestamp ?? '');
+    const timestamp = iso(item.source_timestamp);
     mapped.push({
       kind: 'message',
       id: String(item.id),
@@ -110,16 +119,18 @@ export async function listUnifiedVesselReview(limit = 200): Promise<UnifiedVesse
       chatJid: String(item.source_chat_jid ?? ''),
       problem: problemFor(String(item.confusion_reason ?? ''), ''),
       reasonCode: String(item.confusion_reason ?? ''),
+      suggestedWorkflow: String(item.suggested_workflow ?? 'vessel').toLowerCase(),
       message: text,
       timestamp,
-      createdAt: String(item.created_at ?? timestamp),
+      createdAt: iso(item.created_at ?? timestamp),
       fields: fieldsFrom(text, timestamp),
     });
   }
   for (const item of items) {
     const payload = (item.payload ?? {}) as Record<string, unknown>;
     const text = String(payload.rawText ?? payload.messageText ?? '');
-    const timestamp = String(payload.sourceTimestamp ?? payload.source_timestamp ?? item.created_at ?? '');
+    const timestamp = iso(payload.sourceTimestamp ?? payload.source_timestamp ?? item.created_at ?? '');
+    const parser = String(payload.parser ?? '');
     mapped.push({
       kind: 'item',
       id: String(item.id),
@@ -128,9 +139,10 @@ export async function listUnifiedVesselReview(limit = 200): Promise<UnifiedVesse
       chatJid: String(payload.sourceChatJid ?? ''),
       problem: problemFor(String(payload.classification ?? ''), String(item.category ?? '')),
       reasonCode: String(item.category ?? ''),
+      suggestedWorkflow: payload.releaseCategory || parser.startsWith('release') ? 'release' : 'vessel',
       message: text,
       timestamp,
-      createdAt: String(item.created_at ?? timestamp),
+      createdAt: iso(item.created_at ?? timestamp),
       fields: fieldsFrom(text, timestamp),
     });
   }
@@ -156,16 +168,18 @@ async function decideItem(actor: Actor, id: string, decision: string,
   return tx(async (client) => {
     const found = await client.query<Record<string, unknown>>(
       'SELECT * FROM review_items WHERE id=$1 FOR UPDATE', [id]);
-    if (!found.rowCount) throw new Error('REVIEW_ITEM_NOT_FOUND');
+    if (!found.rowCount) throw new DomainError('REVIEW_ITEM_NOT_FOUND', 404, 'Review item not found.');
     const item = found.rows[0];
-    if (item.state !== 'PENDING') throw new Error('ITEM_NOT_PENDING');
+    if (item.state !== 'PENDING') throw new DomainError('ITEM_NOT_PENDING', 409, 'Review item is not pending.');
     const basePayload = (item.payload ?? {}) as Record<string, unknown>;
     const merged = {...basePayload, ...(input.payload ?? {})};
     const fields = mergeFields(merged);
     const text = String(merged.rawText ?? '');
+    const createdAt = iso(item.created_at);
+    const sourceTimestamp = iso(merged.sourceTimestamp ?? createdAt);
     if (decision === 'APPROVED') {
       if (!fields.motherVessel || !fields.lighterVessel || !fields.masterMobile) {
-        const parsed = fieldsFrom(text, String(merged.sourceTimestamp ?? item.created_at ?? ''));
+        const parsed = fieldsFrom(text, sourceTimestamp);
         fields.motherVessel ||= parsed.motherVessel;
         fields.lighterVessel ||= parsed.lighterVessel;
         fields.masterMobile ||= parsed.masterMobile;
@@ -175,10 +189,10 @@ async function decideItem(actor: Actor, id: string, decision: string,
         fields.shift ||= parsed.shift;
       }
       if (!fields.motherVessel || !fields.lighterVessel || !fields.masterMobile) {
-        throw new Error('REVIEW_VESSEL_FIELDS_REQUIRED');
+        throw new DomainError('REVIEW_VESSEL_FIELDS_REQUIRED', 400, 'Mother vessel, lighter vessel and master mobile are required.');
       }
       fields.motherVessel = await resolveMotherVesselAlias(fields.motherVessel, client);
-      const date = fields.startDate || String(item.created_at ?? '').slice(0, 10);
+      const date = fields.startDate || createdAt.slice(0, 10);
       const shift = fields.shift || 'D';
       const escortMobile = digits(fields.escortMobile);
       if (escortMobile) {
@@ -229,7 +243,7 @@ async function decideItem(actor: Actor, id: string, decision: string,
             String(merged.sourceChatJid ?? '') || null,
             String(merged.senderJid ?? '') || null,
             String(merged.sourceAccountId ?? '') || null,
-            merged.sourceTimestamp ?? null],
+            sourceTimestamp || null],
         );
       } else {
         programId = stableId('prog', ['vessel-review', fields.motherVessel, fields.lighterVessel, date, shift]);
@@ -248,11 +262,11 @@ async function decideItem(actor: Actor, id: string, decision: string,
             confirmed ? fields.escortName : null, confirmed ? `+88${escortMobile}` : null,
             date, shift, confirmed ? 'CONFIRMED' : 'DRAFT',
             String(merged.sourceMessageId ?? '') || null, String(merged.sourceChatJid ?? '') || null,
-            `Approved from review item ${id}`, merged.sourceTimestamp ?? new Date().toISOString(),
+            `Approved from review item ${id}`, sourceTimestamp || new Date().toISOString(),
             `review:${id}`, `${vesselKey(fields.motherVessel)}|${vesselKey(fields.lighterVessel)}`,
             draftText, String(merged.sourceMessageId ?? '') || null,
             String(merged.sourceChatJid ?? '') || null, String(merged.senderJid ?? '') || null,
-            String(merged.sourceAccountId ?? '') || null, merged.sourceTimestamp ?? null],
+            String(merged.sourceAccountId ?? '') || null, sourceTimestamp || null],
         );
       }
       if (confirmed) {
@@ -318,7 +332,7 @@ export async function saveVesselReviewDraft(actor: Actor, kind: 'message' | 'ite
         RETURNING id::text`,
       [id, JSON.stringify(payload), comment ?? null],
     );
-    if (!updated) throw new Error('REVIEW_ITEM_NOT_FOUND');
+    if (!updated) throw new DomainError('REVIEW_ITEM_NOT_FOUND', 404, 'Review item not found.');
     await recordAudit({actor, action: 'VESSEL:REVIEW_DRAFT_SAVED', entity: 'message_review_queue',
       entityId: id, detail: {payload}});
     return {id, status: 'PENDING'};

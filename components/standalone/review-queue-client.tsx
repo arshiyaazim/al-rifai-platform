@@ -11,6 +11,7 @@ export type ReviewRow = {
   chatJid: string;
   problem: string;
   reasonCode: string;
+  suggestedWorkflow?: string;
   message: string;
   timestamp: string;
   createdAt: string;
@@ -57,11 +58,15 @@ export function ReviewQueueClient({rows}: {rows: ReviewRow[]}) {
       body: JSON.stringify(body),
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error ?? `HTTP_${response.status}`);
+    if (!response.ok) throw new Error(payload.detail ?? payload.error ?? `HTTP_${response.status}`);
     return payload;
   }
 
   async function decide(row: ReviewRow, decision: 'APPROVED' | 'REJECTED' | 'IGNORED') {
+    if (row.kind === 'message' && row.suggestedWorkflow === 'release' && decision === 'APPROVED') {
+      setError('This is a release message. Release matching will be available in v3.3.5. Please Decline or Ignore for now.');
+      return;
+    }
     setBusy(row.id);
     setError('');
     try {

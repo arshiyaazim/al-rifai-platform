@@ -66,6 +66,7 @@ docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d -
 - **10** — escort release parser + `/release` review page + structured backfill (`v3.3.0-escort-release`).
 - **11** — docs/image/git cleanup; **12** — recruitment AI 5-step flow + follow-ups (`0.1.12-flow`).
 - **13** — **v3.3.4 hotfix (2026-11-14):** Approve/Reject fix, applicability preflight, hidden backend fields, pending rows removed from `/vessel`.
+- **14** — **v3.3.4.1 hotfix (2026-11-15):** Raw WhatsApp review Approve timestamp crash + error surfacing.
 
 ## v3.3.4 hotfix (2026-11-14)
 
@@ -77,10 +78,18 @@ docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d -
 
 **Rollback:** set `ALRIFAI_TAG=v3.3.3` in both `.env` files and re-run `docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync`.
 
+## v3.3.4.1 hotfix (2026-11-15)
+
+**Summary:** Raw WhatsApp review Approve hotfix. Normalized PostgreSQL `Date` values to ISO before binding to `timestamptz` (the previous `String(Date)` caused `invalid input syntax for type timestamp with time zone` and a 500 rollback). Surfaced the server `detail` message in the raw review UI, converted known review errors to `DomainError`, and guarded release messages from being approved as vessel orders. Release/confirmation matching remains v3.3.5 scope.
+
+**Files changed:** `lib/standalone/message-review-queue.ts`, `lib/standalone/vessel-review.ts`, `components/standalone/review-queue-client.tsx`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
+
+**Rollback:** set `ALRIFAI_TAG=v3.3.4` in both `.env` files and re-run the compose command.
+
 ## Rollback
 
-- Current: `local/al-rifai-platform:v3.3.4`
-- Available: `local/al-rifai-platform:v3.3.3`, `local/al-rifai-platform:v3.3.2`, `local/al-rifai-platform:v3.2.0-home-security`
+- Current: `local/al-rifai-platform:v3.3.4.1`
+- Available: `local/al-rifai-platform:v3.3.4`, `local/al-rifai-platform:v3.3.3`, `local/al-rifai-platform:v3.3.2`
 - Set `ALRIFAI_TAG` in both `.env` files and re-run the compose command.
 
 ## Safety boundary

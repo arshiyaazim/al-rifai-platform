@@ -2,9 +2,17 @@
 // This queue is separate from review_items; it stores raw messages that need a
 // workflow decision (Vessel / Release / Issue / Ignore).
 
-import {row, rows} from './db.ts';
+import {DomainError, row, rows} from './db.ts';
 import {recordAudit} from './audit.ts';
 import type {Actor} from './db.ts';
+
+/** Normalize pg Date/string values before binding to timestamptz. */
+const iso = (value: unknown): string => {
+  if (value instanceof Date) return value.toISOString();
+  const text = String(value ?? '');
+  const parsed = new Date(text);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : text;
+};
 
 export type MessageReviewRow = {
   id: string;
@@ -55,7 +63,7 @@ export async function resolveMessageReviewQueue(
       RETURNING id,status`,
     [id, decision, input.workflow ?? null, input.payload ? JSON.stringify(input.payload) : null, input.comment ?? null, actor.id],
   );
-  if (!updated) throw new Error('REVIEW_ITEM_NOT_FOUND');
+  if (!updated) throw new DomainError('REVIEW_ITEM_NOT_FOUND', 404, 'Review item not found.');
   await recordAudit({
     actor,
     action: `VESSEL:QUEUE_${decision}`,
@@ -94,14 +102,14 @@ export async function approveMessageReviewQueue(
 
   return tx(async (client) => {
     const found = await client.query<Record<string, unknown>>('SELECT * FROM message_review_queue WHERE id=$1 FOR UPDATE', [id]);
-    if (!found.rowCount) throw new Error('REVIEW_ITEM_NOT_FOUND');
+    if (!found.rowCount) throw new DomainError('REVIEW_ITEM_NOT_FOUND', 404, 'Review item not found.');
     const item = found.rows[0];
     const payload = {...((item.resolved_payload as Record<string, unknown> | null) ?? {}), ...(input.payload ?? {})};
     const workflow = String(input.workflow ?? item.resolved_workflow ?? item.suggested_workflow ?? 'vessel').toLowerCase();
     let programId: string | null = null;
 
     if (workflow === 'vessel') {
-      const eventAt = String(item.source_timestamp);
+      const eventAt = iso(item.source_timestamp);
       const fallback = orderIntakeDateAndShift(eventAt, String(item.message_text ?? ''));
       let mother = pick(payload, ['motherVessel', 'mother_vessel', 'mother']).replace(/^m\.?\s*v\.?\s*[:.,-]?\s*/i, '');
       let lighter = pick(payload, ['lighterVessel', 'lighter_vessel', 'lighter']).replace(/^m\.?\s*v\.?\s*[:.,-]?\s*/i, '');
@@ -129,7 +137,7 @@ export async function approveMessageReviewQueue(
         requestedStart = requestedStart || normalizeDraftDate(block?.assignmentDate);
         requestedShift = requestedShift || normalizeDraftShift(block?.shift);
       }
-      if (!mother || !lighter || !master) throw new Error('REVIEW_VESSEL_FIELDS_REQUIRED');
+      if (!mother || !lighter || !master) throw new DomainError('REVIEW_VESSEL_FIELDS_REQUIRED', 400, 'Mother vessel, lighter vessel and master mobile are required.');
       mother = await resolveMotherVesselAlias(mother, client);
 
       const lookupDate = requestedStart || fallback?.date || eventAt.slice(0, 10);
@@ -163,8 +171,8 @@ export async function approveMessageReviewQueue(
       const rawShift = requestedShift
         || (existing ? String(existing.start_shift) : fallback?.shift) || 'D';
       const shift: 'D' | 'N' = rawShift === 'N' ? 'N' : 'D';
-      const existingEventAt = existing?.event_at instanceof Date ? existing.event_at.toISOString() : String(existing?.event_at ?? '');
-      const eventAtValue = pick(payload, ['eventAt', 'event_at']) || existingEventAt || eventAt;
+      const existingEventAt = iso(existing?.event_at);
+      const eventAtValue = iso(pick(payload, ['eventAt', 'event_at']) || existingEventAt || eventAt);
       const destination = pick(payload, ['destination']) || null;
       const draftText = renderOwnerDraftFields({
         motherVessel: mother, lighterVessel: lighter, masterMobile: master, destination,
@@ -250,8 +258,8 @@ export async function approveMessageReviewQueue(
           [`+88${escortMobile}`],
         )).rows[0];
       }
-      if (!program) throw new Error('RELEASE_PROGRAM_NOT_FOUND');
-      if (!endDate || !endShift) throw new Error('RELEASE_DATE_REQUIRED');
+      if (!program) throw new DomainError('RELEASE_PROGRAM_NOT_FOUND', 404, 'No matching program was found for this release.');
+      if (!endDate || !endShift) throw new DomainError('RELEASE_DATE_REQUIRED', 400, 'Release date and shift are required.');
       programId = String(program.id);
       await client.query(
         `UPDATE programs SET state='RELEASED', end_date=$2, end_shift=$3, revision=revision+1,
@@ -259,7 +267,7 @@ export async function approveMessageReviewQueue(
             release_timestamp=$8, updated_at=now()
           WHERE id=$1`,
         [programId, endDate, endShift, String(item.source_message_id), String(item.source_chat_jid),
-          String(item.sender_jid), String(item.source_account_id), String(item.source_timestamp)],
+          String(item.sender_jid), String(item.source_account_id), iso(item.source_timestamp)],
       );
       await client.query(
         `UPDATE program_assignments SET end_date=$2, end_shift=$3 WHERE program_id=$1 AND end_date IS NULL`,
@@ -270,7 +278,7 @@ export async function approveMessageReviewQueue(
         [programId, `review-release:${id}`, actor.id, JSON.stringify({reviewId: id, endDate, endShift})],
       );
     } else {
-      throw new Error('REVIEW_WORKFLOW_NOT_APPLICABLE');
+      throw new DomainError('REVIEW_WORKFLOW_NOT_APPLICABLE', 400, 'This message cannot be approved in its current workflow.');
     }
 
     const updated = await client.query<{id: string; status: string}>(

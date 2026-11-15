@@ -1,15 +1,15 @@
 # DEVELOPER_START_HERE.md — AL-RIFA'I Platform
 
 **Last Updated**: 2026-11-14
-**Current Version**: v3.3.4 hotfix (review approve/reject, applicability preflight, hidden backend fields, pending removed from `/vessel`)
+**Current Version**: v3.3.4.1 hotfix (raw WhatsApp review Approve timestamp/error fix)
 **Schema Version**: 1.13.7 (60 tables; 25 migration files 001–026)
 **Main Release HEAD**: v3.3.4 hotfix commit (previous v3.3.3 = `e1c566a`). `feat/15-task-roadmap` is **merged and no longer the source of truth**; the branch is retained for history, not deleted.
-**Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.3.4` (app and sync on the same tag)
-**Rollback image**: `local/al-rifai-platform:v3.3.3`
+**Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.3.4.1` (app and sync on the same tag)
+**Rollback image**: `local/al-rifai-platform:v3.3.4`
 
 > **Agent reference:** for agent-readable system state, see `AGENTS.md` in this repo and `/opt/al-rifai-recruitment-ai/AGENTS.md`.
 >
-> **Recent batches:** 6 cash autoconfirm · 7 UI diagnosis (Phase 4 UI was only on `feat/15-task-roadmap`) · 8 merge + `v3.0.0-phase4-merged` · 9 UI polish, `/home`, security attendance, join-date backfill (`v3.2.0-home-security`) · 10 Escort Release parser + `/release` + structured backfill (`v3.3.0-escort-release`) · 11 vessel review queue (`v3.3.3`) · 12/13 **v3.3.4 hotfix**. See `README.md` for one-line detail.
+> **Recent batches:** 6 cash autoconfirm · 7 UI diagnosis (Phase 4 UI was only on `feat/15-task-roadmap`) · 8 merge + `v3.0.0-phase4-merged` · 9 UI polish, `/home`, security attendance, join-date backfill (`v3.2.0-home-security`) · 10 Escort Release parser + `/release` + structured backfill (`v3.3.0-escort-release`) · 11 vessel review queue (`v3.3.3`) · 12/13 **v3.3.4 hotfix** · 14 **v3.3.4.1 hotfix**. See `README.md` for one-line detail.
 
 ### v3.3.4 hotfix (2026-11-14)
 
@@ -20,6 +20,14 @@
 **Files changed:** `lib/standalone/review.ts`, `lib/standalone/programs.ts`, `app/api/vessel/route.ts`, `components/standalone/action-form.tsx`, `components/standalone/review-actions.tsx`, `components/standalone/source-evidence.tsx`, `components/standalone/review-item-detail.tsx`, `components/standalone/audit-history.tsx`, `components/standalone/vessel-register-client.tsx`, `lib/review-ui.ts`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
 
 **Rollback:** set `ALRIFAI_TAG=v3.3.3` in both `.env` files and re-run `docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync`.
+
+### v3.3.4.1 hotfix (2026-11-15)
+
+**Summary:** Raw WhatsApp review Approve hotfix. Normalized PostgreSQL `Date` values to ISO before binding to `timestamptz` (the previous `String(Date)` caused `invalid input syntax for type timestamp with time zone` and a 500 rollback). Surfaced the server `detail` message in the raw review UI, converted known review errors to `DomainError`, and guarded release messages from being approved as vessel orders. Release/confirmation matching remains v3.3.5 scope.
+
+**Files changed:** `lib/standalone/message-review-queue.ts`, `lib/standalone/vessel-review.ts`, `components/standalone/review-queue-client.tsx`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
+
+**Rollback:** set `ALRIFAI_TAG=v3.3.4` in both `.env` files and re-run the compose command.
 
 > **Historical — Vessel Phase 2 complete (2026-11-10):** Migration 019 applied.
 > All five stages are active: processing, draft-to-Admin, draft-to-Office,
