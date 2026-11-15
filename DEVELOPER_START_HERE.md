@@ -255,7 +255,7 @@ the dirty deployment worktree.
 | Schema | `public` |
 | Compose project | `al-rifai-phase3` |
 | Compose files | `/opt/al-rifai-platform/compose.yaml` + `compose.phase3.yaml` |
-| Environment file | `/opt/vps/al-rifai-standalone/apps/al-rifai/.env` |
+| Environment file | `/opt/al-rifai-platform/.env` |
 | Compose interpolation file | `/opt/al-rifai-platform/.env` (tag and worker flags) |
 
 The sync service has no HTTP port. It reads the bridge SQLite stores through
@@ -1415,7 +1415,7 @@ service is deliberately left on its existing tag):
 cd /opt/al-rifai-platform
 docker build -t local/al-rifai-platform:<tag> .
 # set ALRIFAI_TAG=<tag> in both .env files (repo .env for compose interpolation,
-# and /opt/vps/al-rifai-standalone/apps/al-rifai/.env for the container env_file)
+# and /opt/al-rifai-platform/.env for the container env_file)
 docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app
 curl -sk https://127.0.0.1/api/health   # {"status":"ok","database":"ok","schemaVersion":"1.13.7"}
 ```

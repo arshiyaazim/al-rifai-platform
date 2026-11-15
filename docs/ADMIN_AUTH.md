@@ -7,7 +7,7 @@ Production Admin login is pending one Owner-supplied credential action.
 
 ## 1. Verified root cause
 
-- `/opt/vps/al-rifai-standalone/apps/al-rifai/.env` contains only commented placeholders:
+- `/opt/al-rifai-platform/.env` contains only commented placeholders:
   `ALRIFAI_BOOTSTRAP_ADMIN_USERNAME=owner`, an **empty** password, and a name.
 - The container does not receive any bootstrap Admin variable.
 - Production has an `Admin` account (role ADMIN, active), whose PBKDF2 hash is
@@ -74,7 +74,7 @@ Then verify (no write):
 
 ```bash
 cd /opt/al-rifai-platform
-node --env-file=/opt/vps/al-rifai-standalone/apps/al-rifai/.env \
+node --env-file=/opt/al-rifai-platform/.env \
   --experimental-strip-types scripts/standalone/provision-admin.mjs
 ```
 
@@ -138,9 +138,9 @@ The prompt does not echo and the password is not passed as an argument.
 ### Check / apply
 
 ```bash
-PGHOST=172.18.0.2 node --env-file=/opt/vps/al-rifai-standalone/apps/al-rifai/.env \
+PGHOST=172.18.0.2 node --env-file=/opt/al-rifai-platform/.env \
   --experimental-strip-types scripts/standalone/provision-admin.mjs
-PGHOST=172.18.0.2 node --env-file=/opt/vps/al-rifai-standalone/apps/al-rifai/.env \
+PGHOST=172.18.0.2 node --env-file=/opt/al-rifai-platform/.env \
   --experimental-strip-types scripts/standalone/provision-users.mjs
 ```
 

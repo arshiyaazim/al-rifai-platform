@@ -1,0 +1,1687 @@
+diff --git a/apps/al-rifai/Dockerfile b/apps/al-rifai/Dockerfile
+index 86c3b7e..03a9fb4 100644
+--- a/apps/al-rifai/Dockerfile
++++ b/apps/al-rifai/Dockerfile
+@@ -30,10 +30,10 @@ COPY --from=build --chown=10001:10001 /app/node_modules/.pnpm/zod@3.25.76/node_m
+ COPY --from=build --chown=10001:10001 /app/.next/static ./.next/static
+ COPY --from=build --chown=10001:10001 /app/public ./public
+ COPY --from=build --chown=10001:10001 /app/release/private-entry.mjs /app/release/start-private-app.mjs /app/release/entry-rules.mjs ./
+-COPY --from=build --chown=10001:10001 /app/scripts/message-ingestion.ts /app/scripts/message-ingestion-worker.ts /app/scripts/message-mirror-worker.ts /app/scripts/process-cash.ts /app/scripts/process-vessel.ts /app/scripts/ingestion-db.ts /app/scripts/database.mjs /app/scripts/
++COPY --from=build --chown=10001:10001 /app/scripts/message-ingestion.ts /app/scripts/message-ingestion-worker.ts /app/scripts/message-mirror-worker.ts /app/scripts/process-cash.ts /app/scripts/process-vessel.ts /app/scripts/ingestion-db.ts /app/scripts/database.mjs /app/scripts/reconcile-ingest.mjs /app/scripts/
+ COPY --from=build --chown=10001:10001 /app/db/postgres.mjs /app/db/
+ COPY --from=build --chown=10001:10001 /app/db/migrations/ /app/db/migrations/
+-COPY --from=build --chown=10001:10001 /app/lib/whatsapp-archive.ts /app/lib/cash-scope.ts /app/lib/cash-publish.ts /app/lib/conversation-scope.ts /app/lib/native-live-reader.ts /app/lib/native-ingest.ts /app/lib/vessel-ops.ts /app/lib/mobile-identity.mjs /app/lib/vessel-match.ts /app/lib/escort-register.mjs /app/lib/duplicate-identity.ts /app/lib/escort-intake-candidate.mjs /app/lib/employee-program-validation.mjs /app/lib/history-extraction.mjs /app/lib/release-parser.ts /app/lib/release-scan.ts /app/lib/vessel-command-policy.ts /app/lib/shift-boundary.ts /app/lib/release-retry.ts /app/lib/release-evidence.ts /app/lib/food-bill-match.ts /app/lib/
++COPY --from=build --chown=10001:10001 /app/lib/whatsapp-archive.ts /app/lib/cash-scope.ts /app/lib/cash-source-eligibility.ts /app/lib/cash-publish.ts /app/lib/conversation-scope.ts /app/lib/native-live-reader.ts /app/lib/native-ingest.ts /app/lib/vessel-ops.ts /app/lib/mobile-identity.mjs /app/lib/vessel-match.ts /app/lib/escort-register.mjs /app/lib/duplicate-identity.ts /app/lib/escort-intake-candidate.mjs /app/lib/employee-program-validation.mjs /app/lib/history-extraction.mjs /app/lib/release-parser.ts /app/lib/release-scan.ts /app/lib/vessel-command-policy.ts /app/lib/shift-boundary.ts /app/lib/release-retry.ts /app/lib/release-evidence.ts /app/lib/food-bill-match.ts /app/lib/reconciliation-core.mjs /app/lib/
+ COPY --from=build --chown=10001:10001 /app/candidates/identity-review/live-cash.ts /app/candidates/identity-review/contracts.ts /app/candidates/identity-review/catalog.ts /app/candidates/identity-review/
+ # Build-time guard: fail the image if any relative import in scripts/ or lib/ is
+ # missing from the runtime layer. This is what catches a new lib module that was
+diff --git a/apps/al-rifai/app/api/cash/[...path]/route.ts b/apps/al-rifai/app/api/cash/[...path]/route.ts
+index 2efb657..f9b370a 100644
+--- a/apps/al-rifai/app/api/cash/[...path]/route.ts
++++ b/apps/al-rifai/app/api/cash/[...path]/route.ts
+@@ -3,7 +3,7 @@ import {auth,audit,bodyOptional,bodyString,CashPortalError,clearCookie,createSes
+ import {checkLoginThrottle, recordLoginFailure, recordLoginSuccess} from "@/lib/login-throttle";
+ import {isAcceptablePassword} from "@/lib/password-policy";
+ import {assertCanCreateUser,assertCanManageUser,assertCanResetPassword,CashUserPolicyError} from "@/lib/cash-user-policy";
+-import {assertNotRemovingLastSuperAdmin,UnifiedAuthError,validateCapabilityRequest} from "@/lib/unified-auth-policy";
++import {assertNotRemovingLastSuperAdmin,hasCapability,UnifiedAuthError,validateCapabilityRequest} from "@/lib/unified-auth-policy";
+ import {validateSubmission} from "@/lib/cash-submission";
+ import {validateEmployeeSubmission} from "@/lib/employee-submission";
+ import {assertCanActivateEmployee,assertCanDecideEmployee,EmployeeSubmissionPolicyError,validateEmployeeDecision,validateEmployeeDecisionNote,type EmployeeDecision,type EmployeeRequestState} from "@/lib/employee-submission-policy";
+@@ -421,11 +421,12 @@ async function handle(request:NextRequest,segments:string[]){
+   }
+  }
+  if(action==="summary"&&request.method==="GET"){
+-  requireCashSuperAdmin(result.user);
++  if(!hasCapability(result.user,"cash.read"))throw new CashPortalError("CAPABILITY_REQUIRED:cash.read",403);
+   const q=request.nextUrl.searchParams,term=bodyString(q.get("q"),150),method=bodyString(q.get("method"),20),from=bodyString(q.get("from"),10),to=bodyString(q.get("to"),10);
+   // Current and Archive are disjoint epochs. Default remains Current so no
+   // pre-transition record can appear in a Current total, filter or export.
+   const scope: 'CURRENT'|'ARCHIVE' = q.get("scope")==="archive"?'ARCHIVE':'CURRENT';
++  if(scope==="ARCHIVE"&&result.user.role!=="ADMIN")throw new CashPortalError("ADMIN_REQUIRED",403);
+   const clauses=cashScopedWhere('i',scope);const args:string[]=[];
+   if(term){args.push(`%${term.toLowerCase()}%`);clauses.push(`lower(concat_ws(' ',i.employee_name,i.employee_mobile,i.payout_mobile,i.purpose,i.id)) LIKE $${args.length}`);}
+   if(method){args.push(method);clauses.push(`i.method=$${args.length}`);}
+diff --git a/apps/al-rifai/app/cash/page.tsx b/apps/al-rifai/app/cash/page.tsx
+index f84b230..f9cfad7 100644
+--- a/apps/al-rifai/app/cash/page.tsx
++++ b/apps/al-rifai/app/cash/page.tsx
+@@ -26,12 +26,12 @@ export default function CashPage(){
+  const [sourceMessages,setSourceMessages]=useState<CashSourceMessage[]>([]),[messageLoading,setMessageLoading]=useState(false),[messageError,setMessageError]=useState("");
+  const [user,setUser]=useState<User|null>(null),[csrf,setCsrf]=useState(""),[summary,setSummary]=useState<Summary|null>(null),[users,setUsers]=useState<User[]>([]),[tab,setTab]=useState<Tab>("transactions"),[q,setQ]=useState(""),[method,setMethod]=useState(""),[from,setFrom]=useState(""),[to,setTo]=useState(""),[error,setError]=useState(""),[notice,setNotice]=useState(""),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true),[login,setLogin]=useState({username:"",password:""}),[password,setPassword]=useState({newPassword:"",confirmPassword:""}),[profile,setProfile]=useState({displayName:"",email:"",mobile:"",whatsappNumber:""}),[newUser,setNewUser]=useState({username:"",password:"",displayName:"",email:"",mobile:"",whatsappNumber:"",role:"USER"}),[selected,setSelected]=useState<CashRow|null>(null),[page,setPage]=useState(1);
+  useEffect(()=>{if(!user||tab!=="messages")return;const controller=new AbortController();const timer=window.setTimeout(()=>{setMessageLoading(true);setMessageError("");void call<{rows:CashSourceMessage[]}>("messages",{signal:controller.signal}).then(data=>setSourceMessages(data.rows)).catch(e=>{if(!controller.signal.aborted)setMessageError(friendly(e));}).finally(()=>{if(!controller.signal.aborted)setMessageLoading(false);});},0);return()=>{window.clearTimeout(timer);controller.abort();};},[user,tab]);
+- const load=async()=>{setLoading(true);try{const me=await call<{user:User;csrf:string}>("me");setCsrf(me.csrf);setUser(me.user);setProfile({displayName:me.user.displayName,email:me.user.email||"",mobile:me.user.mobile||"",whatsappNumber:me.user.whatsappNumber||""});if(me.user.role==="ADMIN"&&!me.user.mustChangePassword){try{const params=new URLSearchParams({q,method,from,to,limit:String(PAGE),offset:String((page-1)*PAGE)});setSummary(await call<Summary>(`summary?${params}`));setUsers((await call<{users:User[]}>("users")).users);}catch(accountsErr){setError(friendly(accountsErr));}}}catch(e){if(!["AUTHENTICATION_REQUIRED","SESSION_EXPIRED"].includes((e as Error).message))setError(friendly(e));}finally{setLoading(false);}};
++ const load=async()=>{setLoading(true);try{const me=await call<{user:User;csrf:string}>("me");setCsrf(me.csrf);setUser(me.user);setProfile({displayName:me.user.displayName,email:me.user.email||"",mobile:me.user.mobile||"",whatsappNumber:me.user.whatsappNumber||""});if(!me.user.mustChangePassword){try{const params=new URLSearchParams({q,method,from,to,limit:String(PAGE),offset:String((page-1)*PAGE)});setSummary(await call<Summary>(`summary?${params}`));if(me.user.role==="ADMIN")setUsers((await call<{users:User[]}>("users")).users);}catch(accountsErr){setError(friendly(accountsErr));}}}catch(e){if(!["AUTHENTICATION_REQUIRED","SESSION_EXPIRED"].includes((e as Error).message))setError(friendly(e));}finally{setLoading(false);}};
+  // Initial authentication/session loading is intentionally separate from filter refreshes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(()=>{const timer=window.setTimeout(()=>void load(),0);return()=>window.clearTimeout(timer);},[]);
+  async function refresh(){setError("");await load();}
+- async function doLogin(e:React.FormEvent){e.preventDefault();setBusy(true);setError("");try{const d=await call<{user:User;csrf:string}>("login",{method:"POST",body:JSON.stringify(login)});setUser(d.user);setCsrf(d.csrf);setProfile({displayName:d.user.displayName,email:d.user.email||"",mobile:d.user.mobile||"",whatsappNumber:d.user.whatsappNumber||""});setNotice(d.user.mustChangePassword?"প্রথমে নতুন password সেট করুন।":"সফলভাবে লগইন হয়েছে।");if(d.user.role==="ADMIN"&&!d.user.mustChangePassword){try{setSummary(await call<Summary>(`summary?${new URLSearchParams({q,method,from,to})}`));setUsers((await call<{users:User[]}>("users")).users);}catch(accountsErr){setError(friendly(accountsErr));}}}catch(e){setError(friendly(e));}finally{setBusy(false);}}
++ async function doLogin(e:React.FormEvent){e.preventDefault();setBusy(true);setError("");try{const d=await call<{user:User;csrf:string}>("login",{method:"POST",body:JSON.stringify(login)});setUser(d.user);setCsrf(d.csrf);setProfile({displayName:d.user.displayName,email:d.user.email||"",mobile:d.user.mobile||"",whatsappNumber:d.user.whatsappNumber||""});setNotice(d.user.mustChangePassword?"প্রথমে নতুন password সেট করুন।":"সফলভাবে লগইন হয়েছে।");if(!d.user.mustChangePassword){try{setSummary(await call<Summary>(`summary?${new URLSearchParams({q,method,from,to})}`));if(d.user.role==="ADMIN")setUsers((await call<{users:User[]}>("users")).users);}catch(accountsErr){setError(friendly(accountsErr));}}}catch(e){setError(friendly(e));}finally{setBusy(false);}}
+  async function mutate(path:string,methodName:string,body:unknown){setBusy(true);setError("");try{const d=await call<{user?:User}>(path,{method:methodName,headers:{"X-CSRF-Token":csrf},body:JSON.stringify(body)});if(d.user){setUser(d.user);setProfile({displayName:d.user.displayName,email:d.user.email||"",mobile:d.user.mobile||"",whatsappNumber:d.user.whatsappNumber||""});}setNotice(path==="password"?"Password পরিবর্তন হয়েছে।":"তথ্য সংরক্ষণ হয়েছে।");if(user?.role==="ADMIN"&&!user.mustChangePassword)setUsers((await call<{users:User[]}>("users")).users);}catch(e){setError(friendly(e));}finally{setBusy(false);}}
+  async function logout(){try{await mutate("logout","POST",{});}finally{location.reload();}}
+  const rows=summary?.rows??emptyRows;
+@@ -76,5 +76,10 @@ export default function CashPage(){
+  async function goPage(next:number){const target=Math.max(1,next);setPage(target);setLoading(true);try{setSummary(await call<Summary>(`summary?${new URLSearchParams({q,method,from,to,limit:String(PAGE),offset:String((target-1)*PAGE)})}`));}catch(e){setError(friendly(e));}finally{setLoading(false);}}
+  function exportCsv(){const lines=[["Date","Employee","Employee ID","Payout number","Purpose","Method","Amount","Total","Status"],...rows.map(r=>[localDate(r.source_time),r.employee_name,r.employee_mobile||"",r.payout_mobile||"",r.purpose,r.method,money(r.amount_minor),lifetimeTotal(r.employee_mobile),r.posting_id?"Posted":"Instruction"])];const blob=new Blob([lines.map(row=>row.map(v=>`"${String(v).replaceAll('"','""')}"`).join(",")).join("\n")],{type:"text/csv;charset=utf-8"});const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="al-rifai-cash-transactions.csv";a.click();URL.revokeObjectURL(url);}
+  if(!user)return <main className="cash-login-shell"><section className="cash-card cash-login"><p className="cash-kicker">AL-RIFA’I · INTEGRATED SERVICES</p><h1>Cash Payment</h1><p className="cash-muted">নিরাপদে লগইন করে হিসাব ও ক্যাশ ট্রানজেকশন দেখুন।</p><form onSubmit={doLogin}><label>Username<input required autoComplete="username" value={login.username} onChange={e=>setLogin({...login,username:e.target.value})}/></label><label>Password<input required type="password" autoComplete="current-password" value={login.password} onChange={e=>setLogin({...login,password:e.target.value})}/></label>{error&&<p className="cash-error">{error}</p>}<button disabled={busy} type="submit">{busy?"Checking…":"Log in"}</button></form><p className="cash-footnote">এই portal কেবল অনুমোদিত `/cash` feature-এর জন্য।</p></section></main>;
+- const accountsView=user.role==="ADMIN"&&!user.mustChangePassword;return <main className="cash-app"><aside className="cash-sidebar"><a className="cash-brand" href="/cash"><span className="cash-logo"><Anchor size={22}/></span><span><strong>AL-RIFA’I</strong><small>INTEGRATED SERVICES</small></span></a>{accountsView&&<><p className="cash-nav-label">PLATFORM WORKSPACE</p><nav aria-label="Platform workspace"><a className="cash-nav-link" href="/dashboard">Dashboard</a><a className="cash-nav-link" href="/vessel-register">Vessel Register</a><a className="cash-nav-link" href="/transactions">Transactions</a><a className="cash-nav-link" href="/employees">Employees</a><a className="cash-nav-link" href="/sources-review">Escort &amp; WhatsApp Review</a><a className="cash-nav-link" href="/insights">Operational Insights</a><a className="cash-nav-link" href="/income-expenditure">Income &amp; Expenditure</a><a className="cash-nav-link" href="/archive">Archive</a><a className="cash-nav-link" href="/assistant">Assistant</a></nav></>}<p className="cash-nav-label">WORKSPACE</p><nav>{user.role==="ADMIN"&&<a className="cash-nav-link" href="/vessel"><LayoutDashboard size={17}/>Vessel register</a>}<button className="active"><Wallet size={17}/>Accounts / হিসাব</button><a className="cash-nav-link" href="/cash/submissions"><ShieldCheck size={17}/>Cash Submissions &amp; Review</a>{user.role==="ADMIN"&&<a className="cash-nav-link" href="/cash/archive"><BookOpen size={17}/>Archive History</a>}</nav><div className="cash-side-bottom"><ShieldCheck size={20}/><strong>Private workspace</strong><p>Owner access only.<br/>Accounts view is read-only.</p><button onClick={logout}><LogOut size={14}/>Sign out</button></div></aside><section className="cash-workspace"><header className="cash-topbar"><span>AL-RIFA’I · OPERATIONS WORKSPACE</span><div><span>{user.displayName} · {user.role}</span><button onClick={logout}><LogOut size={14}/>Sign out</button></div></header><div className="cash-main"><header className="cash-page-head"><div><p className="cash-eyebrow">AL-RIFA’I · ACCOUNTS CONTROL</p><h1><Wallet size={28}/>হিসাব ও ক্যাশ ট্রানজেকশন</h1><p>মালিক → Accountant direct WhatsApp conversation থেকে সংরক্ষিত cash instructions-এর traceable ledger।</p></div><div className="cash-head-actions"><button onClick={refresh} disabled={loading}><RefreshCw size={14} className={loading?"cash-spin":""}/>Refresh accounts</button></div></header>{(user.mustChangePassword||error||notice)&&<div className={error?"cash-error":"cash-notice"}>{error||notice||""}</div>}{accountsView&&<><div className="cash-tabs">{([["transactions","Transactions / লেনদেন"],["employees","Employee statements / কর্মভিত্তিক হিসাব"],["review","Parsing & duplicate review / যাচাই"],["messages","Accountant messages"]] as [Tab,string][]).map(([key,label])=><button key={key} className={tab===key?"active":""} onClick={()=>setTab(key)}>{label}</button>)}</div>{tab==="transactions"||tab==="employees"?<><section className="cash-filter-card"><div className="cash-filters"><label className="cash-search"><span>Employee name, ID, payout number or purpose</span><div><Search size={15}/><EmployeeTypeahead id="cash-q" value={q} candidates={employeeCandidates} onValueChange={v=>void updateFilters("q",v)} onSelect={s=>void updateFilters("q",s.phone)} placeholder="নাম / ID / payout number…" className="text-xs"/></div></label><label><span>Accounts source</span><select disabled><option>Live WhatsApp · owner → Accountant</option></select></label><label><span>Payment method</span><select value={method} onChange={e=>void updateFilters("method",e.target.value)}><option value="">All methods</option><option value="bkash">bKash</option><option value="nagad">Nagad</option><option value="cash">Cash</option><option value="rocket">Rocket</option><option value="bank">Bank</option></select></label><label><span>Transaction date from</span><input type="date" value={from} onChange={e=>void updateFilters("from",e.target.value)}/></label><label><span>Transaction date to</span><input type="date" value={to} onChange={e=>void updateFilters("to",e.target.value)}/></label></div><button className="cash-clear" onClick={clearFilters}>Clear accounts filters <X size={13}/></button></section><section className="cash-metrics"><article><span>Matching transaction rows</span><strong>{summary?.counts.instructions??"—"}</strong><small>Canonical Owner → Accountant instructions in scope</small></article><article><span>Instruction amount</span><strong>{summary?money(summary.counts.instruction_minor):"—"}</strong><small>Sum of instruction amounts · not proof of payment</small></article><article><span>Posted amount</span><strong>{summary?money(summary.counts.total_minor):"—"}</strong><small>{summary?.counts.postings?`${summary.counts.postings} posted entries`:"No postings in Current"}</small></article><article><span>Employee IDs</span><strong>{summary?.counts.employees??pageEmployees}</strong><small>Distinct employee mobiles across the filtered canonical scope</small></article><article><span>Review notes</span><strong>{summary?.counts.notes??pageNotes}</strong><small>Rows with structured review reasons across the filtered scope</small></article></section><p className="cash-muted" role="status">Loaded {rows.length.toLocaleString()} of {(summary?.total??0).toLocaleString()} instructions · {(summary?.counts.complete??completeRows).toLocaleString()} rows with complete structured fields in this scope · Instruction amount is the Owner→Accountant ledger total; Posted amount is a separate posted-ledger projection.</p>{tab==="transactions"?<section className="cash-table-card"><div className="cash-card-head"><div><h2>Cash transactions</h2><p>Live owner → Accountant projection · source message IDs are retained for traceability.</p></div><button onClick={exportCsv}><Download size={14}/>CSV (page)</button></div><div className="cash-table-wrap"><table><thead><tr><th>Date / record</th><th>Employee / purpose</th><th>Employee ID</th><th>Payout number</th><th>Method</th><th>Amount / status</th><th>Total</th><th>Source</th><th>Actions</th></tr></thead><tbody>{rows.map(row=><tr key={row.id}><td>{localDate(row.source_time)}<small>#{row.id.slice(0,12)}…</small></td><td><strong>{row.employee_name}</strong><small>{row.purpose}</small></td><td>{row.employee_mobile||"Not available"}</td><td>{row.payout_mobile||"Not separately provided"}</td><td title={row.method||undefined}>{methodAbbreviation(row.method)}</td><td><strong>{money(row.amount_minor)}</strong><small>{row.posting_id?"Posted":"Instruction"}</small></td><td data-label="Total" title="All instructions for this employee in the Current scope, every date and method">{lifetimeTotal(row.employee_mobile)}</td><td><button className="cash-source-btn" onClick={()=>setSelected(row)}>Source <ChevronDown size={13}/></button></td><td>{row.employee_mobile?<Link className="cash-row-link" href={`/transactions/employee/${encodeURIComponent(row.employee_mobile)}`} aria-label={`Show all transactions for ${row.employee_name||row.employee_mobile}`}>Show All</Link>:<span className="cash-muted">—</span>}</td></tr>)}</tbody></table></div>{summary&&<footer className="cash-table-footer" style={{display:"flex",gap:12,alignItems:"center",justifyContent:"space-between",padding:"10px 0",flexWrap:"wrap"}}><span>{summary.total.toLocaleString()} instructions · page {page} of {pages}</span><div style={{display:"flex",gap:8}}><button className="cash-clear" disabled={loading||page<=1} onClick={()=>void goPage(page-1)}>Previous</button><button className="cash-clear" disabled={loading||page>=pages} onClick={()=>void goPage(page+1)}>Next</button></div></footer>}{!loading&&!rows.length&&<p className="cash-empty">এই filter-এ কোনো transaction নেই।</p>}</section>:<section className="cash-table-card"><div className="cash-card-head"><div><h2>Employee statements</h2><p>Employee grouping is based on the parsed employee mobile; names are not independently merged.</p></div></div><div className="cash-table-wrap"><table><thead><tr><th>Employee</th><th>Employee ID</th><th>Entries</th><th>Recorded amount</th><th>Last entry</th></tr></thead><tbody>{employees.map(row=><tr key={row.mobile+row.name}><td><strong>{row.name}</strong></td><td>{row.mobile}</td><td>{row.count}</td><td><strong>{money(row.amount)}</strong></td><td>{localDate(row.last)}</td></tr>)}</tbody></table></div></section>}</>:<section className="cash-info-card"><h2> {tab==="review"?"Parsing & duplicate review / যাচাই":"Accountant messages"}</h2><p>{tab==="review"?"Live owner → Accountant rows require employee mobile, employee name, payout number, method and amount. Candidate parsing is review-only; no automatic posting is enabled. Incomplete or ambiguous messages remain reviewable.":"This view is limited to the exact Owner → Accountant direct WhatsApp conversations. Original text is read from the immutable AL-RIFA’I archive and linked by native message ID."}</p><div className="cash-info-grid"><div><span>Source scope</span><strong>wa-01</strong></div><div><span>Conversation</span><strong>Owner → Accountant</strong></div><div><span>Posting authority</span><strong>Review only · no auto-post</strong></div></div>{tab==="messages"&&<div className="cash-info-grid" aria-live="polite">{messageLoading&&<p>Loading archived messages…</p>}{messageError&&<p role="alert">{messageError}</p>}{!messageLoading&&!messageError&&!sourceMessages.length&&<p>No archived Accountant messages are available yet.</p>}{sourceMessages.map(row=><article key={row.id}><div><strong>{row.sender_push_name||row.sender_phone||row.sender_jid||"Sender unavailable"} · {row.direction}</strong><small>{localDate(row.source_time)} · {row.message_id} · {row.chat_jid}</small></div><pre className="cash-source-note" style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{row.text_content||"No text content available."}</pre><small>Processing: {String(row.processed_content?.classification||row.processing_status||"pending")}</small><small>Financial action: none · review/approval required</small></article>)}</div>}</section>}</>}{selected&&<dialog open className="cash-source-dialog" onClick={e=>{if(e.target===e.currentTarget)setSelected(null)}}><div><button className="cash-dialog-close" onClick={()=>setSelected(null)} aria-label="Close source"><X size={18}/></button><p className="cash-eyebrow">LIVE SOURCE RECORD</p><h2>{selected.employee_name}</h2><strong className="cash-dialog-amount">{money(selected.amount_minor)}</strong><dl><div><dt>Date</dt><dd>{localDate(selected.source_time)}</dd></div><div><dt>Employee ID</dt><dd>{selected.employee_mobile||"Not available"}</dd></div><div><dt>Payout number</dt><dd>{selected.payout_mobile||"Not separately provided"}</dd></div><div><dt>Method</dt><dd>{selected.method||"—"}</dd></div><div><dt>Purpose</dt><dd>{selected.purpose}</dd></div><div><dt>Status</dt><dd>{selected.posting_id?"Posted":"Instruction"}</dd></div><div><dt>Source message ID</dt><dd>{selected.id}</dd></div></dl><p className="cash-source-note">Raw text is not copied into the Accounts portal. The source message remains in the WhatsApp bridge cache and is linked by this record ID.</p></div></dialog>}{!accountsView&&<section className="cash-card cash-span"><h2>আমার অ্যাকাউন্ট / My account</h2><p className="cash-muted">আপনার তথ্য ও cash submission এখান থেকে দেখা যাবে। হিসাবের তালিকা শুধু Admin-এর জন্য।</p><div className="cash-info-grid"><div><span>Username</span><strong>{user.username}</strong></div><div><span>Role</span><strong>{user.role}</strong></div><div><span>Status</span><strong>{user.mustChangePassword?"Password change required":"Active"}</strong></div></div><p><a href="/cash/submissions">Cash submissions খুলুন →</a></p></section>}<section className="cash-lower-grid"><section className="cash-card"><h2>My profile</h2><p className="cash-muted">যোগাযোগের তথ্য আপডেট করা যাবে; password কখনো দেখানো হয় না।</p><form onSubmit={e=>{e.preventDefault();void mutate("profile","PATCH",profile)}}><label>Username<input value={user.username} disabled/></label><label>Display name<input value={profile.displayName} onChange={e=>setProfile({...profile,displayName:e.target.value})}/></label><label>Email<input type="email" value={profile.email} onChange={e=>setProfile({...profile,email:e.target.value})}/></label><label>Mobile<input value={profile.mobile} onChange={e=>setProfile({...profile,mobile:e.target.value})}/></label><label>WhatsApp number<input value={profile.whatsappNumber} onChange={e=>setProfile({...profile,whatsappNumber:e.target.value})}/></label><button disabled={busy}>Save profile</button></form></section><section className="cash-card"><h2>Change password</h2><p className="cash-muted">কমপক্ষে {MIN_PASSWORD_LENGTH} অক্ষরের নতুন password এবং confirmation দিন। অন্য সব ডিভাইস sign out হয়ে যাবে।</p><form onSubmit={e=>{e.preventDefault();void mutate("password","POST",password)}}><label>New password<input type="password" required minLength={MIN_PASSWORD_LENGTH} value={password.newPassword} onChange={e=>setPassword({...password,newPassword:e.target.value})}/></label><label>Confirm new password<input type="password" required minLength={MIN_PASSWORD_LENGTH} value={password.confirmPassword} onChange={e=>setPassword({...password,confirmPassword:e.target.value})}/></label><button disabled={busy}>Change password</button></form></section>{user.role==="ADMIN"&&!user.mustChangePassword&&<section className="cash-card cash-span"><h2>User management</h2><p className="cash-muted">নতুন user তৈরি করুন; plaintext password সংরক্ষণ হয় না।</p><form className="cash-admin-form" onSubmit={async e=>{e.preventDefault();await mutate("users","POST",newUser);setNewUser({username:"",password:"",displayName:"",email:"",mobile:"",whatsappNumber:"",role:"USER"});}}><input placeholder="Username" required value={newUser.username} onChange={e=>setNewUser({...newUser,username:e.target.value})}/><input placeholder="Display name" required value={newUser.displayName} onChange={e=>setNewUser({...newUser,displayName:e.target.value})}/><input placeholder={`Temporary password (${MIN_PASSWORD_LENGTH}+)`} required minLength={MIN_PASSWORD_LENGTH} type="password" value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})}/><input placeholder="Email" type="email" value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})}/><input placeholder="Mobile" value={newUser.mobile} onChange={e=>setNewUser({...newUser,mobile:e.target.value})}/><input placeholder="WhatsApp number" value={newUser.whatsappNumber} onChange={e=>setNewUser({...newUser,whatsappNumber:e.target.value})}/><select value={newUser.role} onChange={e=>setNewUser({...newUser,role:e.target.value})}><option value="USER">User</option><option value="ADMIN">Admin</option></select><button disabled={busy}>Add user</button></form><div className="cash-user-list">{users.map(u=><div key={u.id}><strong>{u.username}</strong><span>{u.displayName} · {u.role} · {u.active?"Active":"Disabled"}</span><small>{u.email||"No email"} · {u.mobile||"No mobile"}</small></div>)}</div></section>}</section></div></section></main>;
++ const accountsView=!user.mustChangePassword;
++ const tabs:[Tab,string][]=user.role==="ADMIN"
++  ?[["transactions","Transactions / লেনদেন"],["employees","Employee statements / কর্মভিত্তিক হিসাব"],["review","Parsing & duplicate review / যাচাই"],["messages","Accountant messages"]]
++  :[["transactions","Transactions / লেনদেন"],["employees","Employee statements / কর্মভিত্তিক হিসাব"]];
++ return <main className="cash-app"><aside className="cash-sidebar"><a className="cash-brand" href="/cash"><span className="cash-logo"><Anchor size={22}/></span><span><strong>AL-RIFA’I</strong><small>INTEGRATED SERVICES</small></span></a>{user.role==="ADMIN"&&accountsView&&<><p className="cash-nav-label">PLATFORM WORKSPACE</p><nav aria-label="Platform workspace"><a className="cash-nav-link" href="/dashboard">Dashboard</a><a className="cash-nav-link" href="/vessel-register">Vessel Register</a><a className="cash-nav-link" href="/transactions">Transactions</a><a className="cash-nav-link" href="/employees">Employees</a><a className="cash-nav-link" href="/sources-review">Escort &amp; WhatsApp Review</a><a className="cash-nav-link" href="/insights">Operational Insights</a><a className="cash-nav-link" href="/income-expenditure">Income &amp; Expenditure</a><a className="cash-nav-link" href="/archive">Archive</a><a className="cash-nav-link" href="/assistant">Assistant</a></nav></>}<p className="cash-nav-label">WORKSPACE</p><nav>{user.role==="ADMIN"&&<a className="cash-nav-link" href="/vessel"><LayoutDashboard size={17}/>Vessel register</a>}<button className="active"><Wallet size={17}/>Accounts / হিসাব</button><a className="cash-nav-link" href="/cash/submissions"><ShieldCheck size={17}/>Cash Submissions &amp; Review</a>{user.role==="ADMIN"&&<a className="cash-nav-link" href="/cash/archive"><BookOpen size={17}/>Archive History</a>}</nav><div className="cash-side-bottom"><ShieldCheck size={20}/><strong>Private workspace</strong><p>Role-scoped access.<br/>Current Cash view is read-only.</p><button onClick={logout}><LogOut size={14}/>Sign out</button></div></aside><section className="cash-workspace"><header className="cash-topbar"><span>AL-RIFA’I · OPERATIONS WORKSPACE</span><div><span>{user.displayName} · {user.role}</span><button onClick={logout}><LogOut size={14}/>Sign out</button></div></header><div className="cash-main"><header className="cash-page-head"><div><p className="cash-eyebrow">AL-RIFA’I · ACCOUNTS CONTROL</p><h1><Wallet size={28}/>হিসাব ও ক্যাশ ট্রানজেকশন</h1><p>মালিক → Accountant direct WhatsApp conversation থেকে সংরক্ষিত cash instructions-এর traceable ledger।</p></div><div className="cash-head-actions"><button onClick={refresh} disabled={loading}><RefreshCw size={14} className={loading?"cash-spin":""}/>Refresh accounts</button></div></header>{(user.mustChangePassword||error||notice)&&<div className={error?"cash-error":"cash-notice"}>{error||notice||""}</div>}{accountsView&&<><div className="cash-tabs">{tabs.map(([key,label])=><button key={key} className={tab===key?"active":""} onClick={()=>setTab(key)}>{label}</button>)}</div>
++{tab==="transactions"||tab==="employees"?<><section className="cash-filter-card"><div className="cash-filters"><label className="cash-search"><span>Employee name, ID, payout number or purpose</span><div><Search size={15}/><EmployeeTypeahead id="cash-q" value={q} candidates={employeeCandidates} onValueChange={v=>void updateFilters("q",v)} onSelect={s=>void updateFilters("q",s.phone)} placeholder="নাম / ID / payout number…" className="text-xs"/></div></label><label><span>Accounts source</span><select disabled><option>Live WhatsApp · owner → Accountant</option></select></label><label><span>Payment method</span><select value={method} onChange={e=>void updateFilters("method",e.target.value)}><option value="">All methods</option><option value="bkash">bKash</option><option value="nagad">Nagad</option><option value="cash">Cash</option><option value="rocket">Rocket</option><option value="bank">Bank</option></select></label><label><span>Transaction date from</span><input type="date" value={from} onChange={e=>void updateFilters("from",e.target.value)}/></label><label><span>Transaction date to</span><input type="date" value={to} onChange={e=>void updateFilters("to",e.target.value)}/></label></div><button className="cash-clear" onClick={clearFilters}>Clear accounts filters <X size={13}/></button></section><section className="cash-metrics"><article><span>Matching transaction rows</span><strong>{summary?.counts.instructions??"—"}</strong><small>Canonical Owner → Accountant instructions in scope</small></article><article><span>Instruction amount</span><strong>{summary?money(summary.counts.instruction_minor):"—"}</strong><small>Sum of instruction amounts · not proof of payment</small></article><article><span>Posted amount</span><strong>{summary?money(summary.counts.total_minor):"—"}</strong><small>{summary?.counts.postings?`${summary.counts.postings} posted entries`:"No postings in Current"}</small></article><article><span>Employee IDs</span><strong>{summary?.counts.employees??pageEmployees}</strong><small>Distinct employee mobiles across the filtered canonical scope</small></article><article><span>Review notes</span><strong>{summary?.counts.notes??pageNotes}</strong><small>Rows with structured review reasons across the filtered scope</small></article></section><p className="cash-muted" role="status">Loaded {rows.length.toLocaleString()} of {(summary?.total??0).toLocaleString()} instructions · {(summary?.counts.complete??completeRows).toLocaleString()} rows with complete structured fields in this scope · Instruction amount is the Owner→Accountant ledger total; Posted amount is a separate posted-ledger projection.</p>{tab==="transactions"?<section className="cash-table-card"><div className="cash-card-head"><div><h2>Cash transactions</h2><p>Live owner → Accountant projection · source message IDs are retained for traceability.</p></div><button onClick={exportCsv}><Download size={14}/>CSV (page)</button></div><div className="cash-table-wrap"><table><thead><tr><th>Date / record</th><th>Employee / purpose</th><th>Employee ID</th><th>Payout number</th><th>Method</th><th>Amount / status</th><th>Total</th><th>Source</th><th>Actions</th></tr></thead><tbody>{rows.map(row=><tr key={row.id}><td>{localDate(row.source_time)}<small>#{row.id.slice(0,12)}…</small></td><td><strong>{row.employee_name}</strong><small>{row.purpose}</small></td><td>{row.employee_mobile||"Not available"}</td><td>{row.payout_mobile||"Not separately provided"}</td><td title={row.method||undefined}>{methodAbbreviation(row.method)}</td><td><strong>{money(row.amount_minor)}</strong><small>{row.posting_id?"Posted":"Instruction"}</small></td><td data-label="Total" title="All instructions for this employee in the Current scope, every date and method">{lifetimeTotal(row.employee_mobile)}</td><td><button className="cash-source-btn" onClick={()=>setSelected(row)}>Source <ChevronDown size={13}/></button></td><td>{row.employee_mobile?<Link className="cash-row-link" href={`/transactions/employee/${encodeURIComponent(row.employee_mobile)}`} aria-label={`Show all transactions for ${row.employee_name||row.employee_mobile}`}>Show All</Link>:<span className="cash-muted">—</span>}</td></tr>)}</tbody></table></div>{summary&&<footer className="cash-table-footer" style={{display:"flex",gap:12,alignItems:"center",justifyContent:"space-between",padding:"10px 0",flexWrap:"wrap"}}><span>{summary.total.toLocaleString()} instructions · page {page} of {pages}</span><div style={{display:"flex",gap:8}}><button className="cash-clear" disabled={loading||page<=1} onClick={()=>void goPage(page-1)}>Previous</button><button className="cash-clear" disabled={loading||page>=pages} onClick={()=>void goPage(page+1)}>Next</button></div></footer>}{!loading&&!rows.length&&<p className="cash-empty">এই filter-এ কোনো transaction নেই।</p>}</section>:<section className="cash-table-card"><div className="cash-card-head"><div><h2>Employee statements</h2><p>Employee grouping is based on the parsed employee mobile; names are not independently merged.</p></div></div><div className="cash-table-wrap"><table><thead><tr><th>Employee</th><th>Employee ID</th><th>Entries</th><th>Recorded amount</th><th>Last entry</th></tr></thead><tbody>{employees.map(row=><tr key={row.mobile+row.name}><td><strong>{row.name}</strong></td><td>{row.mobile}</td><td>{row.count}</td><td><strong>{money(row.amount)}</strong></td><td>{localDate(row.last)}</td></tr>)}</tbody></table></div></section>}</>:<section className="cash-info-card"><h2> {tab==="review"?"Parsing & duplicate review / যাচাই":"Accountant messages"}</h2><p>{tab==="review"?"Live owner → Accountant rows require employee mobile, employee name, payout number, method and amount. Candidate parsing is review-only; no automatic posting is enabled. Incomplete or ambiguous messages remain reviewable.":"This view is limited to the exact Owner → Accountant direct WhatsApp conversations. Original text is read from the immutable AL-RIFA’I archive and linked by native message ID."}</p><div className="cash-info-grid"><div><span>Source scope</span><strong>wa-01</strong></div><div><span>Conversation</span><strong>Owner → Accountant</strong></div><div><span>Posting authority</span><strong>Review only · no auto-post</strong></div></div>{tab==="messages"&&<div className="cash-info-grid" aria-live="polite">{messageLoading&&<p>Loading archived messages…</p>}{messageError&&<p role="alert">{messageError}</p>}{!messageLoading&&!messageError&&!sourceMessages.length&&<p>No archived Accountant messages are available yet.</p>}{sourceMessages.map(row=><article key={row.id}><div><strong>{row.sender_push_name||row.sender_phone||row.sender_jid||"Sender unavailable"} · {row.direction}</strong><small>{localDate(row.source_time)} · {row.message_id} · {row.chat_jid}</small></div><pre className="cash-source-note" style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{row.text_content||"No text content available."}</pre><small>Processing: {String(row.processed_content?.classification||row.processing_status||"pending")}</small><small>Financial action: none · review/approval required</small></article>)}</div>}</section>}</>}{selected&&<dialog open className="cash-source-dialog" onClick={e=>{if(e.target===e.currentTarget)setSelected(null)}}><div><button className="cash-dialog-close" onClick={()=>setSelected(null)} aria-label="Close source"><X size={18}/></button><p className="cash-eyebrow">LIVE SOURCE RECORD</p><h2>{selected.employee_name}</h2><strong className="cash-dialog-amount">{money(selected.amount_minor)}</strong><dl><div><dt>Date</dt><dd>{localDate(selected.source_time)}</dd></div><div><dt>Employee ID</dt><dd>{selected.employee_mobile||"Not available"}</dd></div><div><dt>Payout number</dt><dd>{selected.payout_mobile||"Not separately provided"}</dd></div><div><dt>Method</dt><dd>{selected.method||"—"}</dd></div><div><dt>Purpose</dt><dd>{selected.purpose}</dd></div><div><dt>Status</dt><dd>{selected.posting_id?"Posted":"Instruction"}</dd></div><div><dt>Source message ID</dt><dd>{selected.id}</dd></div></dl><p className="cash-source-note">Raw text is not copied into the Accounts portal. The source message remains in the WhatsApp bridge cache and is linked by this record ID.</p></div></dialog>}{!accountsView&&<section className="cash-card cash-span"><h2>আমার অ্যাকাউন্ট / My account</h2><p className="cash-muted">আপনার তথ্য ও cash submission এখান থেকে দেখা যাবে। হিসাবের তালিকা শুধু Admin-এর জন্য।</p><div className="cash-info-grid"><div><span>Username</span><strong>{user.username}</strong></div><div><span>Role</span><strong>{user.role}</strong></div><div><span>Status</span><strong>{user.mustChangePassword?"Password change required":"Active"}</strong></div></div><p><a href="/cash/submissions">Cash submissions খুলুন →</a></p></section>}<section className="cash-lower-grid"><section className="cash-card"><h2>My profile</h2><p className="cash-muted">যোগাযোগের তথ্য আপডেট করা যাবে; password কখনো দেখানো হয় না।</p><form onSubmit={e=>{e.preventDefault();void mutate("profile","PATCH",profile)}}><label>Username<input value={user.username} disabled/></label><label>Display name<input value={profile.displayName} onChange={e=>setProfile({...profile,displayName:e.target.value})}/></label><label>Email<input type="email" value={profile.email} onChange={e=>setProfile({...profile,email:e.target.value})}/></label><label>Mobile<input value={profile.mobile} onChange={e=>setProfile({...profile,mobile:e.target.value})}/></label><label>WhatsApp number<input value={profile.whatsappNumber} onChange={e=>setProfile({...profile,whatsappNumber:e.target.value})}/></label><button disabled={busy}>Save profile</button></form></section><section className="cash-card"><h2>Change password</h2><p className="cash-muted">কমপক্ষে {MIN_PASSWORD_LENGTH} অক্ষরের নতুন password এবং confirmation দিন। অন্য সব ডিভাইস sign out হয়ে যাবে।</p><form onSubmit={e=>{e.preventDefault();void mutate("password","POST",password)}}><label>New password<input type="password" required minLength={MIN_PASSWORD_LENGTH} value={password.newPassword} onChange={e=>setPassword({...password,newPassword:e.target.value})}/></label><label>Confirm new password<input type="password" required minLength={MIN_PASSWORD_LENGTH} value={password.confirmPassword} onChange={e=>setPassword({...password,confirmPassword:e.target.value})}/></label><button disabled={busy}>Change password</button></form></section>{user.role==="ADMIN"&&!user.mustChangePassword&&<section className="cash-card cash-span"><h2>User management</h2><p className="cash-muted">নতুন user তৈরি করুন; plaintext password সংরক্ষণ হয় না।</p><form className="cash-admin-form" onSubmit={async e=>{e.preventDefault();await mutate("users","POST",newUser);setNewUser({username:"",password:"",displayName:"",email:"",mobile:"",whatsappNumber:"",role:"USER"});}}><input placeholder="Username" required value={newUser.username} onChange={e=>setNewUser({...newUser,username:e.target.value})}/><input placeholder="Display name" required value={newUser.displayName} onChange={e=>setNewUser({...newUser,displayName:e.target.value})}/><input placeholder={`Temporary password (${MIN_PASSWORD_LENGTH}+)`} required minLength={MIN_PASSWORD_LENGTH} type="password" value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})}/><input placeholder="Email" type="email" value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})}/><input placeholder="Mobile" value={newUser.mobile} onChange={e=>setNewUser({...newUser,mobile:e.target.value})}/><input placeholder="WhatsApp number" value={newUser.whatsappNumber} onChange={e=>setNewUser({...newUser,whatsappNumber:e.target.value})}/><select value={newUser.role} onChange={e=>setNewUser({...newUser,role:e.target.value})}><option value="USER">User</option><option value="ADMIN">Admin</option></select><button disabled={busy}>Add user</button></form><div className="cash-user-list">{users.map(u=><div key={u.id}><strong>{u.username}</strong><span>{u.displayName} · {u.role} · {u.active?"Active":"Disabled"}</span><small>{u.email||"No email"} · {u.mobile||"No mobile"}</small></div>)}</div></section>}</section></div></section></main>;
+ }
+diff --git a/apps/al-rifai/candidates/identity-review/live-cash.ts b/apps/al-rifai/candidates/identity-review/live-cash.ts
+index 92f75ab..9771ffa 100644
+--- a/apps/al-rifai/candidates/identity-review/live-cash.ts
++++ b/apps/al-rifai/candidates/identity-review/live-cash.ts
+@@ -1,52 +1,74 @@
+-import {employeeMobile,exactMinor} from '../../lib/history-extraction.mjs';
++import {parsePaymentBlocks} from '../../lib/history-extraction.mjs';
+ import {digest} from './contracts.ts';
+ import type {NativeLivePage,NativeLiveReader} from '../../lib/native-live-reader.ts';
+ import type pg from 'pg';
+-import {CASH_SCOPE_ACCOUNT as ACCOUNT,CASH_SCOPE_ACCOUNTANT,CASH_SCOPE_CHAT as CHAT,CASH_SCOPE_NAME as CASH_ACCOUNT,isCashScopeChat,isCashScopeOwner} from '../../lib/cash-scope.ts';
++import {CASH_SCOPE_ACCOUNT as ACCOUNT,CASH_SCOPE_ACCOUNTANT,CASH_SCOPE_CHAT as CHAT,CASH_SCOPE_NAME as CASH_ACCOUNT,isCashScopeChat} from '../../lib/cash-scope.ts';
++import {cashSourceEligibility} from '../../lib/cash-source-eligibility.ts';
+ import {publishCashBlock,CASH_EPOCH_CURRENT} from '../../lib/cash-publish.ts';
+ 
+-const phonePattern=/(?:\+?880|00880|0)1[3-9][0-9]{8}(?![0-9])/g;
+-const digits=(s:string)=>s.normalize('NFC').replace(/[০-৯]/g,c=>String(c.charCodeAt(0)-0x09e6));
+-const phoneAtStart=(s:string,i:number)=>i===0||!/[0-9]/.test(s[i-1]);
+-
+-type PaymentFields={employeeMobile:string;employeeName:string;payoutMobile:string;method:'cash'|'bkash'|'nagad'|'bank'|'rocket';amountMinor:string;purpose:string};
++type PaymentFields={employeeId:string;employeeMobile:string;employeeName:string;payoutNumber:string;payoutMobile:string;methodMarker:string;method:'cash'|'bkash'|'nagad'|'bank'|'rocket';amount:string;amountMinor:string;purpose:string};
+ type PaymentBlock={blockKey:string;blockOrder:number;fields:PaymentFields};
+ 
+-// Live parser is deliberately narrower than the general review parser: it
+-// requires employee mobile + name + separate payout mobile + method + amount.
+-// A missing employee mobile (name-only) is ignored, never treated as a person.
++// Keep the source ID as text for evidence while normalizing the existing
++// employee_mobile key used by employee_master and cash_instructions.
+ export function parseLivePaymentBlocks(input:string):PaymentBlock[]{
+- const text=digits(input),lines=text.split(/\r?\n/),out:PaymentBlock[]=[];
+- for(const line of lines){
+-  const source=line.trim();
+-  if(!/^\s*(?:ID|Employee\s*ID|আইডি)\s*[:=-]/iu.test(source))continue;
+-  const phones=[...source.matchAll(phonePattern)].filter(m=>phoneAtStart(source,m.index??0));
+-  if(phones.length!==2)continue;
+-  const first=phones[0],second=phones[1];
+-  const employee=employeeMobile(first[0]),payout=employeeMobile(second[0]);
+-  if(!employee||!payout)continue;
+-  const name=source.slice((first.index??0)+first[0].length,second.index??0).trim().replace(/^[\s,:;*-]+|[\s,:;*-]+$/g,'');
+-  if(!/^[\p{L}\p{M} .'-]{2,100}$/u.test(name))continue;
+-  const tail=source.slice((second.index??0)+second[0].length);
+-  const method=/^\s*\(\s*(B|N|C|R|BKASH|NAGAD|CASH|ROCKET|BANK)\s*\)\s*[-:=]?\s*([0-9,]+(?:\.[0-9]{1,2})?)\s*\/-?(?:\s+(.*?))?\s*$/i.exec(tail);
+-  if(!method)continue;
+-  const amountMinor=exactMinor(method[2]);
+-  if(!amountMinor)continue;
+-  const code=method[1].toUpperCase();
+-  const methodName=({B:'bkash',BKASH:'bkash',N:'nagad',NAGAD:'nagad',C:'cash',CASH:'cash',R:'rocket',ROCKET:'rocket',BANK:'bank'} as const)[code];
+-  if(!methodName)continue;
+-  out.push({blockKey:`payment-block-${out.length}`,blockOrder:out.length,fields:{employeeMobile:employee,employeeName:name,payoutMobile:payout,method:methodName,amountMinor,purpose:(method[3]?.trim()||'Owner direct payment instruction').slice(0,500)}});
+- }
+- return out;
++ return parsePaymentBlocks(input).filter(block=>
++  block.kind==='PAYMENT'&&block.reasons.length===0
++  &&typeof block.fields.employeeId==='string'
++  &&typeof block.fields.employeeMobile==='string'
++  &&typeof block.fields.employeeName==='string'
++  &&typeof block.fields.payoutNumber==='string'
++  &&typeof block.fields.payoutMobile==='string'
++  &&typeof block.fields.methodMarker==='string'
++  &&typeof block.fields.method==='string'
++  &&typeof block.fields.amount==='string'
++  &&typeof block.fields.amountMinor==='string',
++ ).map(block=>({
++  blockKey:block.blockKey,
++  blockOrder:block.blockOrder,
++  fields:{
++   employeeId:block.fields.employeeId,
++   employeeMobile:block.fields.employeeMobile,
++   employeeName:block.fields.employeeName,
++   payoutNumber:block.fields.payoutNumber,
++   payoutMobile:block.fields.payoutMobile,
++   methodMarker:block.fields.methodMarker,
++   method:block.fields.method as PaymentFields['method'],
++   amount:block.fields.amount,
++   amountMinor:block.fields.amountMinor,
++   purpose:block.fields.purpose??'Owner direct payment instruction',
++  },
++ }));
++}
++
++export function employeeNameMatches(name:string,knownNames:unknown):boolean{
++ const normalize=(value:string)=>value.normalize('NFKC').toLowerCase()
++  .replace(/[\p{P}\p{S}]/gu,' ').replace(/\s+/g,' ').trim();
++ const key=normalize(name);
++ const names=Array.isArray(knownNames)?knownNames.filter((value):value is string=>typeof value==='string'):[];
++ return !!key&&names.some(value=>normalize(value)===key);
++}
++
++export function employeeReviewReasons(
++ employee:{state:string;preferred_name:string;name_aliases:string[]}|undefined,
++ employeeName:string,
++):string[]{
++ if(!employee)return ['EMPLOYEE_ID_UNMATCHED'];
++ if(employee.state!=='CONFIRMED')return ['EMPLOYEE_ID_NOT_CONFIRMED'];
++ return employeeNameMatches(employeeName,[employee.preferred_name,...employee.name_aliases])
++  ?[]:['EMPLOYEE_ID_NAME_CONFLICT'];
+ }
+ 
+-// A record is eligible only when the bridge marked it CONTENT, it carries an
+-// envelope, the conversation is the approved Accountant chat and the sender is
+-// the verified Owner/Admin. Group and system rows can never qualify.
++// Forwarding and quotation metadata do not change Cash eligibility: the verified
++// account, direct chat, direction and endpoint identities are authoritative.
+ export function ownerOutgoing(record:{status:string;envelope:NativeLivePage['records'][number]['envelope']}):LiveMessage|null{
+  const e=record.envelope;
+  if(record.status!=='CONTENT'||!e)return null;
+- if(e.accountId!==ACCOUNT||!isCashScopeChat(e.chatJid)||e.direction!=='OUTGOING'||!isCashScopeOwner(e.senderJid))return null;
++ if(e.version!=='native-message-envelope-v1'||e.provider!=='WHATSAPP'
++  ||cashSourceEligibility({
++    accountId:e.accountId,chatJid:e.chatJid,direct:e.chatType==='direct',direction:e.direction,
++    senderJid:e.senderJid,recipientJid:e.chatJid,
++   })!=='ELIGIBLE')return null;
+  return {id:e.nativeMessageId,chatJid:e.chatJid,sender:e.senderJid,sourceTime:e.sourceTimestamp,text:e.payload?.text??'',direction:e.direction};
+ }
+ 
+@@ -54,6 +76,7 @@ export const isLiveCashOwnerOutgoing=(record:{status:string;envelope:NativeLiveP
+ 
+ export function liveSourceIdentity(messageId:string,blockKey:string,chatJid:string=CHAT){
+  void chatJid;
++ if(!messageId.trim()||messageId.length>200||!/^payment-block-\d+$/.test(blockKey))throw new Error('LIVE_CASH_SOURCE_IDENTITY_UNRESOLVED');
+  // Canonical: the Accountant's PN and LID chats are ONE logical conversation, so
+  // the source identity deliberately excludes chatJid. A message replayed through
+  // the other addressing form collapses onto the same record instead of creating a
+@@ -82,6 +105,12 @@ async function writeBlock(pool:pg.Pool,message:LiveMessage,sourceHash:string,blo
+     AND b.payload->'data'->>'direction'='INCOMING'
+     AND b.payload->'data'->>'purpose'='SENDER') AS allowed`,[ACCOUNT,message.chatJid])).rows[0]?.allowed;
+  if(accountantBinding!==true)throw new Error('LIVE_CASH_ACCOUNTANT_BINDING_REQUIRED');
++ const employee=(await pool.query<{state:string;preferred_name:string;name_aliases:string[]}>(
++  `SELECT state,preferred_name,name_aliases FROM public.employee_master
++    WHERE scope_account=$1 AND employee_mobile=$2`,
++  [ACCOUNT,block.fields.employeeMobile],
++ )).rows[0];
++ const reviewReasons=employeeReviewReasons(employee,block.fields.employeeName);
+  return publishCashBlock(pool,{
+   account:ACCOUNT,
+   chatJid:message.chatJid,
+@@ -92,6 +121,7 @@ async function writeBlock(pool:pg.Pool,message:LiveMessage,sourceHash:string,blo
+   cashAccount:CASH_ACCOUNT,
+   epoch:CASH_EPOCH_CURRENT,
+   block,
++  reviewReasons,
+   command:{
+    action:'CASH_OWNER_ACCOUNTANT_INTENT_CAPTURE',
+    actorRef:process.env.ALRIFAI_CASH_OWNER_PERSON_REF||'unbound-owner',
+diff --git a/apps/al-rifai/compose.yaml b/apps/al-rifai/compose.yaml
+index 6673cb8..80f5056 100644
+--- a/apps/al-rifai/compose.yaml
++++ b/apps/al-rifai/compose.yaml
+@@ -1,7 +1,7 @@
+ name: al-rifai
+ services:
+   app:
+-    image: sha256:be6767d1e0a136a182bd0e3ff41162c22369102896ede0f2601b9749bde6291c
++    image: sha256:b058dd4810d7830a9b2ac8e289c1358b7d4cb5668c474e9f4e19563a3ab9cae4
+     command: ["node", "/app/start-private-app.mjs"]
+     init: true
+     restart: unless-stopped
+diff --git a/apps/al-rifai/docs/OWNER_BUSINESS_POLICY.md b/apps/al-rifai/docs/OWNER_BUSINESS_POLICY.md
+index d0f6e69..fd5fea5 100644
+--- a/apps/al-rifai/docs/OWNER_BUSINESS_POLICY.md
++++ b/apps/al-rifai/docs/OWNER_BUSINESS_POLICY.md
+@@ -83,3 +83,51 @@ payment-posting-v1 explicitly supersedes earlier proposed mandatory Accountant v
+ EMP, PRG, REL and GHAT rules remain unchanged in their own domains. Program recurrence windows and Ghat pattern detection do not govern payment dedup/posting. Instructions remain distinct from independently verified transfers; this distinction no longer imposes an external-transfer prerequisite on payment posting. Prior statements that no cash posting is authorized describe execution permission, which remains unchanged in this task. Released, Program Completed, Settlement Approved, business payment Confirmed/Posted and externally verified disbursement remain separate.
+ 
+ The [Application Responsibility & Data Contract Specification](../../../services/whatsapp/qualification/application-contract-20261011/specification.md), section 10, records the historical read-only audit, preview plan and synthetic acceptance design; the existing handoff records task evidence and non-interference. No parallel policy file is created.
++
++## Owner Cash message-format and eligibility correction — 2026-11-03
++
++This later instruction supersedes earlier parser/source assumptions in this
++document where they conflict, including any requirement for forwarding or quote
++metadata and any interpretation that a parsed WhatsApp message can bypass the
++established ADMIN approval and posting workflow.
++
++Only a verified WA-01 Admin outgoing message to the exact designated
++Accountant's authorized direct conversation can yield a Cash instruction.
++Office, Escort Release and other groups, other direct contacts, incoming
++Accountant messages, WA-02 and ambiguous source identities are ineligible.
++Forwarded, quoted, copied, pasted or manually typed content is acceptable when
++the verified source and required fields are present.
++
++The accepted form is `ID[: ]<EMPLOYEE_ID> <EMPLOYEE_NAME> <PAYOUT_NUMBER>(B|N) <AMOUNT>/-`.
++For example, the sanitized shape `ID: 01XXXXXXXXX Example Person
++01YYYYYYYYY(B) 200/-` illustrates the delimiters only. `ID:` and `ID ` are
++accepted. Preserve Employee ID as text, including leading zeroes, and use it as
++the primary key to look up the existing canonical employee. Parse the name
++between Employee ID and payout number, including multiple words and punctuation
++such as `Md.`. Payout number is a separate destination and must not overwrite
++employee identity. `(B)` means bKash and `(N)` means Nagad; no other codes are
++authorized by this correction. Parse the amount exactly to minor units and
++preserve the source message and timestamp.
++
++Repeated Employee IDs, dates, names, payout numbers, methods, amounts or
++identical text are not deduplication keys. Idempotency uses the stable WA-01
++message identity plus logical block identity; distinct source message IDs stay
++distinct. A missing/unmatched Employee ID or conflicting employee name remains
++in review and must not create or alter an employee record. Source identity or
++historical-copy conflicts are withheld for reconciliation.
++
++Parsed Cash instructions are not proof of an external transfer and do not post
++to the canonical ledger. Any ledger write must use the existing ADMIN approval
++and posting workflow. The 11 supplied examples parse as 11 blocks, 9 Employee
++IDs, 8 bKash and 3 Nagad instructions. Their arithmetic sum is **BDT 6,800**,
++not BDT 7,100; do not alter an example to force the stated expected total.
++
++The 2026-11-03 implementation is source-only and not deployed. Its read-only
++reconciliation and apply evidence are recorded in
++[`docs/NEXT-HANDOFF.md`](../../../docs/NEXT-HANDOFF.md). With explicit Owner
++approval and a fresh verified backup, the 90 missing source-linked instructions
++were applied on 2026-11-03 to Current in `REVIEW` only: 65 exact Employee ID
++matches and 25 employee-review cases. No canonical posting or approval was
++created, and the parser correction has not been deployed to live intake. This
++final source rule supersedes earlier PAY-* language wherever that language
++would permit a parsed message to bypass ADMIN review and posting controls.
+diff --git a/apps/al-rifai/docs/WHATSAPP-MESSAGE-MIRROR.md b/apps/al-rifai/docs/WHATSAPP-MESSAGE-MIRROR.md
+index 5dfd694..5b09b96 100644
+--- a/apps/al-rifai/docs/WHATSAPP-MESSAGE-MIRROR.md
++++ b/apps/al-rifai/docs/WHATSAPP-MESSAGE-MIRROR.md
+@@ -20,6 +20,48 @@ native-reader content capability and chat scope have been verified. The WA-03
+ connector uses the same per-bridge socket, token-file, and chat-list settings;
+ it remains `READY_FOR_CONNECTION` until a real source is configured.
+ 
++## Cash source authorization (separate from the Mirror)
++
++The Message Mirror is not the Cash parser or instruction writer. In particular,
++the production Mirror remains disabled and this documentation does not authorize
++its activation. The app's separate Cash intake/backfill path may accept a
++message only when all source identity is verified: WA-01 / Bridge-1, outgoing
++from the verified Admin, and addressed to the exact designated Accountant's
++direct conversation. No group, other contact, incoming Accountant message,
++WA-02 source, or ambiguous identity is eligible.
++
++Forwarded, quoted, copied, pasted, and manually typed content is acceptable;
++forwarding/quote metadata is not an eligibility requirement. The sanitized
++format is `ID[: ]<EMPLOYEE_ID> <EMPLOYEE_NAME> <PAYOUT_NUMBER>(B|N) <AMOUNT>/-`.
++Employee ID is a string (including leading zeroes) and the canonical employee
++lookup key. Employee name is retained as evidence and checked for conflicts.
++Payout number is a separate destination, never an employee identity or a field
++to write back onto an employee. `B` means bKash and `N` means Nagad; no other
++method markers are authorized by this correction. Preserve exact amount,
++original source text, native source-message identity, and source timestamp.
++
++Only stable source-message and block identity provide idempotency. Repeated
++Employee IDs or otherwise identical instruction text do not justify merging
++distinct source messages. Missing/unmatched IDs and conflicting employee
++identity stay in review; ambiguous source identity is withheld for
++reconciliation. A parsed instruction is not a payment or ledger posting:
++posting remains subject to the separate ADMIN approval workflow.
++
++The 2026-11-03 parser correction remains source-only and is not deployed to live
++intake. Separately, after explicit Owner approval and a fresh verified backup,
++the exact 90-row historical write set was applied to Current Cash in `REVIEW`
++only (batch `backfill-20261103-cash-d7fe95c1`; digest
++`d7fe95c1334bc3b6417501b498d18eff0da3566e64baac4aae1ea0ca8e231387`). All 19
++conflicting source-copy groups had one canonical PostgreSQL original and were
++resolved without blocking unrelated instructions. The available WA-01 native
++metadata stream matched 409 PostgreSQL message IDs, but 1,892 authorized
++PostgreSQL IDs were absent from the exposed native event history; the source
++mirror is not proven complete. Do not treat this bounded PostgreSQL backfill as
++a complete native-history reconciliation. See
++[`docs/NEXT-HANDOFF.md`](../../../docs/NEXT-HANDOFF.md) for counts, cutoff,
++backup, review outcomes and coverage limits. Cash posting remains subject to
++the separate ADMIN approval workflow.
++
+ The production Compose setting is deliberately `0` until chat-scope review is
+ complete. WA-02 policy is never widened by this worker. The worker records
+ permission or connection errors and keeps WA-01, WA-02, and WA-03 checkpoints
+diff --git a/apps/al-rifai/lib/cash-publish.ts b/apps/al-rifai/lib/cash-publish.ts
+index 40698f9..d71bbd7 100644
+--- a/apps/al-rifai/lib/cash-publish.ts
++++ b/apps/al-rifai/lib/cash-publish.ts
+@@ -11,16 +11,21 @@
+ 
+ import type pg from 'pg';
+ import {digest} from '../candidates/identity-review/contracts.ts';
+-import {CASH_SCOPE_ACCOUNTANT} from './cash-scope.ts';
++import {CASH_SCOPE_ACCOUNT,CASH_SCOPE_ACCOUNTANT,CASH_SCOPE_CHATS} from './cash-scope.ts';
+ 
+ export const CASH_EPOCH_CURRENT = 'CANONICAL_BACKFILL_20261026';
+ export const CASH_EPOCH_ARCHIVE = 'LEGACY_PRE_TRANSITION_20261026';
++const normalizedPurpose=(value:string)=>value==='Owner direct payment instruction'?'':value.trim();
+ 
+ export type CashBlockFields = {
++  employeeId?: string;
+   employeeMobile: string;
+   employeeName: string;
++  payoutNumber?: string;
+   payoutMobile: string;
++  methodMarker?: string;
+   method: 'cash' | 'bkash' | 'nagad' | 'bank' | 'rocket';
++  amount?: string;
+   amountMinor: string;
+   purpose: string;
+ };
+@@ -37,11 +42,16 @@ export type CashPublishInput = {
+   cashAccount: string;
+   epoch: string;
+   block: CashBlock;
++  reviewReasons?: string[];
+   /** Verified Admin/Accountant binding reference; omitted only for backfill. */
+   command?: { action: string; actorRef: string; actorBindingRef: string; authEpoch: number };
+ };
+ 
+ export function cashSourceIds(messageId: string, blockKey: string, account: string) {
++  if (account !== CASH_SCOPE_ACCOUNT || !messageId.trim() || messageId.length > 200
++    || !/^payment-block-\d+$/.test(blockKey)) {
++    throw new Error('CASH_SOURCE_IDENTITY_UNRESOLVED');
++  }
+   const source = digest(['live-owner-accountant-source-v2', account, CASH_SCOPE_ACCOUNTANT, messageId, blockKey]);
+   const operation = digest(['live-owner-accountant-operation-v2', account, CASH_SCOPE_ACCOUNTANT, messageId, blockKey]);
+   return {
+@@ -60,26 +70,38 @@ export async function publishCashBlock(
+   pool: pg.Pool,
+   input: CashPublishInput,
+ ): Promise<'written' | 'duplicate'> {
++  if (input.account !== CASH_SCOPE_ACCOUNT
++    || !CASH_SCOPE_CHATS.some((chatJid) => chatJid === input.chatJid)) {
++    throw new Error('CASH_SOURCE_SCOPE_REQUIRED');
++  }
+   const ids = cashSourceIds(input.messageId, input.block.blockKey, input.account);
+   const client = await pool.connect();
+   try {
+     await client.query('BEGIN');
+     await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [ids.operation]);
+ 
+-    // Idempotency is per provenance epoch: an archived pre-transition record must
+-    // never suppress the canonical record for the same source message, and a
+-    // replayed canonical message must never create a second instruction.
+-    const duplicate = (await client.query(
+-      `SELECT 1
++    // A linked instruction in either epoch owns this source identity. A changed
++    // interpretation is a conflict for review, never a second instruction.
++    const duplicates = (await client.query(
++      `SELECT ci.employee_mobile,ci.employee_name,ci.payout_mobile,ci.purpose,
++              ci.method,ci.amount_minor::text AS amount_minor
+          FROM public.source_refs s
+          JOIN public.cash_instructions ci
+            ON ci.scope_account=s.scope_account AND ci.source_ref=s.id
+-        WHERE s.scope_account=$1 AND s.source_kind='LIVE_OWNER_ACCOUNTANT_PAYMENT'
+-          AND s.message_id=$2 AND s.block_key=$3 AND ci.dataset_epoch=$4
+-        LIMIT 1`,
+-      [input.account, input.messageId, input.block.blockKey, input.epoch],
+-    )).rows[0];
+-    if (duplicate) {
++        WHERE s.scope_account=$1 AND s.chat_jid=ANY($4::text[])
++          AND s.message_id=$2 AND s.block_key=$3
++      `,
++      [input.account, input.messageId, input.block.blockKey, [...CASH_SCOPE_CHATS]],
++    )).rows;
++    if (duplicates.length) {
++      if (duplicates.some((duplicate)=>duplicate.employee_mobile!==input.block.fields.employeeMobile
++        ||duplicate.employee_name!==input.block.fields.employeeName
++        ||duplicate.payout_mobile!==input.block.fields.payoutMobile
++        ||normalizedPurpose(duplicate.purpose)!==normalizedPurpose(input.block.fields.purpose)
++        ||duplicate.method!==input.block.fields.method
++        ||duplicate.amount_minor!==input.block.fields.amountMinor)) {
++        throw new Error('LIVE_SOURCE_REPLAY_CONFLICT');
++      }
+       await client.query('ROLLBACK');
+       return 'duplicate';
+     }
+@@ -133,21 +155,10 @@ export async function publishCashBlock(
+       [ids.instruction, ids.operation, input.account, ids.source, ids.command, input.sourceTime,
+         input.block.blockOrder, input.block.fields.employeeMobile, input.block.fields.employeeName,
+         input.block.fields.payoutMobile, input.block.fields.purpose, input.block.fields.method,
+-        input.block.fields.amountMinor, '["FINANCIAL_POSTING_REQUIRES_SEPARATE_APPROVAL"]',
++        input.block.fields.amountMinor,
++        JSON.stringify([...new Set(['FINANCIAL_POSTING_REQUIRES_SEPARATE_APPROVAL',...(input.reviewReasons??[])])]),
+         payloadHash, input.cashAccount, input.epoch],
+     );
+-    await client.query(
+-      `INSERT INTO public.employee_master
+-       (scope_account,employee_mobile,preferred_name,name_aliases,state,first_seen_at,last_seen_at,updated_at)
+-       VALUES ($1,$2,$3,ARRAY[$3]::text[],'REVIEW',$4,$4,now())
+-       ON CONFLICT (scope_account,employee_mobile) DO UPDATE SET
+-        preferred_name=CASE WHEN EXCLUDED.last_seen_at>=employee_master.last_seen_at THEN EXCLUDED.preferred_name ELSE employee_master.preferred_name END,
+-        name_aliases=(SELECT array_agg(DISTINCT n ORDER BY n) FROM unnest(employee_master.name_aliases||EXCLUDED.name_aliases) AS n),
+-        first_seen_at=LEAST(employee_master.first_seen_at,EXCLUDED.first_seen_at),
+-        last_seen_at=GREATEST(employee_master.last_seen_at,EXCLUDED.last_seen_at),
+-        updated_at=now()`,
+-      [input.account, input.block.fields.employeeMobile, input.block.fields.employeeName, input.sourceTime],
+-    );
+     await client.query('COMMIT');
+     return 'written';
+   } catch (error) {
+diff --git a/apps/al-rifai/lib/cash-scope.ts b/apps/al-rifai/lib/cash-scope.ts
+index 94e177e..7e250b3 100644
+--- a/apps/al-rifai/lib/cash-scope.ts
++++ b/apps/al-rifai/lib/cash-scope.ts
+@@ -17,9 +17,18 @@ export function isCashScopeChat(chatJid: string){
+  return (CASH_SCOPE_CHATS as readonly string[]).includes(chatJid);
+ }
+ 
++function approvedAddress(value:string,approved:string){
++ const [approvedUser,approvedServer]=approved.split('@');
++ const match=/^([0-9]{6,20})(?::[0-9]{1,5})?@(s\.whatsapp\.net|lid)$/.exec(value);
++ return !!match&&match[1]===approvedUser&&match[2]===approvedServer;
++}
++
+ export function isCashScopeOwner(sender: string){
+- const base=sender.replace(/@.*$/,'').replace(/:\d+$/,'');
+- return base===CASH_SCOPE_OWNER.replace(/@.*$/,'')||base===CASH_SCOPE_OWNER_LID.replace(/@.*$/,'');
++ return approvedAddress(sender,CASH_SCOPE_OWNER)||approvedAddress(sender,CASH_SCOPE_OWNER_LID);
++}
++
++export function isCashScopeAccountant(recipient: string){
++ return approvedAddress(recipient,CASH_SCOPE_CHAT)||approvedAddress(recipient,CASH_SCOPE_CHAT_LID);
+ }
+ 
+ // Server-owned scope. The browser cannot select another account, chat, or
+diff --git a/apps/al-rifai/lib/history-extraction.mjs b/apps/al-rifai/lib/history-extraction.mjs
+index 45c302b..b1bddc3 100644
+--- a/apps/al-rifai/lib/history-extraction.mjs
++++ b/apps/al-rifai/lib/history-extraction.mjs
+@@ -5,6 +5,33 @@ import {parseEscortOrder} from './escort-intake-candidate.mjs';
+ export const HISTORY_PARSER_VERSION='stored-history-extraction-v2';
+ export const sha=value=>createHash('sha256').update(typeof value==='string'?value:JSON.stringify(value)).digest('hex');
+ const digits=s=>String(s).normalize('NFC').replace(/[০-৯]/g,c=>String(c.charCodeAt(0)-0x09e6));
++export function reconcileCashSourceCopies(rows,signatureOf){
++ const groups=new Map();
++ for(const row of rows){
++  const key=`${row.account_id}\u0000${row.message_id}`;
++  const group=groups.get(key)??[];
++  group.push(row);
++  groups.set(key,group);
++ }
++ const unique=[],unresolvedGroups=[];
++ let duplicateCopies=0,resolvedConflictGroups=0,ambiguousCopies=0;
++ for(const group of groups.values()){
++  const originals=group.filter(row=>row.source_store==='original');
++  const signatures=new Set(group.map(signatureOf).map(value=>JSON.stringify(value)));
++  if(originals.length===1){
++   unique.push(originals[0]);
++   duplicateCopies+=group.length-1;
++   if(signatures.size>1)resolvedConflictGroups+=1;
++  }else if(signatures.size===1){
++   unique.push(originals[0]??group[0]);
++   duplicateCopies+=group.length-1;
++  }else{
++   unresolvedGroups.push(group);
++   ambiguousCopies+=group.length;
++  }
++ }
++ return {unique,duplicateCopies,resolvedConflictGroups,unresolvedGroups,ambiguousCopies};
++}
+ export function employeeMobile(value){
+  const v=digits(value).replace(/[\s().-]/g,'');
+  const national=v.replace(/^(?:\+?880|00880)/,'0');
+@@ -22,33 +49,42 @@ const isPhoneStart=(s,i)=>i===0||!/[0-9]/.test(s[i-1]);
+ 
+ // Explicit ID/name/payout blocks are deliberately stricter than the archive parser.
+ // A history row alone cannot establish author, forwarding state or send success.
++/**
++ * @param {string} text
++ * @returns {Array<{blockKey:string;blockOrder:number;kind:string;fields:Record<string,string>;reasons:string[]}>}
++ */
+ export function parsePaymentBlocks(text){
+  const lines=digits(text).split(/\r?\n/),out=[];
+  for(let i=0;i<lines.length;i++){
+-  if(!/^\s*(?:ID|Employee\s*ID|আইডি)\s*[:=-]/iu.test(lines[i]))continue;
++  if(!/^\s*(?:ID|Employee\s*ID|আইডি)(?=\s|:|$)\s*:?\s*/iu.test(lines[i]))continue;
+   let block=lines[i].trim(),end=i;
+-  while(end+1<lines.length&&end-i<4&&!/^\s*(?:ID|Employee\s*ID|আইডি)\s*[:=-]/iu.test(lines[end+1])){
++  while(end+1<lines.length&&end-i<4&&!/^\s*(?:ID|Employee\s*ID|আইডি)(?=\s|:|$)\s*:?\s*/iu.test(lines[end+1])){
+    if(/\d\s*\/-/.test(block))break;
+    block+=' '+lines[++end].trim();
+   }
+   const issues=[],phones=[...block.matchAll(phonePattern)].filter(m=>isPhoneStart(block,m.index));
+   const fields={};
+   const first=phones[0],second=phones[1];
+-  if(first&&/^\s*(?:ID|Employee\s*ID|আইডি)\s*[:=-]\s*$/iu.test(block.slice(0,first.index))){
++  if(first&&/^\s*(?:ID|Employee\s*ID|আইডি)(?=\s|:|$)\s*:?\s*$/iu.test(block.slice(0,first.index))){
++   fields.employeeId=first[0];
+    fields.employeeMobile=employeeMobile(first[0]);
+   }else issues.push('EMPLOYEE_ID_UNRESOLVED');
+   if(phones.length!==2)issues.push('PAYOUT_DESTINATION_UNRESOLVED');
+   if(first&&second&&phones.length===2){
+    const name=block.slice(first.index+first[0].length,second.index).trim().replace(/^[\s,:;*-]+|[\s,:;*-]+$/g,'');
+-   if(/^[\p{L}\p{M} .'-]{2,100}$/u.test(name))fields.employeeName=name;
++   if(/^[\p{L}\p{M} .,'’()-]{2,100}$/u.test(name))fields.employeeName=name;
+    else issues.push('EMPLOYEE_NAME_UNRESOLVED');
++   fields.payoutNumber=second[0];
+    fields.payoutMobile=employeeMobile(second[0]);
+    const tail=block.slice(second.index+second[0].length);
+-   const method=/^\s*\(\s*(B|N|C|R|BKASH|NAGAD|CASH|ROCKET|BANK)\s*\)\s*[-:=]?\s*([0-9,]+(?:\.[0-9]{1,2})?)\s*\/-\s*$/i.exec(tail);
++   const method=/^\s*\(\s*(B|N)\s*\)\s*[:=]?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*\/-(?:\s+(.*?))?\s*$/i.exec(tail);
+    if(method){
+-    fields.method=({B:'bkash',BKASH:'bkash',N:'nagad',NAGAD:'nagad',C:'cash',CASH:'cash',R:'rocket',ROCKET:'rocket',BANK:'bank'})[method[1].toUpperCase()];
++    fields.methodMarker=method[1];
++    fields.method=({B:'bkash',N:'nagad'})[method[1].toUpperCase()];
++    fields.amount=method[2];
+     const minor=exactMinor(method[2]);
+     if(minor)fields.amountMinor=minor;else issues.push('AMOUNT_INVALID');
++    fields.purpose=method[3]?.trim().slice(0,500)||'Owner direct payment instruction';
+    }else issues.push('PAYMENT_FORMAT_REQUIRES_REVIEW');
+   }
+   if(end+1<lines.length&&/^\s*(?:purpose|উদ্দেশ্য)\s*[:=]/iu.test(lines[end+1])){fields.purpose=lines[++end].replace(/^\s*(?:purpose|উদ্দেশ্য)\s*[:=]\s*/iu,'').trim().slice(0,500);}
+diff --git a/apps/al-rifai/scripts/backfill-approved.mjs b/apps/al-rifai/scripts/backfill-approved.mjs
+index 3fda819..c7b3e00 100644
+--- a/apps/al-rifai/scripts/backfill-approved.mjs
++++ b/apps/al-rifai/scripts/backfill-approved.mjs
+@@ -1,20 +1,37 @@
+-// Historical backfill for the seven Owner-approved WA-01 conversations.
++// Historical backfill for the Owner-approved WA-01 conversations.
+ //
+ // Stage first, reconcile, then publish canonical records. Cash publication uses
+ // the same code path as live capture (lib/cash-publish.ts), so a message can
+-// never produce two financial instructions. Vessel rows are only queued for the
+-// existing review processor: nothing is approved, released or posted here.
++// never produce two financial instructions. Nothing is approved or financially
++// posted here.
+ //
+-// Run: node --experimental-strip-types scripts/backfill-approved.mjs <batch-id>
++// Default: read-only dry run. Apply is separately guarded and must not be used
++// until the Owner's reconciliation go/no-go has been recorded.
++// Run: node --experimental-strip-types scripts/backfill-approved.mjs [--dry-run] [batch-id]
++// Apply: CASH_BACKFILL_APPLY=APPROVED_AFTER_GO_NO_GO node --experimental-strip-types scripts/backfill-approved.mjs --apply --expected-write-set-sha256=<dry-run-hash> [batch-id]
+ 
+ import {createHash} from 'node:crypto';
+ import {createPool} from '../db/postgres.mjs';
+ import {loadConversationScope} from '../lib/conversation-scope.ts';
+-import {parseLivePaymentBlocks} from '../candidates/identity-review/live-cash.ts';
++import {parseLivePaymentBlocks,employeeReviewReasons} from '../candidates/identity-review/live-cash.ts';
++import {parsePaymentBlocks,reconcileCashSourceCopies} from '../lib/history-extraction.mjs';
+ import {publishCashBlock,CASH_EPOCH_CURRENT} from '../lib/cash-publish.ts';
+-import {isCashScopeOwner,CASH_SCOPE_NAME} from '../lib/cash-scope.ts';
++import {CASH_SCOPE_ACCOUNT,CASH_SCOPE_CHATS,CASH_SCOPE_NAME,isCashScopeOwner} from '../lib/cash-scope.ts';
++import {cashSourceEligibility} from '../lib/cash-source-eligibility.ts';
+ 
+-const batchId = process.argv[2] ?? 'backfill-20261026';
++const args = process.argv.slice(2);
++const applyMode = args.includes('--apply');
++const expectedWriteSetSha256=args.find((arg)=>arg.startsWith('--expected-write-set-sha256='))?.slice('--expected-write-set-sha256='.length)??null;
++if (args.some((arg) => arg.startsWith('--')
++  && arg !== '--apply' && arg !== '--dry-run'
++  && !arg.startsWith('--expected-write-set-sha256='))) {
++  throw new Error('BACKFILL_ARGUMENT_INVALID');
++}
++if (args.includes('--apply') && args.includes('--dry-run')) throw new Error('BACKFILL_MODE_CONFLICT');
++if(expectedWriteSetSha256!==null&&!/^[a-f0-9]{64}$/.test(expectedWriteSetSha256))throw new Error('BACKFILL_WRITE_SET_HASH_INVALID');
++if(applyMode&&!expectedWriteSetSha256)throw new Error('BACKFILL_WRITE_SET_HASH_REQUIRED');
++if(!applyMode&&expectedWriteSetSha256)throw new Error('BACKFILL_WRITE_SET_HASH_APPLY_ONLY');
++const batchId = args.find((arg) => !arg.startsWith('--')) ?? 'backfill-20261026';
+ const hex = (value) => createHash('sha256').update(value).digest('hex');
+ const sha = (value) => hex(JSON.stringify(value, Object.keys(value).sort()));
+ 
+@@ -25,121 +42,554 @@ const senderJidOf = (row) => {
+   const raw = row.raw_content ?? {};
+   const resolved = typeof raw.resolvedSenderJid === 'string' ? raw.resolvedSenderJid : null;
+   if (resolved && resolved.includes('@')) return resolved;
+-  if (!row.sender_bare) return null;
++  const sender = typeof row.sender_jid === 'string' ? row.sender_jid : row.sender_bare;
++  if (!sender) return null;
++  if (sender.includes('@')) return sender;
+   const bridge = typeof raw.bridgeSender === 'string' ? raw.bridgeSender : '';
+   if (bridge.includes('@')) return bridge;
+   // A 13-digit 8801… value is a subscriber number; a longer numeric identifier is
+   // a LID and must never be rewritten into a phone number.
+-  return row.sender_bare.length <= 13 ? `${row.sender_bare}@s.whatsapp.net` : `${row.sender_bare}@lid`;
++  return sender.length <= 13 ? `${sender}@s.whatsapp.net` : `${sender}@lid`;
+ };
+ 
+-const loader = createPool({readOnly: false});
+-const publisher = createPool({readOnly: false, user: 'ir_review_runtime'});
++const loader = createPool({readOnly: true, user: 'ir_review_runtime'});
++const publisher = applyMode ? createPool({readOnly: false, user: 'ir_review_runtime'}) : null;
++const runWriter = applyMode ? createPool({readOnly: false}) : null;
+ 
+ const tally = {
+   scanned: 0, inserted: 0, cashEligible: 0, cashPublished: 0,
+   cashDuplicate: 0, vesselQueued: 0, archiveQueued: 0, unmatched: 0, reviewQueued: 0,
+ };
++let runStarted=false;
++
++async function loadCashSourceRows() {
++  return (await loader.query(
++    `SELECT 'original'::text AS source_store,o.wa_account AS account_id,o.chat_jid,o.chat_type,
++            o.message_id,o.direction,o.sender_jid,o.receiver_jid,o."timestamp" AS source_time,
++            o.message_type,o.text_content,o.raw_content
++       FROM public.whatsapp_messages_original o
++      WHERE o.wa_account=$1 AND o.chat_jid=ANY($2::text[])
++     UNION ALL
++     SELECT 'staging'::text,st.account_id,st.chat_jid,st.chat_type,st.message_id,st.direction,
++            st.sender_bare,st.receiver_jid,st.source_time,st.message_type,st.text_content,st.raw_content
++       FROM public.wa01_backfill_staging st
++      WHERE st.account_id=$1 AND st.chat_jid=ANY($2::text[])
++      ORDER BY chat_jid,source_time,message_id,source_store`,
++    [CASH_SCOPE_ACCOUNT,[...CASH_SCOPE_CHATS]],
++  )).rows;
++}
++
++function deduplicateSourceRows(rows) {
++  const ambiguityReasons = new Map();
++  const result = reconcileCashSourceCopies(rows,(row) => [
++      new Date(row.source_time).toISOString(),
++      String(row.direction).toLowerCase(),
++      row.text_content ?? null,
++      isCashScopeOwner(senderJidOf(row)),
++    ]);
++  for (const group of result.unresolvedGroups) {
++    const signatures = group.map((row) => [
++      new Date(row.source_time).toISOString(),
++      String(row.direction).toLowerCase(),
++      row.text_content ?? null,
++      isCashScopeOwner(senderJidOf(row)),
++    ]);
++    const differentFields = ['SOURCE_TIME','DIRECTION','TEXT','OWNER_IDENTITY'].filter((_,index) =>
++      new Set(signatures.map((signature) => signature[index])).size > 1);
++    for (const reason of differentFields) ambiguityReasons.set(reason,(ambiguityReasons.get(reason)??0)+1);
++  }
++  return {
++    ...result,
++    ambiguousGroups:result.unresolvedGroups.length,
++    ambiguityReasons:Object.fromEntries(ambiguityReasons),
++  };
++}
++
++function eligibilityOf(row, conversation) {
++  return cashSourceEligibility({
++    accountId: row.account_id,
++    chatJid: row.chat_jid,
++    direct: row.chat_type === 'individual' && conversation?.conversationType === 'DIRECT',
++    direction: row.direction === 'outgoing' ? 'OUTGOING' : String(row.direction).toUpperCase(),
++    senderJid: senderJidOf(row),
++    recipientJid: row.receiver_jid || row.chat_jid,
++  });
++}
++
++function needsSourceVerificationReview(group, scope) {
++  return group.some((row) => {
++    const conversation = scope.byChat(row.chat_jid);
++    if (!conversation) return true;
++    const eligibility = eligibilityOf(row, conversation);
++    return eligibility === 'ELIGIBLE' || eligibility.endsWith('_UNRESOLVED');
++  });
++}
++
++function writeSetManifestFor(items,employees) {
++  return items.map(({row,block})=>{
++    const employee=employees.get(block.fields.employeeMobile);
++    const reasons=employeeReviewReasons(employee,block.fields.employeeName);
++    return [
++      row.account_id,row.chat_jid,row.message_id,block.blockKey,
++      new Date(row.source_time).toISOString(),
++      sha({
++        accountId:row.account_id,chatJid:row.chat_jid,id:row.message_id,
++        sender:senderJidOf(row),text:row.text_content??'',
++        sourceTime:new Date(row.source_time).toISOString(),direction:'OUTGOING',
++      }),
++      block.fields.employeeId??'',block.fields.employeeMobile,block.fields.employeeName,
++      block.fields.payoutNumber??'',block.fields.payoutMobile,block.fields.methodMarker??'',
++      block.fields.method,block.fields.amountMinor,
++      !employee?'UNMATCHED':reasons.length?'CONFLICT':'MATCHED',reasons,
++    ];
++  }).sort((a,b)=>`${a[0]}\u0000${a[2]}\u0000${a[3]}`.localeCompare(`${b[0]}\u0000${b[2]}\u0000${b[3]}`));
++}
++
++async function dryRun() {
++  const scope = await loadConversationScope({query: (sql, values) => loader.query(sql, values)});
++  const sourceRows = await loadCashSourceRows();
++  const {
++    unique:rows,duplicateCopies,resolvedConflictGroups,unresolvedGroups,
++    ambiguousCopies,ambiguousGroups,ambiguityReasons,
++  } = deduplicateSourceRows(sourceRows);
++  const sourceVerificationReviewGroups = unresolvedGroups.filter((group) =>
++    needsSourceVerificationReview(group,scope)).length;
++  const excludedUnauthorizedConflictGroups = ambiguousGroups - sourceVerificationReviewGroups;
++  const instructionKeys = new Set((await loader.query(
++    `SELECT s.message_id,s.block_key
++       FROM public.source_refs s
++       JOIN public.cash_instructions i ON i.scope_account=s.scope_account AND i.source_ref=s.id
++      WHERE s.scope_account='wa-01' AND s.chat_jid=ANY($1::text[])`,
++    [[...CASH_SCOPE_CHATS]],
++  )).rows.map((row) => `${row.message_id}\u0000${row.block_key}`));
++  const postingKeys = new Set((await loader.query(
++    `SELECT s.message_id,s.block_key
++       FROM public.source_refs s
++       JOIN public.cash_instructions i ON i.scope_account=s.scope_account AND i.source_ref=s.id
++       JOIN public.cash_postings p ON p.scope_account=i.scope_account AND p.instruction_id=i.id
++      WHERE s.scope_account='wa-01' AND s.chat_jid=ANY($1::text[])`,
++    [[...CASH_SCOPE_CHATS]],
++  )).rows.map((row) => `${row.message_id}\u0000${row.block_key}`));
++  const unauthorized = Number((await loader.query(
++    `SELECT count(*)::int AS count
++       FROM public.cash_instructions i
++       JOIN public.source_refs s ON s.id=i.source_ref AND s.scope_account=i.scope_account
++      WHERE s.scope_account='wa-01' AND NOT (s.chat_jid=ANY($1::text[]))`,
++    [[...CASH_SCOPE_CHATS]],
++  )).rows[0]?.count ?? 0);
++  const sourceTotals = (await loader.query(
++    `SELECT count(*)::int AS all_wa01,
++            count(*) FILTER(WHERE chat_jid=ANY($2::text[]))::int AS cash_chat
++       FROM public.whatsapp_messages_original WHERE wa_account=$1`,
++    [CASH_SCOPE_ACCOUNT,[...CASH_SCOPE_CHATS]],
++  )).rows[0] ?? {};
++  const instructionRows = (await loader.query(
++    `SELECT s.message_id,s.block_key,i.dataset_epoch,i.employee_mobile,i.employee_name,
++            i.payout_mobile,i.purpose,i.method,i.amount_minor::text AS amount_minor
++       FROM public.source_refs s
++       JOIN public.cash_instructions i ON i.scope_account=s.scope_account AND i.source_ref=s.id
++      WHERE s.scope_account='wa-01' AND s.chat_jid=ANY($1::text[])`,
++    [[...CASH_SCOPE_CHATS]],
++  )).rows;
++  const existingByKey = new Map();
++  for (const row of instructionRows) {
++    const key=`${row.message_id}\u0000${row.block_key}`;
++    const matches=existingByKey.get(key)??[];
++    matches.push(row);
++    existingByKey.set(key,matches);
++  }
++  const existingRun = (await loader.query(
++    `SELECT status,scanned,inserted,cash_eligible,cash_published,cash_duplicate,
++            vessel_queued,unmatched,review_queued,started_at,finished_at
++       FROM public.wa01_backfill_runs WHERE batch_id=$1 ORDER BY started_at DESC LIMIT 1`,
++    [batchId],
++  )).rows[0] ?? null;
++
++  const byReason = new Map();
++  const blocks = [];
++  let authorizedOutgoingMessages = 0;
++  let idMessagesMissingRequiredFields = 0;
++  let invalidPaymentBlocks = 0;
++  let otherAuthorizedMessages = 0;
++  for (const row of rows) {
++    const conversation = scope.byChat(row.chat_jid);
++    const eligibility = eligibilityOf(row, conversation);
++    if (eligibility !== 'ELIGIBLE') {
++      byReason.set(eligibility, (byReason.get(eligibility) ?? 0) + 1);
++      continue;
++    }
++    authorizedOutgoingMessages += 1;
++    const text=row.text_content??'';
++    const candidates=parsePaymentBlocks(text);
++    const parsed = parseLivePaymentBlocks(text);
++    const malformed=candidates.filter((candidate)=>candidate.reasons.length>0);
++    invalidPaymentBlocks+=malformed.length;
++    for(const candidate of malformed)for(const reason of candidate.reasons) {
++      byReason.set(reason,(byReason.get(reason)??0)+1);
++    }
++    if (!parsed.length) {
++      if (candidates.length || /^\s*(?:ID|Employee\s*ID|আইডি)\b/im.test(text)) {
++        idMessagesMissingRequiredFields += 1;
++        byReason.set('ID_MESSAGE_MISSING_REQUIRED_FIELDS',(byReason.get('ID_MESSAGE_MISSING_REQUIRED_FIELDS')??0)+1);
++      } else {
++        otherAuthorizedMessages += 1;
++        byReason.set('NO_CASH_INSTRUCTION_FORMAT',(byReason.get('NO_CASH_INSTRUCTION_FORMAT')??0)+1);
++      }
++      continue;
++    }
++    for (const block of parsed) blocks.push({row, block});
++  }
++  const employeeMobiles = [...new Set(blocks.map(({block}) => block.fields.employeeMobile))];
++  const employees = employeeMobiles.length
++    ? new Map((await loader.query(
++      `SELECT employee_mobile,state,preferred_name,name_aliases FROM public.employee_master
++        WHERE scope_account='wa-01' AND employee_mobile=ANY($1::text[])`,
++      [employeeMobiles],
++    )).rows.map((row) => [row.employee_mobile,row]))
++    : new Map();
++  let matchedEmployees = 0;
++  let missingEmployees = 0;
++  let conflictingEmployees = 0;
++  for (const {block} of blocks) {
++    const employee = employees.get(block.fields.employeeMobile);
++    if (!employee) missingEmployees += 1;
++    else if (employeeReviewReasons(employee,block.fields.employeeName).length) conflictingEmployees += 1;
++    else matchedEmployees += 1;
++  }
++  const existingForBlock=({row,block})=>existingByKey.get(`${row.message_id}\u0000${block.blockKey}`)??[];
++  const alreadyImportedBlocks = blocks.filter(({row,block}) => instructionKeys.has(`${row.message_id}\u0000${block.blockKey}`)).length;
++  const currentExistingBlocks = blocks.filter((item) =>
++    existingForBlock(item).some((existing)=>existing.dataset_epoch===CASH_EPOCH_CURRENT)).length;
++  const legacyExistingBlocks = blocks.filter((item) =>
++    existingForBlock(item).some((existing)=>existing.dataset_epoch!==CASH_EPOCH_CURRENT)).length;
++  const bothEpochBlocks=blocks.filter((item)=>{
++    const epochs=new Set(existingForBlock(item).map((existing)=>existing.dataset_epoch));
++    return epochs.has(CASH_EPOCH_CURRENT)&&epochs.size>1;
++  }).length;
++  const conflictFields={
++    employeeId:({row,block})=>existingForBlock({row,block}).some((existing)=>existing.employee_mobile!==block.fields.employeeMobile),
++    employeeName:({row,block})=>existingForBlock({row,block}).some((existing)=>existing.employee_name!==block.fields.employeeName),
++    payoutNumber:({row,block})=>existingForBlock({row,block}).some((existing)=>existing.payout_mobile!==block.fields.payoutMobile),
++    purpose:({row,block})=>existingForBlock({row,block}).some((existing)=>
++      (existing.purpose==='Owner direct payment instruction'?'':existing.purpose.trim())
++      !==(block.fields.purpose==='Owner direct payment instruction'?'':block.fields.purpose.trim())),
++    method:({row,block})=>existingForBlock({row,block}).some((existing)=>existing.method!==block.fields.method),
++    amount:({row,block})=>existingForBlock({row,block}).some((existing)=>existing.amount_minor!==block.fields.amountMinor),
++  };
++  const existingSourceInstructionConflictDimensions=Object.fromEntries(Object.entries(conflictFields)
++    .map(([field,matches])=>[field,blocks.filter(matches).length]).filter(([,count])=>count));
++  const sourceInstructionConflicts=blocks.filter((item)=>
++    Object.values(conflictFields).some((matches)=>matches(item))).length;
++  const postingMatches = blocks.filter(({row,block}) => postingKeys.has(`${row.message_id}\u0000${block.blockKey}`)).length;
++  const amountMinor = blocks.reduce((sum,{block})=>sum+BigInt(block.fields.amountMinor),0n);
++  const identicalTextCounts = new Map();
++  for(const row of rows)if(row.text_content)identicalTextCounts.set(row.text_content,(identicalTextCounts.get(row.text_content)??0)+1);
++  const distinctMessagesWithRepeatedText=[...identicalTextCounts.values()].filter(count=>count>1).reduce((sum,count)=>sum+count,0);
++  const sourceTimes=rows.map((row)=>new Date(row.source_time)).filter((date)=>Number.isFinite(date.getTime()));
++  const coverageDays=new Set(sourceTimes.map((date)=>date.toISOString().slice(0,10)));
++  const sourceCoverage={
++    firstAt:sourceTimes.length?new Date(Math.min(...sourceTimes.map((date)=>date.getTime()))).toISOString():null,
++    lastAt:sourceTimes.length?new Date(Math.max(...sourceTimes.map((date)=>date.getTime()))).toISOString():null,
++    activeDays:coverageDays.size,
++  };
++  const storedTotals=(await loader.query(
++    `SELECT i.dataset_epoch,count(DISTINCT i.id)::int AS instructions,
++            count(p.id)::int AS postings,
++            coalesce(sum(abs(p.amount_minor)),0)::text AS posted_minor
++       FROM public.cash_instructions i
++       LEFT JOIN public.cash_postings p
++         ON p.scope_account=i.scope_account AND p.instruction_id=i.id
++      WHERE i.scope_account='wa-01' AND i.cash_account='Cash Payment'
++      GROUP BY i.dataset_epoch ORDER BY i.dataset_epoch`,
++  )).rows;
++  const nativeCursorHealth=(await loader.query(
++    `SELECT count(*)::int AS cursor_count,
++            count(*) FILTER(WHERE cursor IS NOT NULL)::int AS active_cursors,
++            count(*) FILTER(WHERE last_error IS NOT NULL)::int AS cursors_with_error,
++            max(last_observed_at) AS latest_observed_at
++       FROM public.whatsapp_native_sync_state WHERE account_id=$1`,
++    [CASH_SCOPE_ACCOUNT],
++  )).rows[0]??{};
++  const cashChannelHealth=(await loader.query(
++    `SELECT chat_jid,enabled,native_cursor IS NOT NULL AS cursor_active,
++            last_processed_at,last_error IS NOT NULL AS has_error
++       FROM public.cash_live_sync_channels
++      WHERE scope_account=$1 ORDER BY chat_jid`,
++    [CASH_SCOPE_ACCOUNT],
++  )).rows;
++  const employeeOutcomeByKey=new Map();
++  for(const {row,block} of blocks){
++    const employee=employees.get(block.fields.employeeMobile);
++    const reasons=employeeReviewReasons(employee,block.fields.employeeName);
++    employeeOutcomeByKey.set(`${row.message_id}\u0000${block.blockKey}`,
++      reasons.includes('EMPLOYEE_ID_UNMATCHED')?'UNMATCHED':reasons.length?'CONFLICT':'MATCHED');
++  }
++  const newBlocks=blocks.filter(({row,block})=>
++    !instructionKeys.has(`${row.message_id}\u0000${block.blockKey}`));
++  const writeSetManifest=writeSetManifestFor(newBlocks,employees);
++  const writeSetSha256=createHash('sha256').update(JSON.stringify(writeSetManifest)).digest('hex');
++  const newlyEligibleEmployeeMatches={
++    matched:newBlocks.filter(({row,block})=>employeeOutcomeByKey.get(`${row.message_id}\u0000${block.blockKey}`)==='MATCHED').length,
++    unmatched:newBlocks.filter(({row,block})=>employeeOutcomeByKey.get(`${row.message_id}\u0000${block.blockKey}`)==='UNMATCHED').length,
++    conflicting:newBlocks.filter(({row,block})=>employeeOutcomeByKey.get(`${row.message_id}\u0000${block.blockKey}`)==='CONFLICT').length,
++  };
++
++  console.log(JSON.stringify({
++    mode: 'READ_ONLY_DRY_RUN',
++    batchId,
++    cutoffAt: new Date().toISOString(),
++    cutoffTimezone: 'UTC',
++    allWa01OriginalMessages: Number(sourceTotals.all_wa01??0),
++    designatedCashChatOriginalMessages: Number(sourceTotals.cash_chat??0),
++    sourceRowsAcrossOriginalAndStaging: sourceRows.length,
++    distinctSourceMessages: rows.length,
++    duplicateStorageCopiesSkipped: duplicateCopies,
++    conflictingSourceGroupsResolvedFromOriginal: resolvedConflictGroups,
++    conflictingSourceCopies: ambiguousCopies,
++    conflictingSourceGroups: ambiguousGroups,
++    sourceVerificationReviewGroups,
++    excludedUnauthorizedConflictGroups,
++    sourceConflictDimensions: ambiguityReasons,
++    excludedOutsideCashChatMessages: Number(sourceTotals.all_wa01??0)-Number(sourceTotals.cash_chat??0),
++    historicalCoverage: sourceCoverage,
++    nativeCursorHealth,
++    cashChannelHealth,
++    authorizedAdminOutgoingMessages: authorizedOutgoingMessages,
++    otherAuthorizedMessages: otherAuthorizedMessages,
++    idMessagesMissingRequiredFields,
++    invalidPaymentBlocks,
++    distinctMessagesWithRepeatedText,
++    eligibleBlocks: blocks.length,
++    successfullyMatchedEmployeeIds: matchedEmployees,
++    missingEmployeeIds: missingEmployees,
++    employeeIdentityConflicts: conflictingEmployees,
++    alreadyExistingInstructions: alreadyImportedBlocks,
++    existingCurrentInstructions:currentExistingBlocks,
++    existingLegacyInstructions:legacyExistingBlocks,
++    sourceBlocksPresentInBothEpochs:bothEpochBlocks,
++    existingSourceInstructionConflicts:sourceInstructionConflicts,
++    existingSourceInstructionConflictDimensions,
++    currentRecordsWithoutParsedSourceKey:Math.max(0,Number(storedTotals.find((row)=>row.dataset_epoch===CASH_EPOCH_CURRENT)?.instructions??0)-currentExistingBlocks),
++    legacyRecordsWithoutParsedSourceKey:Math.max(0,Number(storedTotals.find((row)=>row.dataset_epoch!==CASH_EPOCH_CURRENT)?.instructions??0)-legacyExistingBlocks),
++    storedInstructionAndPostingTotals:storedTotals,
++    newlyEligibleBlocks: blocks.length - alreadyImportedBlocks,
++    newlyEligibleEmployeeMatches,
++    writeSet:{
++      count:writeSetManifest.length,
++      matchedEmployeeCount:newlyEligibleEmployeeMatches.matched,
++      employeeReviewCount:newlyEligibleEmployeeMatches.unmatched+newlyEligibleEmployeeMatches.conflicting,
++      sha256:writeSetSha256,
++      state:'REVIEW_ONLY_NO_POSTINGS',
++    },
++    duplicateSourceInstructions: alreadyImportedBlocks,
++    existingPostingMatches: postingMatches,
++    parsedAmountMinor:amountMinor.toString(),
++    parsedAmountBDT:(Number(amountMinor)/100).toFixed(2),
++    totalExistingPostingRows:Number((await loader.query('SELECT count(*)::int AS count FROM public.cash_postings')).rows[0]?.count??0),
++    ambiguousOrRejectedByReason: Object.fromEntries([...byReason.entries()].sort(([a],[b]) => a.localeCompare(b))),
++    unauthorizedChatCashInstructions: unauthorized,
++    priorRun: existingRun,
++    writesPerformed: 0,
++    sourceToInstruction: {
++      eligibleBlocks: blocks.length,
++      alreadyImported: alreadyImportedBlocks,
++      notYetImported: blocks.length - alreadyImportedBlocks,
++    },
++  }, null, 2));
++}
+ 
+ async function main() {
++  if (!applyMode) {
++    await dryRun();
++    return;
++  }
++  if (process.env.CASH_BACKFILL_APPLY !== 'APPROVED_AFTER_GO_NO_GO') {
++    throw new Error('CASH_BACKFILL_EXPLICIT_GO_NO_GO_REQUIRED');
++  }
+   const scope = await loadConversationScope({
+     query: (sql, values) => loader.query(sql, values),
+   });
+-  console.log(`approved conversations: ${scope.conversations.length}`);
+-
+   const runId = hex(`backfill|${batchId}`).slice(0, 40);
+-  await loader.query(
++  const priorRun = (await loader.query(
++    `SELECT status,notes,scanned,inserted,cash_eligible,cash_published,cash_duplicate,unmatched,review_queued
++       FROM public.wa01_backfill_runs WHERE id=$1`,
++    [runId],
++  )).rows[0];
++  if (priorRun?.status === 'PUBLISHED') throw new Error('BACKFILL_BATCH_ALREADY_PUBLISHED');
++  if (priorRun && priorRun.notes?.writeSetSha256 !== expectedWriteSetSha256) {
++    throw new Error('BACKFILL_WRITE_SET_APPROVAL_MISMATCH');
++  }
++  const sourceRows = await loadCashSourceRows();
++  const {unique:rows,unresolvedGroups} = deduplicateSourceRows(sourceRows);
++  const existingKeys = new Set((await loader.query(
++    `SELECT s.message_id,s.block_key
++       FROM public.source_refs s
++       JOIN public.cash_instructions i ON i.scope_account=s.scope_account AND i.source_ref=s.id
++      WHERE s.scope_account='wa-01' AND s.chat_jid=ANY($1::text[])`,
++    [[...CASH_SCOPE_CHATS]],
++  )).rows.map((row) => `${row.message_id}\u0000${row.block_key}`));
++  const plannedBlocks=[];
++  for(const row of rows){
++    const conversation=scope.byChat(row.chat_jid);
++    if(eligibilityOf(row,conversation)!=='ELIGIBLE')continue;
++    for(const block of parseLivePaymentBlocks(row.text_content??'')){
++      if(!existingKeys.has(`${row.message_id}\u0000${block.blockKey}`))plannedBlocks.push({row,block});
++    }
++  }
++  const plannedEmployeeMobiles=[...new Set(plannedBlocks.map(({block})=>block.fields.employeeMobile))];
++  const plannedEmployees=plannedEmployeeMobiles.length
++    ?new Map((await loader.query(
++      `SELECT employee_mobile,state,preferred_name,name_aliases FROM public.employee_master
++        WHERE scope_account='wa-01' AND employee_mobile=ANY($1::text[])`,
++      [plannedEmployeeMobiles],
++    )).rows.map((employee)=>[employee.employee_mobile,employee]))
++    :new Map();
++  const plannedManifest=writeSetManifestFor(plannedBlocks,plannedEmployees);
++  const plannedDigest=createHash('sha256').update(JSON.stringify(plannedManifest)).digest('hex');
++  const manifestKey=(entry)=>JSON.stringify([entry[0],entry[1],entry[2],entry[3]]);
++  const approvedSourceBlocks=plannedManifest.map((entry)=>({
++    key:manifestKey(entry),digest:hex(JSON.stringify(entry)),
++  }));
++  if(!priorRun&&plannedDigest!==expectedWriteSetSha256){
++    throw new Error(`BACKFILL_WRITE_SET_HASH_MISMATCH expected=${expectedWriteSetSha256} actual=${plannedDigest}`);
++  }
++  if(priorRun){
++    const approvedBlocks=priorRun.notes?.approvedSourceBlocks;
++    const approved=new Map((Array.isArray(approvedBlocks)?approvedBlocks:[]).map((item)=>[item.key,item.digest]));
++    if(!Array.isArray(approvedBlocks)||plannedManifest.some((entry)=>approved.get(manifestKey(entry))!==hex(JSON.stringify(entry)))){
++      throw new Error(`BACKFILL_WRITE_SET_HASH_MISMATCH expected=${expectedWriteSetSha256} actual=${plannedDigest}`);
++    }
++  }
++  if (!priorRun) await runWriter.query(
+     `INSERT INTO public.wa01_backfill_runs (id,batch_id,scope,status,notes)
+-     VALUES ($1,$2,$3::jsonb,'STAGED','{}'::jsonb)
+-     ON CONFLICT (id) DO UPDATE SET status='STAGED'`,
+-    [runId, batchId, JSON.stringify(scope.conversations.map((c) => ({
+-      chatJid: c.canonicalChatJid, domain: c.domain, type: c.conversationType,
+-    })))],
++     VALUES ($1,$2,$3::jsonb,'STAGED',$4::jsonb)`,
++    [runId,batchId,JSON.stringify(scope.conversations.map((c)=>({
++      chatJid:c.canonicalChatJid,domain:c.domain,type:c.conversationType,
++    }))),JSON.stringify({
++      writeSetSha256:plannedDigest,
++      approvedSourceBlocks,
++    })],
+   );
++  runStarted=true;
++  const sourceVerificationReview = Array.isArray(priorRun?.notes?.sourceVerificationReview)
++    ? [...priorRun.notes.sourceVerificationReview]
++    : [];
++  const reviewedMessages = new Set(sourceVerificationReview.map((item) => item.messageId));
++  let sourceReviewAdded = 0;
++  for (const group of unresolvedGroups) {
++    const messageId = group[0]?.message_id;
++    if (messageId && needsSourceVerificationReview(group,scope) && !reviewedMessages.has(messageId)) {
++      sourceVerificationReview.push({messageId,reason:'SOURCE_COPY_CONFLICT'});
++      reviewedMessages.add(messageId);
++      sourceReviewAdded += 1;
++    }
++  }
++  await runWriter.query(
++    `UPDATE public.wa01_backfill_runs
++        SET notes=jsonb_set(coalesce(notes,'{}'::jsonb),'{sourceVerificationReview}',$2::jsonb,true)
++      WHERE id=$1`,
++    [runId,JSON.stringify(sourceVerificationReview)],
++  );
++  const cursor = priorRun?.notes?.cursor ?? null;
++  Object.assign(tally, priorRun ? {
++    scanned: priorRun.scanned ?? 0, inserted: priorRun.inserted ?? 0,
++    cashEligible: priorRun.cash_eligible ?? 0, cashPublished: priorRun.cash_published ?? 0,
++    cashDuplicate: priorRun.cash_duplicate ?? 0,
++    unmatched: priorRun.unmatched ?? 0, reviewQueued: priorRun.review_queued ?? 0,
++  } : {});
++  tally.reviewQueued += sourceReviewAdded;
++  const cursorIndex = cursor ? rows.findIndex((row) =>
++    JSON.stringify([row.account_id,row.message_id]) === cursor) : -1;
++  if(cursor&&cursorIndex<0)throw new Error('BACKFILL_CHECKPOINT_INVALID');
++  const resumeAfter = cursor ? cursorIndex + 1 : 0;
++  const checkpoint = async (row) => {
++    const lastCursor=JSON.stringify([row.account_id,row.message_id]);
++    await runWriter.query(
++      `UPDATE public.wa01_backfill_runs
++          SET notes=jsonb_set(
++                jsonb_set(coalesce(notes,'{}'::jsonb),'{cursor}',to_jsonb($2::text),true),
++                '{sourceVerificationReview}',$10::jsonb,true),
++              scanned=$3,inserted=$4,cash_eligible=$5,cash_published=$6,cash_duplicate=$7,
++              unmatched=$8,review_queued=$9
++        WHERE id=$1`,
++      [runId,lastCursor,tally.scanned,tally.inserted,tally.cashEligible,tally.cashPublished,
++       tally.cashDuplicate,tally.unmatched,tally.reviewQueued,JSON.stringify(sourceVerificationReview)],
++    );
++  };
+ 
+-  const rows = (await loader.query(
+-    `SELECT * FROM public.wa01_backfill_staging WHERE batch_id=$1 ORDER BY chat_jid,source_time`,
+-    [batchId],
+-  )).rows;
+-  console.log(`staged messages: ${rows.length}`);
+-
+-  for (const row of rows) {
++  for (const row of rows.slice(resumeAfter)) {
+     tally.scanned += 1;
+     const conversation = scope.byChat(row.chat_jid);
+-    if (!conversation) { tally.unmatched += 1; continue; }
+-
+-    const incomingSenderJid = senderJidOf(row);
+-    const inserted = (await loader.query(
+-      `INSERT INTO public.whatsapp_messages_original
+-       (wa_account,chat_jid,chat_type,message_id,direction,sender_jid,sender_phone,
+-        sender_push_name,receiver_jid,group_name,timestamp,message_type,raw_content,
+-        text_content,media_ref,ingested_at)
+-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,now())
+-       ON CONFLICT (wa_account,chat_jid,message_id) DO NOTHING
+-       RETURNING id`,
+-      [row.account_id, row.chat_jid, row.chat_type, row.message_id, row.direction,
+-        incomingSenderJid, row.sender_phone,
+-        row.sender_push_name, row.receiver_jid, row.group_name, row.source_time,
+-        row.message_type, JSON.stringify(row.raw_content), row.text_content, row.media_ref],
+-    )).rows[0];
+-    // A message already present keeps its original row: the backfill never rewrites
+-    // stored evidence. It is still routed through processing so that no approved
+-    // message escapes Cash/Vessel extraction merely because it arrived earlier.
+-    const originalId = inserted?.id ?? (await loader.query(
+-      `SELECT id FROM public.whatsapp_messages_original
+-        WHERE wa_account=$1 AND chat_jid=$2 AND message_id=$3`,
+-      [row.account_id, row.chat_jid, row.message_id],
+-    )).rows[0]?.id;
+-    if (!originalId) { tally.unmatched += 1; continue; }
+-    if (inserted) tally.inserted += 1;
+-
+-    await loader.query(
+-      `INSERT INTO public.whatsapp_messages_processing (original_id,domain,status,processed_content,processed_at)
+-       VALUES ($1,'archive','processed',$2::jsonb,now())
+-       ON CONFLICT (original_id,domain) DO NOTHING`,
+-      [originalId, JSON.stringify({version: 'immutable-original-archive-v1', sourceMode: 'wa01-store-backfill'})],
+-    );
+-    await loader.query(
+-      `INSERT INTO public.whatsapp_messages_processing (original_id,domain,status)
+-       VALUES ($1,'cash','pending') ON CONFLICT (original_id,domain) DO NOTHING`,
+-      [originalId],
+-    );
+-    if (conversation.domain === 'VESSEL') {
+-      const queued = await loader.query(
+-        `INSERT INTO public.whatsapp_messages_processing (original_id,domain,status)
+-         VALUES ($1,'vessel','pending') ON CONFLICT (original_id,domain) DO NOTHING RETURNING id`,
+-        [originalId],
+-      );
+-      if (queued.rowCount) tally.vesselQueued += 1;
++    if (!conversation) {
++      tally.unmatched += 1;
++      tally.reviewQueued += 1;
++      if (!reviewedMessages.has(row.message_id)) {
++        sourceVerificationReview.push({messageId:row.message_id,reason:'CONVERSATION_IDENTITY_UNRESOLVED'});
++        reviewedMessages.add(row.message_id);
++        tally.reviewQueued += 1;
++      }
++      await checkpoint(row);
++      continue;
++    }
++    const eligibility = eligibilityOf(row, conversation);
++    if (eligibility !== 'ELIGIBLE') {
++      if (eligibility.endsWith('_UNRESOLVED')) {
++        tally.reviewQueued += 1;
++        if (!reviewedMessages.has(row.message_id)) {
++          sourceVerificationReview.push({messageId:row.message_id,reason:eligibility});
++          reviewedMessages.add(row.message_id);
++          tally.reviewQueued += 1;
++        }
++      }
++      await checkpoint(row);
++      continue;
+     }
+-
+-    if (conversation.domain !== 'CASH') continue;
+-    // Cash eligibility is unchanged and strict: a verified Owner/Admin outgoing
+-    // message in the designated Accountant direct chat only.
+-    if (row.direction !== 'outgoing' || !row.sender_bare || !isCashScopeOwner(row.sender_bare)) continue;
+     const blocks = parseLivePaymentBlocks(row.text_content ?? '');
+-    if (!blocks.length) continue;
+-    tally.cashEligible += 1;
+-
++    if (!blocks.length) { await checkpoint(row); continue; }
++    const sender=senderJidOf(row);
++    if(!sender){
++      tally.reviewQueued+=blocks.length;
++      if(!reviewedMessages.has(row.message_id)){
++        sourceVerificationReview.push({messageId:row.message_id,reason:'SENDER_IDENTITY_UNRESOLVED'});
++        reviewedMessages.add(row.message_id);
++      }
++      await checkpoint(row);
++      continue;
++    }
+     const sourceHash = sha({
+       accountId: row.account_id, chatJid: row.chat_jid, id: row.message_id,
+-      sender: senderJidOf(row), text: row.text_content ?? '',
+-      sourceTime: new Date(row.source_time).toISOString(), direction: 'OUTGOING', deletedAt: null,
++      sender,text: row.text_content ?? '',sourceTime: new Date(row.source_time).toISOString(),
++      direction: 'OUTGOING',
+     });
+     for (const block of blocks) {
++      tally.cashEligible += 1;
++      const employee=(await loader.query(
++        `SELECT state,preferred_name,name_aliases FROM public.employee_master
++          WHERE scope_account='wa-01' AND employee_mobile=$1`,
++        [block.fields.employeeMobile],
++      )).rows[0];
++      const reviewReasons=employeeReviewReasons(employee,block.fields.employeeName);
+       try {
+         const outcome = await publishCashBlock(publisher, {
+           account: row.account_id,
+           chatJid: row.chat_jid,
+           messageId: row.message_id,
+-          sender: senderJidOf(row) ?? `${row.sender_bare}@s.whatsapp.net`,
++          sender,
+           sourceTime: new Date(row.source_time).toISOString(),
+           sourceHash,
+           cashAccount: CASH_SCOPE_NAME,
+           epoch: CASH_EPOCH_CURRENT,
+           block,
++          reviewReasons,
+         });
+-        if (outcome === 'written') tally.cashPublished += 1; else tally.cashDuplicate += 1;
++        if (outcome === 'written') {
++          tally.cashPublished += 1;
++          tally.inserted += 1;
++        } else tally.cashDuplicate += 1;
++        if (reviewReasons.length) {
++          tally.reviewQueued += 1;
++          if (reviewReasons.includes('EMPLOYEE_ID_UNMATCHED')) tally.unmatched += 1;
++        }
+       } catch (error) {
+         if (error instanceof Error && /LIVE_SOURCE_REPLAY_CONFLICT/.test(error.message)) {
+           tally.reviewQueued += 1; continue;
+@@ -147,24 +597,32 @@ async function main() {
+         throw error;
+       }
+     }
++    await checkpoint(row);
+   }
+ 
+-  await loader.query(
++  await runWriter.query(
+     `UPDATE public.wa01_backfill_runs SET status='PUBLISHED',finished_at=now(),
+        scanned=$2,inserted=$3,cash_eligible=$4,cash_published=$5,cash_duplicate=$6,
+-       vessel_queued=$7,unmatched=$8,review_queued=$9
++       unmatched=$7,review_queued=$8
+      WHERE id=$1`,
+     [runId, tally.scanned, tally.inserted, tally.cashEligible, tally.cashPublished,
+-      tally.cashDuplicate, tally.vesselQueued, tally.unmatched, tally.reviewQueued],
++      tally.cashDuplicate, tally.unmatched, tally.reviewQueued],
+   );
+-  console.log(JSON.stringify({batchId, ...tally}, null, 2));
++  console.log(JSON.stringify({
++    mode:'APPLY',batchId,...tally,
++    sourceVerificationReviewCount:sourceVerificationReview.length,
++  }, null, 2));
+ }
+ 
+ main()
+-  .then(async () => { await loader.end(); await publisher.end(); })
++  .then(async () => { await loader.end(); await publisher?.end(); await runWriter?.end(); })
+   .catch(async (error) => {
+-    console.error('backfill failed:', error instanceof Error ? error.message : error);
++    console.error('backfill failed:', error instanceof Error ? error.message : 'BACKFILL_FAILED');
++    if(applyMode&&typeof runStarted!=='undefined'&&runStarted){
++      await runWriter.query("UPDATE public.wa01_backfill_runs SET status='FAILED',finished_at=now() WHERE id=$1 AND status<>'PUBLISHED'",[hex(`backfill|${batchId}`).slice(0,40)]).catch(()=>undefined);
++    }
+     await loader.end().catch(() => undefined);
+-    await publisher.end().catch(() => undefined);
++    await publisher?.end().catch(() => undefined);
++    await runWriter?.end().catch(() => undefined);
+     process.exitCode = 1;
+   });
+diff --git a/apps/al-rifai/scripts/check-runtime-imports.mjs b/apps/al-rifai/scripts/check-runtime-imports.mjs
+index 4ea86b1..60b577f 100644
+--- a/apps/al-rifai/scripts/check-runtime-imports.mjs
++++ b/apps/al-rifai/scripts/check-runtime-imports.mjs
+@@ -18,6 +18,17 @@ const ROOT = '/app';
+ const SCAN_DIRS = ['scripts', 'lib'];
+ const EXTENSIONS = ['', '.ts', '.mjs', '.js', '.json', '/index.ts', '/index.mjs'];
+ 
++// Entry points that must exist in the runtime image even though nothing inside
++// the image imports them. `reconcile-ingest.mjs` is executed by `docker exec`
++// from the host reconciliation producer (systemd timer), so a missing file does
++// not fail the build, the container or any route — it silently fails that
++// service every five minutes. That is exactly what happened between
++// 2026-10-17 and 2026-11-04: 5,108 consecutive failed reconciliations.
++const REQUIRED_ENTRY_POINTS = [
++  {path: 'scripts/reconcile-ingest.mjs', why: 'executed by the host reconciliation producer via docker exec'},
++  {path: 'lib/reconciliation-core.mjs', why: 'imported by scripts/reconcile-ingest.mjs'},
++];
++
+ const seen = new Set();
+ const missing = [];
+ 
+@@ -68,6 +79,18 @@ function walk(dir) {
+ 
+ for (const dir of SCAN_DIRS) walk(join(ROOT, dir));
+ 
++const missingEntryPoints = REQUIRED_ENTRY_POINTS
++  .filter((entry) => !existsSync(join(ROOT, entry.path)));
++
++if (missingEntryPoints.length) {
++  console.error('\nRUNTIME ENTRY POINT CHECK FAILED');
++  console.error('These entry points are required at runtime but are not in the image.');
++  console.error('Add them to the Dockerfile runtime COPY whitelist:\n');
++  for (const entry of missingEntryPoints) console.error(`  ${entry.path}  (${entry.why})`);
++  console.error('');
++  process.exit(1);
++}
++
+ if (missing.length) {
+   console.error('\nRUNTIME IMPORT CHECK FAILED');
+   console.error('These relative imports do not exist in the runtime image.');
+diff --git a/apps/al-rifai/scripts/process-cash.ts b/apps/al-rifai/scripts/process-cash.ts
+index 17a32a1..f2d2dc6 100644
+--- a/apps/al-rifai/scripts/process-cash.ts
++++ b/apps/al-rifai/scripts/process-cash.ts
+@@ -1,6 +1,7 @@
+ import {createPool} from "../db/postgres.mjs";
+ import {parseLivePaymentBlocks} from "../candidates/identity-review/live-cash.ts";
+-import {CASH_SCOPE_ACCOUNT,CASH_SCOPE_CHATS,isCashScopeOwner} from "../lib/cash-scope.ts";
++import {CASH_SCOPE_ACCOUNT,CASH_SCOPE_CHATS} from "../lib/cash-scope.ts";
++import {cashSourceEligibility} from "../lib/cash-source-eligibility.ts";
+ 
+ const BATCH_SIZE=50;
+ const scopeChats=new Set<string>(CASH_SCOPE_CHATS);
+@@ -19,9 +20,11 @@ type PendingRow={
+   original_id:number;
+   wa_account:string;
+   chat_jid:string;
++  chat_type:string;
+   message_id:string;
+   direction:string;
+   sender_jid:string|null;
++  receiver_jid:string|null;
+   timestamp:Date|string;
+   text_content:string|null;
+   raw_content:Record<string,unknown>;
+@@ -31,11 +34,16 @@ function classify(row:PendingRow):Record<string,unknown>{
+   if(row.wa_account!==CASH_SCOPE_ACCOUNT||!scopeChats.has(row.chat_jid)){
+     return {classification:"NOT_CASH_SCOPE",reviewStatus:"NOT_REQUIRED",financialAction:"NONE"};
+   }
+-  if(row.direction!=="outgoing"){
+-    return {classification:"NOT_OWNER_OUTGOING",reviewStatus:"NOT_REQUIRED",financialAction:"NONE"};
+-  }
+-  if(!row.sender_jid||!isCashScopeOwner(row.sender_jid)){
+-    return {classification:"OWNER_IDENTITY_UNRESOLVED",reviewStatus:"REVIEW",financialAction:"NONE"};
++  const eligibility=cashSourceEligibility({
++    accountId:row.wa_account,chatJid:row.chat_jid,direct:row.chat_type==="individual",
++    direction:row.direction==="outgoing"?"OUTGOING":row.direction.toUpperCase(),
++    senderJid:row.sender_jid,recipientJid:row.receiver_jid??row.chat_jid,
++  });
++  if(eligibility!=="ELIGIBLE"){
++    const review=eligibility==="OWNER_IDENTITY_UNRESOLVED"
++      ||eligibility==="CASH_RECIPIENT_IDENTITY_UNRESOLVED"
++      ||eligibility==="SOURCE_PROVENANCE_UNRESOLVED";
++    return {classification:eligibility,reviewStatus:review?"REVIEW":"NOT_REQUIRED",financialAction:"NONE"};
+   }
+   if(!row.text_content){
+     return {classification:"OWNER_MESSAGE_WITHOUT_TEXT",reviewStatus:"REVIEW",financialAction:"NONE"};
+@@ -60,8 +68,8 @@ async function processBatch():Promise<number>{
+   try{
+     await client.query("BEGIN");
+     const rows=(await client.query(
+-      `SELECT p.id,p.original_id,o.wa_account,o.chat_jid,o.message_id,o.direction,
+-              o.sender_jid,o."timestamp",o.text_content,o.raw_content
++      `SELECT p.id,p.original_id,o.wa_account,o.chat_jid,o.chat_type,o.message_id,o.direction,
++              o.sender_jid,o.receiver_jid,o."timestamp",o.text_content,o.raw_content
+        FROM public.whatsapp_messages_processing p
+        JOIN public.whatsapp_messages_original o ON o.id=p.original_id
+        WHERE p.domain='cash' AND p.status='pending' AND o.wa_account='wa-01'
+diff --git a/apps/al-rifai/tests/business-workflows.mjs b/apps/al-rifai/tests/business-workflows.mjs
+index 3a6a3bb..cff5229 100644
+--- a/apps/al-rifai/tests/business-workflows.mjs
++++ b/apps/al-rifai/tests/business-workflows.mjs
+@@ -1,6 +1,6 @@
+ import test from 'node:test';
+ import assert from 'node:assert/strict';
+-import {extractStoredMessage,exactMinor} from '../lib/history-extraction.mjs';
++import {extractStoredMessage,exactMinor,reconcileCashSourceCopies} from '../lib/history-extraction.mjs';
+ import {historyAdmission,extractionScopes} from '../lib/history-policy.mjs';
+ import {compatibleDraft} from '../candidates/identity-review/history-business.ts';
+ import {visibleHistorySources} from '../candidates/identity-review/source-visibility.ts';
+@@ -26,6 +26,49 @@ function state(){
+ test('multiple payment blocks retain source order, exact BDT and malformed sibling',()=>{
+  const rows=extractStoredMessage(message,context);assert.equal(rows.length,3);assert.deepEqual(rows.map(r=>r.assertion.blockOrder),[0,1,2]);assert.equal(rows[0].assertion.fields.amountMinor,'125050');assert.equal(rows[2].assertion.fields.amountMinor,'125050');assert.ok(rows[1].assertion.reasons.includes('EMPLOYEE_ID_UNRESOLVED'));assert.equal(exactMinor('1,000.09'),'100009');assert.equal(exactMinor('1,00'),null);
+ });
++test('historical parser accepts Owner ID formats and preserves Employee ID as text',()=>{
++ const samples=[
++  'ID: 01839882307 Ali Khan 01923100237(B) 200/-',
++  'ID: 01752149074 Sahedul Islam 01605263994(B) 500/-',
++  'ID: 01540564651 Mirajul Islam 01540564651(B) 200/-',
++  'ID: 01883192831 Yanat Alam 01883192831(B) 200/-',
++  'ID: 01939987667 Elahe Molla 01939987667(B) 200/-',
++  'ID: 01896087511 Mohammed Sihab 01952406074(B) 1500/-',
++  'ID: 01321706844 Md.Nazmul Hossain 01321706844(B) 500/-',
++  'ID: 01896087511 Mohammed Sihab 01896087511(N) 1000/-',
++  'ID: 01405516576 Md.Jahidul Islam 01405516576(N) 2000/-',
++  'ID 01937539700 Joy Samadder 01755627557(B) 300/-',
++  'ID: 01405516576 Md.Jahidul Islam 01405516576(N) 200/-',
++ ];
++ const rows=samples.map((text,index)=>extractStoredMessage({...message,id:`owner-sample-${index}`,text},context)[0]);
++ assert.equal(rows.filter(Boolean).length,11);
++ assert.equal(new Set(rows.map(row=>row.assertion.fields.employeeId)).size,9);
++ assert.equal(rows.reduce((sum,row)=>sum+BigInt(row.assertion.fields.amountMinor),0n),680000n);
++ assert.equal(rows.filter(row=>row.assertion.fields.method==='bkash').length,8);
++ assert.equal(rows.filter(row=>row.assertion.fields.method==='nagad').length,3);
++ assert.equal(rows[6].assertion.fields.employeeName,'Md.Nazmul Hossain');
++ assert.equal(rows[8].assertion.fields.employeeName,'Md.Jahidul Islam');
++ assert.equal(rows[9].assertion.fields.employeeId,'01937539700');
++ assert.equal(rows[9].assertion.fields.payoutMobile,'+8801755627557');
++ assert.equal(rows[5].assertion.fields.payoutMobile,'+8801952406074');
++});
++test('Cash source-copy reconciliation prefers one canonical original and isolates unresolved groups',()=>{
++ const signature=(row)=>[row.direction,row.text];
++ const original={account_id:'wa-01',message_id:'message-1',source_store:'original',direction:'outgoing',text:'ID: 01839882307 Example Person 01923100237(B) 200/-'};
++ const stagingCopy={...original,source_store:'staging',text:'conflicting staged copy'};
++ const unresolvedA={...original,message_id:'message-2',source_store:'staging'};
++ const unresolvedB={...unresolvedA,text:'conflicting source copy'};
++ const sameTextOriginal={...original,message_id:'message-3'};
++ const sameTextCopy={...sameTextOriginal,source_store:'staging'};
++ const result=reconcileCashSourceCopies(
++  [original,stagingCopy,unresolvedA,unresolvedB,sameTextOriginal,sameTextCopy],signature,
++ );
++ assert.deepEqual(result.unique,[original,sameTextOriginal]);
++ assert.equal(result.duplicateCopies,2);
++ assert.equal(result.resolvedConflictGroups,1);
++ assert.deepEqual(result.unresolvedGroups,[[unresolvedA,unresolvedB]]);
++ assert.equal(result.ambiguousCopies,2);
++});
+ test('incoming Accountant summary and unbound outgoing account do not create payment intents',()=>{
+  assert.deepEqual(extractStoredMessage({...message,direction:'INCOMING'},context),[]);assert.deepEqual(extractStoredMessage(message,{...context,admission:{...admission,role:'UNRESOLVED'}}),[]);
+ });
+diff --git a/apps/al-rifai/tests/cash-intake-safety.mjs b/apps/al-rifai/tests/cash-intake-safety.mjs
+index f980a86..ae69909 100644
+--- a/apps/al-rifai/tests/cash-intake-safety.mjs
++++ b/apps/al-rifai/tests/cash-intake-safety.mjs
+@@ -1,29 +1,122 @@
+ import test from 'node:test';
+ import assert from 'node:assert/strict';
+ import {readFileSync} from 'node:fs';
+-import {parseLivePaymentBlocks,liveSourceIdentity,isLiveCashOwnerOutgoing} from '../candidates/identity-review/live-cash.ts';
+-import {cashScopeWhere,CASH_SCOPE_ACCOUNT,CASH_SCOPE_CHAT,CASH_SCOPE_CHAT_LID,CASH_SCOPE_NAME,isCashScopeChat,isCashScopeOwner} from '../lib/cash-scope.ts';
++import {parseLivePaymentBlocks,employeeNameMatches,employeeReviewReasons,liveSourceIdentity,isLiveCashOwnerOutgoing} from '../candidates/identity-review/live-cash.ts';
++import {cashSourceEligibility} from '../lib/cash-source-eligibility.ts';
++import {publishCashBlock} from '../lib/cash-publish.ts';
++import {cashScopeWhere,CASH_SCOPE_ACCOUNT,CASH_SCOPE_CHAT,CASH_SCOPE_CHAT_LID,CASH_SCOPE_NAME,isCashScopeAccountant,isCashScopeChat,isCashScopeOwner} from '../lib/cash-scope.ts';
+ 
+-test('cash parser requires two mobile numbers, name, method and amount',()=>{
++test('cash parser keeps Employee ID and payout distinct and stores exact minor units',()=>{
+  const rows=parseLivePaymentBlocks('ID: 01312345678 Rahim Uddin 01712345678 (B) 1,250/- food');
+  assert.equal(rows.length,1);
++ assert.equal(rows[0].fields.employeeId,'01312345678');
+  assert.equal(rows[0].fields.employeeMobile,'+8801312345678');
++ assert.equal(rows[0].fields.payoutNumber,'01712345678');
+  assert.equal(rows[0].fields.payoutMobile,'+8801712345678');
++ assert.equal(rows[0].fields.methodMarker,'B');
++ assert.equal(rows[0].fields.amount,'1,250');
+  assert.equal(rows[0].fields.amountMinor,'125000');
+ });
+ 
+ test('name-only and incomplete payment text never creates a cash block',()=>{
+  assert.deepEqual(parseLivePaymentBlocks('Rahim Uddin (B) 1,250/- food'),[]);
+  assert.deepEqual(parseLivePaymentBlocks('ID: 01312345678 Rahim Uddin (B) 1,250/- food'),[]);
++ assert.deepEqual(parseLivePaymentBlocks('ID: 01312345678 Rahim Uddin 01712345678 1,250/-'),[]);
++ assert.deepEqual(parseLivePaymentBlocks('ID: 01312345678 Rahim Uddin 1,250/-'),[]);
++ assert.deepEqual(parseLivePaymentBlocks('ID: 01312345678 Rahim Uddin 01712345678(B) 1,2,50/-'),[]);
++ assert.deepEqual(parseLivePaymentBlocks('ID: 01312345678 Rahim Uddin 01712345678(C) 1,250/-'),[]);
++ assert.deepEqual(parseLivePaymentBlocks('ID: 01312345678 Rahim Uddin 01712345678(B) -200/-'),[]);
++});
++
++const ownerSamples=[
++ 'ID: 01839882307 Ali Khan 01923100237(B) 200/-',
++ 'ID: 01752149074 Sahedul Islam 01605263994(B) 500/-',
++ 'ID: 01540564651 Mirajul Islam 01540564651(B) 200/-',
++ 'ID: 01883192831 Yanat Alam 01883192831(B) 200/-',
++ 'ID: 01939987667 Elahe Molla 01939987667(B) 200/-',
++ 'ID: 01896087511 Mohammed Sihab 01952406074(B) 1500/-',
++ 'ID: 01321706844 Md.Nazmul Hossain 01321706844(B) 500/-',
++ 'ID: 01896087511 Mohammed Sihab 01896087511(N) 1000/-',
++ 'ID: 01405516576 Md.Jahidul Islam 01405516576(N) 2000/-',
++ 'ID 01937539700 Joy Samadder 01755627557(B) 300/-',
++ 'ID: 01405516576 Md.Jahidul Islam 01405516576(N) 200/-',
++];
++
++test('all eleven Owner samples parse without merging repeated Employee IDs',()=>{
++ const blocks=ownerSamples.map(text=>parseLivePaymentBlocks(text)[0]);
++ assert.equal(blocks.filter(Boolean).length,11);
++ assert.equal(new Set(blocks.map(block=>block.fields.employeeId)).size,9);
++ assert.equal(blocks.reduce((sum,block)=>sum+BigInt(block.fields.amountMinor),0n),680000n);
++ assert.equal(blocks.filter(block=>block.fields.method==='bkash').length,8);
++ assert.equal(blocks.filter(block=>block.fields.method==='nagad').length,3);
++ assert.equal(blocks[6].fields.employeeName,'Md.Nazmul Hossain');
++ assert.equal(blocks[8].fields.employeeName,'Md.Jahidul Islam');
++ assert.equal(blocks[9].fields.employeeId,'01937539700');
++ assert.equal(blocks[9].fields.payoutNumber,'01755627557');
++ assert.equal(blocks[5].fields.payoutNumber,'01952406074');
++ assert.equal(blocks[7].fields.employeeId,blocks[5].fields.employeeId);
++ assert.notEqual(blocks[7].fields.payoutNumber,blocks[5].fields.payoutNumber);
++ assert.notEqual(blocks[8].fields.amountMinor,blocks[10].fields.amountMinor);
+ });
+ 
+ test('same source message and block have stable idempotency identity',()=>{
+  assert.equal(liveSourceIdentity('message-1','payment-block-0'),liveSourceIdentity('message-1','payment-block-0'));
+  assert.notEqual(liveSourceIdentity('message-1','payment-block-0'),liveSourceIdentity('message-1','payment-block-1'));
+  assert.notEqual(liveSourceIdentity('message-1','payment-block-0'),liveSourceIdentity('message-2','payment-block-0'));
++ assert.notEqual(liveSourceIdentity('message-text-copy-1','payment-block-0'),liveSourceIdentity('message-text-copy-2','payment-block-0'));
+  // PN and LID are one logical Accountant conversation: the source identity must
+  // collapse to a single record so a replayed message cannot post twice.
+  assert.equal(liveSourceIdentity('message-1','payment-block-0',CASH_SCOPE_CHAT),liveSourceIdentity('message-1','payment-block-0',CASH_SCOPE_CHAT_LID));
++ assert.throws(()=>liveSourceIdentity('','payment-block-0'),/LIVE_CASH_SOURCE_IDENTITY_UNRESOLVED/);
++ assert.throws(()=>liveSourceIdentity('message-1',''),/LIVE_CASH_SOURCE_IDENTITY_UNRESOLVED/);
++});
++
++test('publisher is idempotent by source identity but keeps identical text from distinct messages',async()=>{
++ const stored=[];
++ let pendingSource=null;
++ const pool={connect:async()=>({
++  query:async(sql,values=[])=>{
++   if(sql.includes('SELECT ci.employee_mobile'))return {rows:stored.filter(row=>
++    row.account===values[0]&&row.messageId===values[1]&&row.blockKey===values[2]
++     &&values[3].includes(row.chatJid))};
++   if(sql.includes('INSERT INTO public.source_refs')){
++    pendingSource={account:values[1],chatJid:values[3],messageId:values[4],blockKey:values[6]};
++   }
++   if(sql.includes('INSERT INTO public.cash_instructions')){
++    stored.push({...pendingSource,employee_mobile:values[7],employee_name:values[8],
++     payout_mobile:values[9],purpose:values[10],method:values[11],amount_minor:values[12]});
++   }
++   return {rows:[]};
++  },
++  release(){},
++ })};
++ const input=(messageId,amountMinor='20000')=>({
++  account:CASH_SCOPE_ACCOUNT,chatJid:CASH_SCOPE_CHAT,messageId,sender:'verified-admin',
++  sourceTime:'2026-11-03T00:00:00.000Z',sourceHash:'a'.repeat(64),cashAccount:'Cash Payment',
++  epoch:'CANONICAL_BACKFILL_20261026',
++  block:{blockKey:'payment-block-0',blockOrder:0,fields:{
++   employeeId:'01839882307',employeeMobile:'+8801839882307',employeeName:'Ali Khan',
++   payoutNumber:'01923100237',payoutMobile:'+8801923100237',methodMarker:'B',
++   method:'bkash',amount:amountMinor==='20000'?'200':'250',amountMinor,purpose:'Owner direct payment instruction',
++  }},
++ });
++ assert.equal(await publishCashBlock(pool,input('source-message-a')),'written');
++ stored[0].purpose='';
++ assert.equal(await publishCashBlock(pool,input('source-message-a')),'duplicate');
++ assert.equal(await publishCashBlock(pool,input('source-message-b')),'written');
++ await assert.rejects(publishCashBlock(pool,input('source-message-a','25000')),/LIVE_SOURCE_REPLAY_CONFLICT/);
++ assert.equal(stored.length,2);
++});
++
++test('employee association uses the canonical Employee ID and conflicting names stay in review',()=>{
++ assert.equal(employeeNameMatches('Md.Nazmul Hossain',['Md. Nazmul Hossain']),true);
++ assert.equal(employeeNameMatches('Md.Jahidul Islam',['Md. Jahidul Islam']),true);
++ assert.equal(employeeNameMatches('Different Person',['Md. Jahidul Islam']),false);
++ assert.equal(employeeNameMatches('Any Name',null),false);
++ assert.deepEqual(employeeReviewReasons(undefined,'Ali Khan'),['EMPLOYEE_ID_UNMATCHED']);
++ assert.deepEqual(employeeReviewReasons({state:'REVIEW',preferred_name:'Ali Khan',name_aliases:[]},'Ali Khan'),['EMPLOYEE_ID_NOT_CONFIRMED']);
++ assert.deepEqual(employeeReviewReasons({state:'CONFIRMED',preferred_name:'Ali Khan',name_aliases:[]},'Different Person'),['EMPLOYEE_ID_NAME_CONFLICT']);
++ assert.deepEqual(employeeReviewReasons({state:'CONFIRMED',preferred_name:'Ali Khan',name_aliases:[]},'Ali Khan'),[]);
+ });
+ 
+ test('Accountant PN and native LID remain one explicitly scoped Cash chat',()=>{
+@@ -31,17 +124,42 @@ test('Accountant PN and native LID remain one explicitly scoped Cash chat',()=>{
+  assert.equal(isCashScopeChat(CASH_SCOPE_CHAT_LID),true);
+  assert.equal(isCashScopeOwner('8801880446111@s.whatsapp.net'),true);
+  assert.equal(isCashScopeOwner('93282931581172:27@lid'),true);
++ assert.equal(isCashScopeOwner('93282931581172@lid'),true);
++ assert.equal(isCashScopeOwner('8801880446111'),false);
++ assert.equal(isCashScopeOwner('93282931581172@evil.example'),false);
++ assert.equal(isCashScopeAccountant('19460614262828:3@lid'),true);
++ assert.equal(isCashScopeAccountant('8801844836824@g.us'),false);
+  assert.equal(isCashScopeChat('120363428977781821@g.us'),false);
+ });
+ 
+-test('owner direction and recipient scope reject wrong transport identities',()=>{
++test('only the verified Admin outgoing direct message to the designated Accountant is eligible',()=>{
++ const good={accountId:'wa-01',chatJid:CASH_SCOPE_CHAT,direct:true,direction:'OUTGOING',senderJid:'8801880446111:2@s.whatsapp.net',recipientJid:CASH_SCOPE_CHAT};
++ assert.equal(cashSourceEligibility(good),'ELIGIBLE');
++ assert.equal(cashSourceEligibility({...good,direction:'INCOMING'}),'NOT_OWNER_OUTGOING');
++ assert.equal(cashSourceEligibility({...good,recipientJid:'8801999999999@s.whatsapp.net'}),'CASH_RECIPIENT_IDENTITY_UNRESOLVED');
++ assert.equal(cashSourceEligibility({...good,recipientJid:undefined}),'CASH_RECIPIENT_IDENTITY_UNRESOLVED');
++ assert.equal(cashSourceEligibility({...good,chatJid:'120363408741101070@g.us'}),'NOT_CASH_SCOPE');
++ assert.equal(cashSourceEligibility({...good,chatJid:'120363428977781821@g.us'}),'NOT_CASH_SCOPE');
++ assert.equal(cashSourceEligibility({...good,chatJid:'8801777777777@s.whatsapp.net'}),'NOT_CASH_SCOPE');
++ assert.equal(cashSourceEligibility({...good,accountId:'wa-02'}),'NOT_CASH_SCOPE');
++ assert.equal(cashSourceEligibility({...good,senderJid:'8801844836824@s.whatsapp.net'}),'OWNER_IDENTITY_UNRESOLVED');
++ assert.equal(cashSourceEligibility({...good,senderJid:'8801880446111@c.us'}),'OWNER_IDENTITY_UNRESOLVED');
++});
++
++test('native live gate accepts forwarded and quoted messages but rejects ambiguous or unauthorized sources',()=>{
+  // The live reader now yields native records: eligibility is decided on the
+  // bridge envelope, never on a caller-supplied message object.
+- const envelope={version:'native-message-envelope-v1',provider:'WHATSAPP',accountId:'wa-01',nativeMessageId:'m',chatJid:CASH_SCOPE_CHAT_LID,chatType:'direct',senderJid:'93282931581172:27@lid',senderPhone:null,senderLid:null,direction:'OUTGOING',sourceTimestamp:'2026-10-17T06:57:48.000Z',observedAt:'2026-10-17T06:57:49.000Z',eventType:'TEXT',payload:{text:'',sha256:'a'.repeat(64)},quotedMessageId:null,forwarded:null,media:[],groupDisplayName:null,membershipEvidence:null};
++ const envelope={version:'native-message-envelope-v1',provider:'WHATSAPP',accountId:'wa-01',nativeMessageId:'m',chatJid:CASH_SCOPE_CHAT_LID,chatType:'direct',senderJid:'93282931581172:27@lid',senderPhone:null,senderLid:null,direction:'OUTGOING',sourceTimestamp:'2026-10-17T06:57:48.000Z',observedAt:'2026-10-17T06:57:49.000Z',eventType:'TEXT',payload:{text:'',sha256:'a'.repeat(64)},quotedMessageId:null,forwarded:false,media:[],groupDisplayName:null,membershipEvidence:null};
+  assert.equal(isLiveCashOwnerOutgoing({status:'CONTENT',envelope}),true);
+  assert.equal(isLiveCashOwnerOutgoing({status:'CONTENT',envelope:{...envelope,direction:'INCOMING'}}),false);
+  assert.equal(isLiveCashOwnerOutgoing({status:'CONTENT',envelope:{...envelope,senderJid:'8801844836824@s.whatsapp.net'}}),false);
+  assert.equal(isLiveCashOwnerOutgoing({status:'CONTENT',envelope:{...envelope,chatJid:'120363428977781821@g.us'}}),false);
++ assert.equal(isLiveCashOwnerOutgoing({status:'CONTENT',envelope:{...envelope,chatType:'group'}}),false);
++ assert.equal(isLiveCashOwnerOutgoing({status:'CONTENT',envelope:{...envelope,accountId:'wa-02'}}),false);
++ assert.equal(isLiveCashOwnerOutgoing({status:'CONTENT',envelope:{...envelope,forwarded:true}}),true);
++ assert.equal(isLiveCashOwnerOutgoing({status:'CONTENT',envelope:{...envelope,forwarded:null}}),true);
++ assert.equal(isLiveCashOwnerOutgoing({status:'CONTENT',envelope:{...envelope,quotedMessageId:'quoted'}}),true);
++ assert.equal(isLiveCashOwnerOutgoing({status:'CONTENT',envelope:{...envelope,senderJid:'93282931581172@unknown'}}),false);
+  assert.equal(isLiveCashOwnerOutgoing({status:'NON_CONTENT',envelope:null}),false);
+ });
+ 
+@@ -59,11 +177,43 @@ test('cash API scope is server-owned and traceable',()=>{
+ test('live intake remains review-only and has no financial posting path',()=>{
+  const source=readFileSync(new URL('../candidates/identity-review/live-cash.ts',import.meta.url),'utf8');
+  const publisher=readFileSync(new URL('../lib/cash-publish.ts',import.meta.url),'utf8');
++ const processor=readFileSync(new URL('../scripts/process-cash.ts',import.meta.url),'utf8');
+  assert.match(source,/mode!=='APPROVED_REVIEW_ONLY'/);
+  assert.match(publisher,/FINANCIAL_POSTING_REQUIRES_SEPARATE_APPROVAL/);
+  assert.match(publisher,/,\s*'REVIEW'/);
+  assert.doesNotMatch(source,/APPROVED_AUTO_POST|alrifai_post_owner_accountant_cash/);
+  assert.doesNotMatch(publisher,/APPROVED_AUTO_POST|alrifai_post_owner_accountant_cash/);
+  assert.match(source,/LIVE_CASH_ACCOUNTANT_BINDING_REQUIRED/);
++ assert.match(processor,/o\.chat_type,o\.message_id,o\.direction/);
++ assert.match(processor,/o\.sender_jid,o\.receiver_jid/);
++ assert.doesNotMatch(processor,/forwarded|quotedMessageId/);
++ assert.match(processor,/financialAction:"NONE"/);
+  assert.match(publisher,/message_id=\$2/);
++ assert.doesNotMatch(publisher,/INSERT INTO public\.employee_master/);
++});
++
++test('historical Cash backfill defaults to read-only and requires explicit go/no-go for apply',()=>{
++ const backfill=readFileSync(new URL('../scripts/backfill-approved.mjs',import.meta.url),'utf8');
++ assert.match(backfill,/const applyMode = args\.includes\('--apply'\)/);
++ assert.match(backfill,/const loader = createPool\(\{readOnly: true, user: 'ir_review_runtime'\}\)/);
++ assert.match(backfill,/const publisher = applyMode \? createPool\(\{readOnly: false, user: 'ir_review_runtime'\}\) : null/);
++ assert.match(backfill,/const runWriter = applyMode \? createPool\(\{readOnly: false\}\) : null/);
++ assert.match(backfill,/if \(!applyMode\)\s*\{\s*await dryRun\(\);\s*return;/);
++ assert.match(backfill,/CASH_BACKFILL_APPLY !== 'APPROVED_AFTER_GO_NO_GO'/);
++ assert.match(backfill,/BACKFILL_WRITE_SET_HASH_REQUIRED/);
++ assert.match(backfill,/BACKFILL_WRITE_SET_APPROVAL_MISMATCH/);
++ assert.match(backfill,/BACKFILL_WRITE_SET_HASH_MISMATCH/);
++ assert.match(backfill,/approvedSourceBlocks/);
++ assert.match(backfill,/--expected-write-set-sha256=/);
++ assert.match(backfill,/const manifestKey=\(entry\)=>JSON\.stringify\(\[entry\[0\],entry\[1\],entry\[2\],entry\[3\]\]\)/);
++ assert.match(backfill,/const lastCursor=JSON\.stringify\(\[row\.account_id,row\.message_id\]\)/);
++ assert.doesNotMatch(backfill,/const lastCursor=`\$\{row\.account_id\}\\u0000/);
++ assert.ok(backfill.indexOf('if(!priorRun&&plannedDigest!==expectedWriteSetSha256)')
++  <backfill.indexOf("INSERT INTO public.wa01_backfill_runs"));
++ assert.match(backfill,/BACKFILL_BATCH_ALREADY_PUBLISHED/);
++ assert.match(backfill,/BACKFILL_CHECKPOINT_INVALID/);
++ assert.match(backfill,/cashSourceEligibility/);
++ assert.match(backfill,/sourceVerificationReview/);
++ assert.doesNotMatch(backfill,/if \(ambiguousCopies\) throw new Error\('BACKFILL_SOURCE_COPY_CONFLICT'\)/);
++ assert.doesNotMatch(backfill,/row\.direction !== 'outgoing' \|\| !row\.sender_bare/);
+ });
+diff --git a/apps/al-rifai/tests/cash-super-admin-auth.mjs b/apps/al-rifai/tests/cash-super-admin-auth.mjs
+index 95efa8e..607f22d 100644
+--- a/apps/al-rifai/tests/cash-super-admin-auth.mjs
++++ b/apps/al-rifai/tests/cash-super-admin-auth.mjs
+@@ -22,8 +22,9 @@ test('Cash data is denied unless an ADMIN identity is explicitly allowlisted',()
+  }
+ });
+ 
+-test('Cash summary and message reads enforce the Super Admin guard before querying',()=>{
++test('Cash Current summary uses the read capability; source-message access stays Super Admin-only',()=>{
+  const route=readFileSync(new URL('../app/api/cash/[...path]/route.ts',import.meta.url),'utf8');
+- assert.match(route,/if\(action==="summary"&&request\.method==="GET"\)\{\s*requireCashSuperAdmin\(result\.user\);/);
++ assert.match(route,/if\(action==="summary"&&request\.method==="GET"\)\{\s*if\(!hasCapability\(result\.user,"cash\.read"\)\)/);
++ assert.match(route,/if\(scope==="ARCHIVE"&&result\.user\.role!=="ADMIN"\)/);
+  assert.match(route,/if\(action==="messages"&&request\.method==="GET"\)\{\s*requireCashSuperAdmin\(result\.user\);/);
+ });

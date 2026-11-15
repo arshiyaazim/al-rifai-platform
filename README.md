@@ -647,7 +647,7 @@ See `docs/STANDALONE-MAPPING.md` for the feature → code → database map and
 
 - **Application:** AL-RIFA'I Phase 3 (Next.js 16, PostgreSQL 16)
 - **Source:** `/opt/al-rifai-platform`
-- **Deployment env:** `/opt/vps/al-rifai-standalone/apps/al-rifai/.env` (mode 600)
+- **Deployment env:** `/opt/al-rifai-platform/.env` (mode 600)
 - **Compose project:** `al-rifai-phase3`
 - **Compose files:** `compose.yaml`, `compose.phase3.yaml`
 - **Database:** `alrifai_v2_phase3` (schema 1.5.0)
@@ -737,7 +737,7 @@ See `docs/ADMIN_AUTH.md` and `docs/PRODUCTION_AUTH_DIAGNOSIS_20261107.md`.
 
 ### Configuration
 
-`/opt/vps/al-rifai-standalone/apps/al-rifai/.env` is the central configuration
+`/opt/al-rifai-platform/.env` is the central configuration
 source. Keys are copied into app/sync containers via Compose `env_file`;
 metadata keys (`ALRIFAI_APP_NAME`, `ALRIFAI_PUBLIC_BASE_URL`, etc.) are
 informational and do not alter DNS or proxy routing. Current production flags:

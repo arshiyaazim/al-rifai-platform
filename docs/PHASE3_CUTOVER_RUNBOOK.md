@@ -27,7 +27,7 @@
 | Image | `local/al-rifai-platform:20261105-phase2` | `local/al-rifai-platform:phase3-rc-final5` |
 | Database | `alrifai_v2` (1.2.0) | `alrifai_v2_phase3` (1.4.0) |
 | Compose files | `/opt/al-rifai-platform/compose.yaml` | same + `compose.phase3.yaml` |
-| Env file | `/opt/vps/al-rifai-standalone/apps/al-rifai/.env` | same + compose override |
+| Env file | `/opt/al-rifai-platform/.env` | same + compose override |
 | Public TLS | `0.0.0.0:443 -> 3443` | same ports after old app stops |
 | Private app port | `127.0.0.1:3001 -> 3000` | same port after old app stops |
 | Media | `/var/lib/vps/al-rifai/media` | same shared, content-addressed |
@@ -147,7 +147,7 @@ docker rm -f alrifai-phase3-final-sync >/dev/null 2>&1 || true
 
 docker run -d --name alrifai-phase3-final-sync \
   --network vps-backend \
-  --env-file /opt/vps/al-rifai-standalone/apps/al-rifai/.env \
+  --env-file /opt/al-rifai-platform/.env \
   -e PGDATABASE=alrifai_v2_phase3 \
   -e PGHOST=vps-infra-postgres-1 \
   -e WA01_DB=/wa/wa-01/messages.db \
@@ -255,7 +255,7 @@ Container environment is immutable once created, but CLI tools (`pnpm db:migrate
 and update only `PGDATABASE` so those tools cannot default to the cold backup:
 
 ```bash
-ENV_FILE=/opt/vps/al-rifai-standalone/apps/al-rifai/.env
+ENV_FILE=/opt/al-rifai-platform/.env
 cp -p "$ENV_FILE" "${ENV_FILE}.pre-phase3"
 chmod 600 "${ENV_FILE}.pre-phase3"
 grep -n '^PGDATABASE=' "$ENV_FILE"
@@ -328,8 +328,8 @@ docker compose -p al-rifai-phase3 \
   -f compose.yaml -f compose.phase3.yaml down
 
 # Restore the pre-cutover deployment env for CLI tools
-cp -p /opt/vps/al-rifai-standalone/apps/al-rifai/.env.pre-phase3 \
-      /opt/vps/al-rifai-standalone/apps/al-rifai/.env
+cp -p /opt/al-rifai-platform/.env.pre-phase3 \
+      /opt/al-rifai-platform/.env
 
 # Restore the preserved Phase 2 containers by Compose label (names may be
 # ambiguous in this Docker version; IDs are also recorded in

@@ -18,7 +18,7 @@ services:
     # One configuration file for the whole installation. It is the source of
     # truth for the web app, the installer, the importer and the sync worker.
     env_file:
-      - /opt/vps/al-rifai-standalone/apps/al-rifai/.env
+      - ./.env
     ports:
       - "0.0.0.0:443:3443"
     environment:
@@ -77,7 +77,7 @@ services:
     # those permissions, which are preserved exactly as they are.
     user: "0:0"
     env_file:
-      - /opt/vps/al-rifai-standalone/apps/al-rifai/.env
+      - ./.env
     environment:
       # Host paths in `.env`, container paths here. The bridge layout does not
       # change, so no second configuration file is needed.

@@ -1,0 +1,386 @@
+From cfdcc06585c8e5d3fda338099b7c5446f7d3a5ba Mon Sep 17 00:00:00 2001
+From: arshiyaazim <arshiya.azim.1980@gmail.com>
+Date: Wed, 4 Nov 2026 14:19:22 +0100
+Subject: [PATCH 2/3] fix(vessel): require an exact duty day and a compatible
+ Mother Vessel
+
+Release-readiness hardening of the logical order identity:
+
+- The day must match exactly. The earlier +/-1 day tolerance could merge a
+  genuine next-day order; fragments across Dhaka midnight now fail closed to
+  Review instead of merging.
+- Mother Vessel becomes a discriminator: same leading name word AND at most
+  three edits across the normalized name. Two spellings of one vessel
+  (Union Udyssy / Union odyssey) still merge; a different fleet
+  (Poavosa Wisdom / Poavosa Brave, Union odyssey / Union brave) never does.
+- Drafts also record parsed.orderIdentity for audit, and the logical id now
+  buckets the mother family.
+- Tests: mother, start date, shift, same-day fragment window, cancellation then
+  a new duty, spelling normalization, arrival-order independence, and the real
+  November 3 fragments.
+---
+ apps/al-rifai/lib/escort-register.mjs         |   9 +-
+ apps/al-rifai/lib/vessel-match.ts             |  60 ++++-
+ apps/al-rifai/tests/vessel-order-identity.mjs | 206 ++++++++++++++++++
+ 3 files changed, 260 insertions(+), 15 deletions(-)
+ create mode 100644 apps/al-rifai/tests/vessel-order-identity.mjs
+
+diff --git a/apps/al-rifai/lib/escort-register.mjs b/apps/al-rifai/lib/escort-register.mjs
+index 9663508..5942fa8 100644
+--- a/apps/al-rifai/lib/escort-register.mjs
++++ b/apps/al-rifai/lib/escort-register.mjs
+@@ -1,6 +1,6 @@
+ import {createHash} from 'node:crypto';
+ import {parseEscortOrder} from './escort-intake-candidate.mjs';
+-import {matchConfirmation,orderBusinessDay,orderIdentity} from './vessel-match.ts';
++import {matchConfirmation,motherFamily,orderBusinessDay,orderIdentity} from './vessel-match.ts';
+ import {classifyProgramDuplicate} from './duplicate-identity.ts';
+ 
+ const hash=value=>createHash('sha256').update(typeof value==='string'?value:JSON.stringify(value)).digest('hex');
+@@ -245,7 +245,10 @@ export function deriveEscortRegisterOps(account,messages,contacts,existingRows,a
+   const identity=orderIdentity({lighter:data.lighterVessel,masterRaw:data.masterMobileRaw||data.masterMobile,shift:data.shift});
+   if(!identity)return null;
+   const day=orderBusinessDay({dutyDate:data.dutyDate,sourceTime});
+-  return hash(['escort-logical-order-v1',account.accountId,chat,identity,day]);
++  // The mother's leading name word buckets the fleet without splitting the two
++  // spellings of one vessel. The merge decision itself is made by the matcher,
++  // which additionally applies the tolerant `motherCompatible` rule.
++  return {logicalOrderId:hash(['escort-logical-order-v1',account.accountId,chat,identity,day,motherFamily(data.motherVessel)]),orderIdentity:`${identity}|${day}`};
+  };
+  for(const message of messages){
+   const sourceRoute=classifyBusinessSource(account,message,contacts,aliases,groupAuthorizations,cashScopeChats);
+@@ -275,7 +278,7 @@ export function deriveEscortRegisterOps(account,messages,contacts,existingRows,a
+     // existing draft, never a second draft. The message itself stays immutable in
+     const id=hash(['escort-order',...salt,account.accountId,source,blockKey]);
+     const logicalOrderId=logicalOrderIdOf(canonicalChat(message.chatJid),data,message.sourceTime);
+-    const row={id,accountId:account.accountId,clientContactId:contact.id,clientPhone:contact.phone,chatJid:message.chatJid,sourceMessageId:message.id,sourceHash:source,blockKey,sourceTime:message.sourceTime,businessKey:null,...data,status:'DRAFT',reasons:[],parsed:{...block,source:sourceProvenance,...(logicalOrderId?{logicalOrderId}:{})},sourceText:message.text};
++    const row={id,accountId:account.accountId,clientContactId:contact.id,clientPhone:contact.phone,chatJid:message.chatJid,sourceMessageId:message.id,sourceHash:source,blockKey,sourceTime:message.sourceTime,businessKey:null,...data,status:'DRAFT',reasons:[],parsed:{...block,source:sourceProvenance,...(logicalOrderId?{logicalOrderId:logicalOrderId.logicalOrderId,orderIdentity:logicalOrderId.orderIdentity}:{})},sourceText:message.text};
+     const draftOp={kind:'DRAFT',row,event:{id:hash(['escort-order-event',id,'DRAFT_CREATED',source]),orderId:id,eventType:'DRAFT_CREATED',sourceMessageId:message.id,sourceHash:source,payload:{...row,source:sourceProvenance}}};
+     ops.push(draftOp);known.push(rowForMatch({...row,account_id:account.accountId,client_phone:contact.phone,source_hash:source,block_key:blockKey,status:'DRAFT'}));orderPool.push({id,messageId:message.id,chatJid:row.chatJid,mother:data.motherVessel,lighter:data.lighterVessel,masterRaw:data.masterMobileRaw||data.masterMobile,sourceTime:message.sourceTime,contactId:contact.id,dutyDate:data.dutyDate??null,shift:data.shift??null});existingHashes.add(`${account.accountId}|${source}|${blockKey}`);continue;
+    }
+diff --git a/apps/al-rifai/lib/vessel-match.ts b/apps/al-rifai/lib/vessel-match.ts
+index 45a0fa3..c4e2baf 100644
+--- a/apps/al-rifai/lib/vessel-match.ts
++++ b/apps/al-rifai/lib/vessel-match.ts
+@@ -121,8 +121,6 @@ export function compareVesselNames(left: string, right: string): VesselSimilarit
+ }
+ 
+ /** One day of slack, so a fragment sent just after midnight still belongs. */
+-const ORDER_DAY_TOLERANCE_MS = 86_400_000;
+-
+ export type LogicalOrderInput = {
+   mother?: string | null;
+   lighter?: string | null;
+@@ -147,8 +145,9 @@ export function orderBusinessDay(input: LogicalOrderInput): string {
+ /**
+  * Identity of one logical Vessel order, shared by every message fragment that
+  * describes it. The Lighter is the anchor: without it nothing is ever collapsed.
+- * The day is compared separately (see `groupLogicalOrders`) so a fragment sent
+- * after midnight still merges while two duties on different days never do.
++ * Mother Vessel compatibility is checked separately (`motherCompatible`), and the
++ * day must match exactly, so a new order for the same Lighter on another day — or
++ * a different fleet on the same day — never merges.
+  */
+ export function orderIdentity(input: LogicalOrderInput): string {
+   const lighter = vesselKey(String(input.lighter ?? ''));
+@@ -160,22 +159,59 @@ export function orderIdentity(input: LogicalOrderInput): string {
+ 
+ export type LogicalOrder<T> = { identity: string; day: string; members: T[] };
+ 
++/** Leading name word of a vessel, with the M.V. prefix and punctuation removed. */
++export function motherFamily(value: string): string {
++  return String(value ?? '')
++    .replace(/^\s*m\.?\s*v\.?\s*[:.]?\s*/i, '')
++    .trim()
++    .toLowerCase()
++    .split(/[\s./,|-]+/)
++    .filter(Boolean)[0]
++    ?.replace(/[^\p{L}\p{N}]/gu, '') ?? '';
++}
++
++/**
++ * Mother Vessel compatibility for two rows that already share Lighter, Master
++ * Mobile, shift and day.
++ *
++ * A different fleet is a different order and must stay separate. Two spellings of
++ * the same fleet are the same order: "M.V. Union Udyssy" and "M.V. Union odyssey"
++ * are the same vessel written twice, and refusing to merge them is what blocked
++ * the November 3 confirmations.
++ *
++ * The rule is deliberately narrow — same leading name word AND at most three
++ * edits across the whole normalized name — so "Poavosa Wisdom" / "Poavosa Brave"
++ * and "Union odyssey" / "Union brave" stay distinct.
++ */
++export function motherCompatible(left: string, right: string): boolean {
++  const a = vesselKey(String(left ?? ''));
++  const b = vesselKey(String(right ?? ''));
++  if (!a || !b) return true; // a missing mother is not evidence of difference
++  if (a === b) return true;
++  if (compareVesselNames(left, right) !== 'DIFFERENT') return true;
++  const first = motherFamily(left);
++  if (!first || first !== motherFamily(right)) return false;
++  return editDistance(a, b) <= 3;
++}
++
+ /**
+  * Collapse fragments of one business order into one logical candidate.
+  *
+- * Fragments merge only when they share Lighter, Master Mobile and shift AND were
+- * sent on the same day (or one day apart). Everything else stays a separate
+- * candidate, so genuinely competing orders — a different Lighter, a different
+- * Master, a different shift, or a different day — remain ambiguous.
++ * Fragments merge only when they share Lighter, Master Mobile and shift, were
++ * sent on the SAME day, and describe a compatible Mother Vessel. Everything else
++ * stays a separate candidate, so genuinely competing orders — a different
++ * Lighter, Master, shift, day or fleet — remain ambiguous.
+  *
+  * Deterministic: members are ordered by source time, so the earliest fragment is
+- * the representative and the original Order Message ID is preserved.
++ * the representative and the original Order Message ID is preserved. The result
++ * does not depend on the order the caller supplies.
+  */
+ export function groupLogicalOrders<T>(
+   candidates: readonly T[],
+   identityOf: (value: T) => string,
+   dayOf: (value: T) => string,
+   timeOf: (value: T) => string,
++  compatibleOf?: (value: T, other: T) => boolean,
+ ): Array<LogicalOrder<T>> {
+   const groups: Array<LogicalOrder<T>> = [];
+   const ordered = [...candidates].sort((left, right) => {
+@@ -193,10 +229,9 @@ export function groupLogicalOrders<T>(
+       groups.push({ identity: `#${groups.length}`, day, members: [candidate] });
+       continue;
+     }
+-    const at = Date.parse(`${day}T00:00:00Z`);
+     const existing = groups.find((group) => group.identity === identity
+-      && (!day || !group.day || !Number.isFinite(at)
+-        || Math.abs(Date.parse(`${group.day}T00:00:00Z`) - at) <= ORDER_DAY_TOLERANCE_MS));
++      && group.day === day
++      && (!compatibleOf || compatibleOf(candidate, group.members[0])));
+     if (existing) existing.members.push(candidate);
+     else groups.push({ identity, day, members: [candidate] });
+   }
+@@ -339,6 +374,7 @@ export function matchConfirmation(
+     (candidate) => orderIdentity(candidate.order),
+     (candidate) => orderBusinessDay(candidate.order),
+     (candidate) => String(candidate.order.sourceTime ?? ''),
++    (candidate, other) => motherCompatible(candidate.order.mother, other.order.mother),
+   ).map((group) => bestMobileEvidence(group.members));
+   const confirmationShift = normalizeShift(confirmation.shift);
+   const preferred = confirmationShift
+diff --git a/apps/al-rifai/tests/vessel-order-identity.mjs b/apps/al-rifai/tests/vessel-order-identity.mjs
+new file mode 100644
+index 0000000..a59e817
+--- /dev/null
++++ b/apps/al-rifai/tests/vessel-order-identity.mjs
+@@ -0,0 +1,206 @@
++// Target 01 release-readiness — over-merging and stability verification.
++//
++// The logical order identity must merge only fragments of ONE business order.
++// Two genuine independent duties must never be merged, and the decision must not
++// depend on the order the messages happen to arrive in.
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import {deriveEscortRegisterOps, OWNER_ESCORT_CLIENTS} from '../lib/escort-register.mjs';
++import {
++  groupLogicalOrders,
++  motherCompatible,
++  orderBusinessDay,
++  orderIdentity,
++  programIdFor,
++} from '../lib/vessel-match.ts';
++
++const account = {accountId: 'wa-01'};
++const lid = '166082241384593@lid';
++const aliases = {166082241384593: OWNER_ESCORT_CLIENTS[0].phone};
++const contacts = [{id: OWNER_ESCORT_CLIENTS[0].id, account_id: 'wa-01', phone: OWNER_ESCORT_CLIENTS[0].phone, active: true}];
++
++const msg = (id, text, sourceTime, direction = 'INCOMING') => ({
++  accountId: 'wa-01', id, chatJid: lid, text, direction, sourceTime,
++  nativeSenderJid: direction === 'INCOMING' ? '166082241384593' : '93282931581172',
++  senderPhoneTransport: direction === 'INCOMING' ? '166082241384593' : '93282931581172',
++});
++
++const orderBlock = (mother, lighter = 'Borkot Jidan 2', master = '01943352375') =>
++  `${mother}\n5.${lighter}-${master}/1000 m.t`;
++
++const confirmation = (mother, lighter, master, startShift = '(D)') => `Mother Vessel: ${mother}
++Importer
++Lighter Vessel:M.V. ${lighter}
++Master Mobile:-${master}
++Destination:
++Escort Name: Nazmul Hossain
++Escort mobile:-01321-706844
++${startShift === '(D)' ? '03/11/26' : '04/11/26'} (${startShift})
++
++Al-Rifa'i Integrated Services`;
++
++const identify = (mother, sourceTime, shift = '') =>
++  orderIdentity({lighter: 'Borkot Jidan 2', masterRaw: '01943352375', shift, mother});
++
++// ── identity primitives ──────────────────────────────────────────────────────
++
++test('identity is stable under spelling normalization', () => {
++  const spellings = ['Borkot Jidan 2', 'M.V. Borkot Jidan 2', 'borkot  jidan-2', 'BORKOT JIDAN 2'];
++  const ids = new Set(spellings.map((lighter) => orderIdentity({lighter, masterRaw: '01943352375'})));
++  assert.equal(ids.size, 1, [...ids].join(' / '));
++  // Master formatting never changes the identity either.
++  assert.equal(orderIdentity({lighter: 'X', masterRaw: '01943352375'}),
++    orderIdentity({lighter: 'X', masterRaw: '+8801943352375'}));
++  assert.equal(orderIdentity({lighter: 'X', masterRaw: '01943-352375'}),
++    orderIdentity({lighter: 'X', masterRaw: '01943352375'}));
++});
++
++test('identity does not depend on message arrival order', () => {
++  const rows = [
++    {id: 'a', mother: 'Union Udyssy', sourceTime: '2026-11-03T05:38:58Z'},
++    {id: 'b', mother: 'Union Udyssy', sourceTime: '2026-11-03T05:39:37Z'},
++    {id: 'c', mother: 'Union odyssey', sourceTime: '2026-11-03T06:36:01Z'},
++  ];
++  const identityOf = (r) => identify(r.mother, r.sourceTime);
++  const dayOf = (r) => orderBusinessDay(r);
++  const timeOf = (r) => r.sourceTime;
++  const compatible = (left, right) => motherCompatible(left.mother, right.mother);
++  const forward = groupLogicalOrders(rows, identityOf, dayOf, timeOf, compatible);
++  const backward = groupLogicalOrders([...rows].reverse(), identityOf, dayOf, timeOf, compatible);
++  assert.equal(forward.length, 1);
++  assert.equal(backward.length, 1);
++  assert.deepEqual(forward[0].members.map((r) => r.id), ['a', 'b', 'c']);
++  assert.deepEqual(backward[0].members.map((r) => r.id), ['a', 'b', 'c'],
++    'the earliest message stays the representative in both directions');
++});
++
++test('a different Mother Vessel stays a different order', () => {
++  assert.equal(motherCompatible('M.V. Union-Odyssey', 'M.V. Union Udyssy'), true);
++  assert.equal(motherCompatible('M.V. Union-Odyssey', 'M.V. Meghna Sun'), false);
++  assert.equal(motherCompatible('M.V. Poavosa-Wisdom', 'M.V. Poavosa-Brave'), false);
++  assert.equal(motherCompatible('M.V. Union-Odyssey', 'M.V. Union-Brave'), false);
++
++  const ops = deriveEscortRegisterOps(account, [
++    msg('m-union', orderBlock('Mv.Union Udyssy'), '2026-11-03T05:38:58Z'),
++    msg('m-meghna', orderBlock('Mv.Meghna Sun'), '2026-11-03T05:40:00Z'),
++    msg('conf', confirmation('M.V. Union-Odyssey', 'Borkot Jidan', '01943-352375'), '2026-11-03T09:38:50Z', 'OUTGOING'),
++  ], contacts, [], aliases);
++  const ids = ops.filter((op) => op.kind === 'DRAFT').map((op) => op.row.parsed.logicalOrderId);
++  assert.equal(new Set(ids).size, 2, 'two fleets are two candidate orders');
++  const match = ops.find((op) => op.kind === 'REVIEW').row.parsed.confirmationMatch;
++  // The Union confirmation can only target the Union order; the Meghna order is
++  // a different fleet and is never a candidate.
++  assert.ok(['EXACT', 'VARIANT'].includes(match.state), match.state);
++  assert.equal(match.orderMessageId, 'm-union');
++});
++
++test('a different Start Date stays a different order, even one day apart', () => {
++  const ops = deriveEscortRegisterOps(account, [
++    msg('d-03', orderBlock('Mv.Union Udyssy'), '2026-11-03T05:38:58Z'),
++    msg('d-04', orderBlock('Mv.Union Udyssy'), '2026-11-04T05:38:58Z'),
++    msg('conf', confirmation('M.V. Union-Odyssey', 'Borkot Jidan', '01943-352375'), '2026-11-04T09:38:50Z', 'OUTGOING'),
++  ], contacts, [], aliases);
++  const drafts = ops.filter((op) => op.kind === 'DRAFT');
++  assert.equal(drafts.length, 2);
++  assert.equal(new Set(drafts.map((op) => op.row.parsed.logicalOrderId)).size, 2);
++  const match = ops.find((op) => op.kind === 'REVIEW').row.parsed.confirmationMatch;
++  assert.equal(match.state, 'AMBIGUOUS', 'two duty days stay two candidates');
++});
++
++test('a different Shift stays a different order', () => {
++  const ops = deriveEscortRegisterOps(account, [
++    msg('d', orderBlock('Mv.Union Udyssy') + '\n03/11/26 (D)', '2026-11-03T05:38:58Z'),
++    msg('n', orderBlock('Mv.Union Udyssy') + '\n03/11/26 (N)', '2026-11-03T05:39:30Z'),
++    msg('conf', confirmation('M.V. Union-Odyssey', 'Borkot Jidan', '01943-352375', 'N'), '2026-11-03T09:38:50Z', 'OUTGOING'),
++  ], contacts, [], aliases);
++  const drafts = ops.filter((op) => op.kind === 'DRAFT');
++  assert.equal(drafts.length, 2);
++  assert.deepEqual(drafts.map((op) => op.row.shift).sort(), ['D', 'N']);
++  const match = ops.find((op) => op.kind === 'REVIEW').row.parsed.confirmationMatch;
++  assert.ok(['EXACT', 'VARIANT'].includes(match.state), match.state);
++  assert.equal(match.orderMessageId, 'n', 'the N reply targets the N order');
++});
++
++test('fragments in the same Dhaka day merge; a genuine next-day order does not', () => {
++  const sameDay = groupLogicalOrders(
++    [
++      {id: 'late', mother: 'Union Udyssy', sourceTime: '2026-11-03T18:30:00Z'},
++      {id: 'later', mother: 'Union Udyssy', sourceTime: '2026-11-03T19:30:00Z'},
++    ],
++    (r) => identify(r.mother, r.sourceTime),
++    (r) => orderBusinessDay(r),
++    (r) => r.sourceTime,
++    (a, b) => motherCompatible(a.mother, b.mother),
++  );
++  assert.equal(sameDay.length, 1, '00:30 and 01:30 Dhaka are the same business day');
++
++  const acrossMidnight = groupLogicalOrders(
++    [
++      {id: 'before', mother: 'Union Udyssy', sourceTime: '2026-11-03T16:00:00Z'}, // 22:00 Dhaka 11-03
++      {id: 'after', mother: 'Union Udyssy', sourceTime: '2026-11-03T19:00:00Z'},  // 01:00 Dhaka 11-04
++    ],
++    (r) => identify(r.mother, r.sourceTime),
++    (r) => orderBusinessDay(r),
++    (r) => r.sourceTime,
++    (a, b) => motherCompatible(a.mother, b.mother),
++  );
++  assert.equal(acrossMidnight.length, 2, 'a different business day fails closed, it never merges');
++});
++
++// ── cancelled Program, then a new Program ────────────────────────────────────
++
++test('a new duty after a cancellation is a distinct order and a distinct Program', () => {
++  // The cancelled duty keeps its Program identity; the replacement starts later.
++  const cancelled = programIdFor({
++    account: 'wa-01', clientChat: '8801670535255@s.whatsapp.net',
++    mother: 'Union-Odyssey', lighter: 'Borkot Jidan', startDate: '2026-11-03', shift: 'D',
++  });
++  const replacement = programIdFor({
++    account: 'wa-01', clientChat: '8801670535255@s.whatsapp.net',
++    mother: 'Union-Odyssey', lighter: 'Borkot Jidan', startDate: '2026-11-06', shift: 'D',
++  });
++  assert.notEqual(cancelled, replacement);
++
++  const ops = deriveEscortRegisterOps(account, [
++    msg('old', orderBlock('Mv.Union Udyssy'), '2026-11-03T05:38:58Z'),
++    msg('new', orderBlock('Mv.Union Udyssy'), '2026-11-06T05:38:58Z'),
++  ], contacts, [], aliases);
++  const drafts = ops.filter((op) => op.kind === 'DRAFT');
++  assert.equal(drafts.length, 2);
++  assert.equal(new Set(drafts.map((op) => op.row.parsed.logicalOrderId)).size, 2);
++});
++
++test('one Program per logical order: the same confirmation can never create two', () => {
++  const base = {
++    account: 'wa-01', clientChat: '8801670535255@s.whatsapp.net',
++    mother: 'Union-Odyssey', lighter: 'Borkot Jidan', startDate: '2026-11-03', shift: 'D',
++  };
++  assert.equal(programIdFor(base), programIdFor({...base}));
++  // The M.V. prefix never changes the Program identity.
++  assert.equal(programIdFor(base), programIdFor({...base, mother: 'M.V. Union-Odyssey', lighter: 'M.V. Borkot Jidan'}));
++  // A different start date or shift is a different Program, never the same one.
++  assert.notEqual(programIdFor(base), programIdFor({...base, startDate: '2026-11-04'}));
++  assert.notEqual(programIdFor(base), programIdFor({...base, shift: 'N'}));
++  // "Borkot Jidan" and "Borkot Jidan 2" are different Lighter strings. The Program
++  // takes the spelling of the Admin Confirmation, which is the authoritative one.
++  assert.notEqual(programIdFor(base), programIdFor({...base, lighter: 'Borkot Jidan 2'}));
++  // KNOWN LIMITATION (pre-existing, not introduced here): programIdFor keeps the
++  // full normalized Mother spelling, so "Union-Odyssey" and "Union Udyssy" would
++  // be two different Programs for one duty. The Confirmation text is the single
++  // authoritative spelling, and the recovery manifest uses exactly that text.
++  assert.notEqual(programIdFor(base), programIdFor({...base, mother: 'Union Udyssy'}));
++});
++
++// ── the real November 3 fragments still merge ────────────────────────────────
++
++test('the real November 3 fragments still form one logical order', () => {
++  const ops = deriveEscortRegisterOps(account, [
++    msg('A', 'Mv.Union Udyssy\n3.Liberty -01833258225/1000 m.t\n4.Rahman asif-01819327176 /1000 m.t\n5.borkot jidan 2-01943352375/1000 m.t\n6.Fardin 7-01911428354/900 m.t', '2026-11-03T05:38:58Z'),
++    msg('B', 'Mv.Union Udyssy\n3.Liberty -01833258225/1000 m.t\n5.borkot jidan 2-01943352375/1000 m.t', '2026-11-03T05:39:37Z'),
++    msg('C', 'Mv.Union odyssey /soyabean ext/Nabil feed mills | Destination kacpur\n5.borkot jidan 2-01943352375/1000 m.t', '2026-11-03T06:36:01Z'),
++    msg('conf', confirmation('M.V. Union-Odyssey', 'Borkot Jidan', '01943-352375'), '2026-11-03T09:38:50Z', 'OUTGOING'),
++  ], contacts, [], aliases);
++  const match = ops.find((op) => op.kind === 'REVIEW').row.parsed.confirmationMatch;
++  assert.ok(['EXACT', 'VARIANT'].includes(match.state), match.state);
++  assert.equal(match.orderMessageId, 'A');
++});
+-- 
+2.34.1
+

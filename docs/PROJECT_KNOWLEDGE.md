@@ -64,7 +64,7 @@ changes.
 | `/opt/al-rifai-platform` | Canonical Git checkout on `main` (release merges) |
 | `/opt/al-rifai-phase3-test` | Working tree / feature branch `feature/phase3-router-cash-vessel` used to build candidates |
 | `/opt/vps/al-rifai-standalone/apps/al-rifai` | Production deploy directory for the `al-rifai-phase3` Compose project |
-| `/opt/vps/al-rifai-standalone/apps/al-rifai/.env` | Production configuration (mode 600, root) |
+| `/opt/al-rifai-platform/.env` | Production configuration (mode 600, root) |
 | `/etc/vps/apps/al-rifai/` | TLS key pair and root-only password files |
 | `/var/lib/vps/al-rifai/media` | Captured WhatsApp media (read-only in the app) |
 | `/var/lib/vps/al-rifai/backups/` | Database backups |
@@ -290,7 +290,7 @@ startup. Full ledger and pending list: `docs/VESSEL_DRAFT_DELIVERY_DESIGN.md`
 
 ## 7. Configuration and credential locations
 
-**Configuration:** `/opt/vps/al-rifai-standalone/apps/al-rifai/.env` (mode 600 root).
+**Configuration:** `/opt/al-rifai-platform/.env` (mode 600 root).
 Non-secret names are documented in `.env.example`.
 
 Key groups:

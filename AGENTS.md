@@ -15,8 +15,7 @@
 
 | What | Path |
 |---|---|
-| Repo `.env` (compose interpolation) | `/opt/al-rifai-platform/.env` |
-| Live container `.env` (`env_file`) | `/opt/vps/al-rifai-standalone/apps/al-rifai/.env` |
+| `.env` (compose interpolation **and** live container `env_file`) | `/opt/al-rifai-platform/.env` |
 | Compose files | `compose.yaml`, `compose.phase3.yaml` |
 | App entry (Next.js App Router) | `app/` |
 | Sync worker | `scripts/sync-worker.mjs` |
@@ -359,7 +358,7 @@ Never point these at production.
 2. **5 release slips without a cash payment** — verify manually on `/release`.
 3. **3 incomplete structured slips** — missing escort mobile or end date.
 4. **5 structured slips without an eligible program** — create/correct the program first.
-5. **`al-rifai-app-1` stopped container + `local/al-rifai:target02-final`** — remove the container, then the image.
+5. **`local/al-rifai:target02-final` image (415 MB)** — the `al-rifai-app-1` container no longer exists; only the image remains to remove.
 6. **`/opt/vps/AGENTS.md` §0 is stale** (old container/DB/image, 75-migration ledger) — operator edit.
 7. **6 `*_snapshot` tables** are outside the migration chain (66 vs 60 tables) — decide whether to add a migration.
 8. **4.93 GB unused Docker volumes** — inspect before removing.

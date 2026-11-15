@@ -1,0 +1,1856 @@
+From 39f7d5307bd1e23f8881a56adea77e087276360e Mon Sep 17 00:00:00 2001
+From: arshiyaazim <arshiya.azim.1980@gmail.com>
+Date: Wed, 4 Nov 2026 21:46:00 +0100
+Subject: [PATCH 3/3] docs: record Target 01/02 production position and
+ deployment risks
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+AGENTS.md §0 moves to the verified 2026-11-04 position (image b058dd48,
+source ddbd3d5, pin 91124c0, ledger 75, 98 programs), keeps the 2026-11-03
+banner as superseded evidence, corrects the MANUAL_READY/posting terminology
+and adds T01/T02 to §14.1. docs/NEXT-HANDOFF.md gains the current position,
+what T01/T02 delivered, the pending live verification, Git/deployment risks,
+the business policy summary and the live verification procedure.
+docs/VPS_MAP.md's current-state pointer is refreshed. README.md and
+apps/al-rifai/README.md gain current-status pointers that mark their bodies
+as historical.
+
+Documentation only; no code, config, migration or runtime change.
+---
+ AGENTS.md               |  398 +++++++++++--
+ README.md               |   47 ++
+ apps/al-rifai/README.md |   12 +
+ docs/NEXT-HANDOFF.md    | 1249 ++++++++++++++++++++++++++-------------
+ docs/VPS_MAP.md         |   24 +
+ 5 files changed, 1261 insertions(+), 469 deletions(-)
+
+diff --git a/AGENTS.md b/AGENTS.md
+index 394b822..4513d80 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -10,9 +10,173 @@
+ 
+ ---
+ 
+-## 0. Current Production Position (verified 2026-11-02)
+-
+-> **Current production position — 2026-11-02, post-B4 deploy (authoritative; supersedes every banner below):**
++## 0. Current Production Position (verified 2026-11-04)
++
++> **Current production position — 2026-11-04, after the Target 01 and Target 02
++> releases (authoritative; supersedes every banner below).**
++> Verified read-only at `2026-11-04T20:12Z`.
++> app image `sha256:b058dd4810d7830a9b2ac8e289c1358b7d4cb5668c474e9f4e19563a3ab9cae4`
++> (tag `local/al-rifai:target02-final`; source commit `ddbd3d5cfa4b3c58eff53c56013665608ecccb93`;
++> compose pin commit `91124c0`; deployed 2026-11-04T18:28:17Z with
++> `docker compose -f compose.yaml up -d --no-deps app`, app service only).
++> Container healthy, `RestartCount=0`; PostgreSQL `721873c3…` and both WhatsApp
++> bridges (`28a646d2…` / `d36ca851…`) untouched, `RestartCount=0`.
++> **Migration ledger 75 rows** in `public.alrifai_schema_migrations`, through
++> `0071_release_apply_atomic.sql`. Candidate migrations `0072`–`0076` (and the
++> older `0006`, `0011`) remain **unapplied**; `0031`–`0036` and `0071` are
++> applied even though they live under `db/migration-candidates/`.
++> **Vessel state:** 98 Programs · 93 Assignments · 93 `program_pay` rows
++> (39 `CALCULATED` / 54 `UNRESOLVED`) · 145 release candidates (39 applied) ·
++> register 616 `DRAFT` / 411 `REVIEW` / **0 `CONFIRMED`**.
++> **Cash Freeze active:** 3,726 instructions (2,140 `REVIEW`, 1,586
++> `MANUAL_READY`) and **0 postings**. `MANUAL_READY` is **not** a posting; no
++> posting/approval/settlement execution path exists and the
++> `cash_instruction_postings` table does not exist. (Older banners below that say
++> "1,586 postings" mean `MANUAL_READY` instructions — no financial posting has
++> ever occurred.)
++> **Ingestion 11/11 cursors, 0 errors; authorized scope 7 conversations /
++> 11 addresses; reconciliation timer inactive** (the producer is dormant).
++> **Target 02 live verification is PENDING.** P1 (free-text order parser) and P2
++> (register row → `CONFIRMED`) are implemented and tested but no eligible live
++> order or confirmation has occurred since the deployment.
++> **Rollback images retained:** `sha256:066c9a1c…` (Target 01) and
++> `sha256:924b0525…` (pre-Target 01), plus the older tags listed in §14.1.
++> **Latest backup:** `/var/lib/vps/al-rifai/backups/pre-target02-20261104-1927.dump`
++> (64,420,714 bytes, mode 600, sha256 sidecar verified, 785 archive TOC entries).
++> **Source is not yet published.** `target01-release` (`bd04e94`) and
++> `target02-p1-p2` (`91124c0`) are local only; `origin/main` is `8096ed8`. A clean
++> clone of the remote cannot reproduce the running image, and the running
++> container's Compose labels still reference `/tmp/opencode/target02` — see
++> `docs/NEXT-HANDOFF.md` "Git and deployment risks".
++>
++> **Superseded banner — 2026-11-03, post-password-policy deploy (retained as evidence):**
++> app image `sha256:103f59f27321a93cb59fb72a1b3dce20ac176da5dd5bb046a68366f8c00a24a5`
++> (tag `local/al-rifai:20261103-cash-parser-38ce0da`, source `38ce0da`,
++> compose pin `81f385f`; deployed via
++> `docker compose -f compose.yaml up -d --no-deps app`; verified with
++> `docker inspect al-rifai-app-1`). Mode `on`. Container healthy,
++> `RestartCount=0`. **Migration ledger 74 rows** in
++> `public.alrifai_schema_migrations`, through `0070_cash_review_mirror.sql`.
++> `app.env` `600 root:root`, 557 bytes, mtime 2026-11-02 (no change this work).
++> **Rollback images retained:** `sha256:a3e53997…` (tag `20261103-rbac2b-fix2`,
++> immediate) and `sha256:69ccb8f6…` (tag `20261103-rbac2b-hotfix`), plus
++> `e93005db…` / `87a46169…` / `ad590773…` / `2ca12a94…` / `7792e489…` /
++> `d382b6da…` / `895ad208…` and the older tags listed under §14.1.
++> **Latest backup:** `/var/lib/vps/al-rifai/backups/pre-cash-parser-20261103-2353.dump`
++> (64,371,520 bytes, sha256
++> `0da75c439af5a224a2ecf5f9e45af0d2d027a9831069d52ceff71505fd5e533d`, 765
++> archive TOC entries, mode 600 + `.sha256` sidecar).
++> **This work (2026-11-02 → 2026-11-03) delivered, in order:** the B5 vessel pay
++> model and register operations (`0042`–`0050`), the R1 release parser
++> (`0051`–`0055`), the R2 release review UI + auto-apply (`0056`), the
++> employee-master phases 1–5 (`0057`–`0063`), RBAC-2A (`0064`–`0068`), RBAC-2B
++> (`0069`), the RBAC-2B hotfix, fix batch 2 (`0070`), and the password-policy
++> change, and the Cash parser/live intake release (`38ce0da`). See
++> `docs/NEXT-HANDOFF.md` for the per-phase record and the read-first
++> contract; this section is the authoritative *position*, that file is the
++> actionable *handoff*.
++> **Vessel pay is live.** `public.escort_rate_config` holds the **Owner-confirmed**
++> schedule of **BDT 200.00 per shift** (uniform; a shift is half a day, so BDT
++> 400.00/day) plus per-destination conveyance, effective `2025-01-01`. Pay is
++> **derived** state in `public.program_pay`, never a stored column on `programs`
++> and never a posting: `programs` is under an immutability trigger, and every pay
++> row is reproducible by `recalculate_program_pay(program_id)`. The shift model
++> (Owner, 2026-11-02) is `D`/`N` per day, `start(date,shift)` →
++> `end(date,shift)` **inclusive**, `days = shifts / 2`. **While `endDate` is
++> empty the duty is ongoing, so nothing is calculated** — `UNRESOLVED /
++> END_DATE_REQUIRED` and the register shows `৳—`, which is the intended
++> fail-closed state. Current: **90** programs (85 `Confirmed` / 5 `Draft`), **37**
++> released with an `endDate`; `program_pay` has **37 `CALCULATED`** (818 shifts =
++> 409 days, BDT 163,600 salary + BDT 5,200 conveyance = **BDT 168,800**) and **48
++> `UNRESOLVED`**. `0050` adds the `fled` status and `FLEE_PROGRAM` command
++> ("Fleed A"), modelled on the void command. **Never filter
++> `escort_order_register.status='CONFIRMED'`** — it never matches.
++> **Release pipeline is live and writes business data.** `release_candidates`
++> holds **140** rows (37 `APPLIED`, 13 `MATCHED`, 6 `NO_PAYMENT`, 84
++> `ROSTER_MISMATCH`). The ingestion worker, on new records in the Escort Release
++> Slip group `120363408741101070@g.us`, scans candidates and **auto-applies only**
++> `MATCHED` + `confidence='high'` + `match_pass IN (1,2)` candidates whose program
++> is lower-case `confirmed` with an empty `endDate`; everything else queues on
++> `/platform/release-review`. Each application appends a `RELEASE_PROGRAM`
++> command event and a row in `release_auto_apply_log` (`0056`; deliberately not
++> the migration ledger). `release_auto_apply_log` is currently **empty**, so the
++> 37 applications came from the review/CLI flow, not the hook — but the hook is
++> armed. Do not disable, re-point, replay or "test" it, and do not re-run
++> `scripts/apply-high-releases.ts` or `scripts/backfill-releases.ts` without an
++> exact Owner instruction.
++> **Employee master — the canonical employee identity now exists.**
++> `public.employee_master` holds **216** rows, all `CONFIRMED`; **75**
++> `duty_type='escort'` and **75** `designation='escort'`. PK is
++> `(scope_account, employee_mobile)`. `alrifai_app` has **SELECT only**;
++> `ir_review_runtime` has SELECT/INSERT/UPDATE. `program_with_employee` is a
++> read view granted via `0063`. A duplicate-identity trigger (`0061`) and an
++> idempotent `create_employee_if_new` (`0062`) guard the write paths. The Vessel
++> program route auto-creates an employee **fail-closed** — if it cannot resolve
++> one, the program write is refused with a 400, never silently skipped.
++> **RBAC / review workflow.** Roles stay in `cash_portal_users` (name retained on
++> purpose): 1 `ADMIN`, 2 `USER`. Capabilities live in
++> `lib/unified-auth-policy.ts`; USER holds no direct-write capability and stages
++> work for review. Implemented review domains are `VESSEL_PROGRAM`,
++> `ATTENDANCE`, `EMPLOYEE`; `VESSEL_EDIT`, `CASH` and `PROGRAM_RELEASE` accept a
++> submission but refuse approval with `DOMAIN_NOT_IMPLEMENTED:<domain>`.
++> `workflow_decide()` refuses with `ADMIN_REQUIRED`, `REVIEWER_IS_SUBMITTER`,
++> `VERSION_CONFLICT` or `ITEM_NOT_PENDING`. **Cash keeps its own two-step
++> authority** (`cash_submissions` → `cash_submission_reviews`); migration `0070`
++> only *mirrors* Cash submissions into `review_items` (`domain='CASH'`) for
++> visibility and closes the mirror through `cash_review_mirror_close()` when the
++> Cash decision is recorded, so `/review` never shows a stale PENDING item.
++> `review_items` holds **0** live rows (workflow tests ran in rolled-back
++> transactions). **Every write route resolves the caller's user id from the
++> `__Host-alrifai_cash` session cookie — never from the request body.** With a
++> single ADMIN, an admin's own submission still cannot be approved
++> (`REVIEWER_IS_SUBMITTER`), from both `/review` and `/cash/submissions`; that is
++> intentional, not a defect.
++> **Password policy changed (Task A, commit `5a72404`).** The current-password
++> prompt is removed from `/admin`, the forced change at `/login`, and `/cash`.
++> The minimum length is **8**, defined once in `lib/password-policy.ts`
++> (`MIN_PASSWORD_LENGTH`, `isAcceptablePassword()`) and used by `hashPassword`,
++> both password routes and all three forms, and pinned by
++> `tests/password-policy.mjs`. The **one documented exception** is the `/admin`
++> "Change username" flow, which still verifies the current password (login
++> identity is more sensitive than a password; 5 remaining `currentPassword`
++> occurrences are asserted by the test). **Security consequence, disclosed to
++> the Owner and not mitigated:** a password change now needs only a live session
++> cookie plus CSRF token, so a stolen session can set a password and lock the
++> Owner out. Any mitigation (second factor or step-up check) needs a new, exact
++> Owner instruction.
++> **UI surfaces added:** `/attendance`, a rebuilt `/review`, `/submissions`,
++> the shared `EmployeeLookup` picker, and `/api/employees/lookup`. `/review`,
++> `/attendance` and `/submissions` are in `WORKSPACE_PATHS`
++> (`release/entry-rules.mjs`) — without that entry a page works in Next but
++> **404s through the TLS private entry** before Next sees it.
++> **Verified after the 2026-11-03 deploy:** health `roster_mode="DB"` and
++> `roster_shadow.mode="DB"`; `migrate` completed and reconciled ledger **74**;
++> ingestion **11/11** cursors with 0 errors; zero module/runtime/5xx signatures;
++> all workspace nav answers **401** on both hosts; `/login` **200**; `/cash*`
++> **404** on the main host and **200** on the cash host; unknown paths
++> **403**/0 bytes (main) and **404**/0 bytes (cash); unauthenticated
++> `POST /api/cash/password` and `POST /api/auth/password` return **401
++> `AUTHENTICATION_REQUIRED`**. Three accounts unchanged (1 ADMIN / 2 USER, 0
++> must-change, last change 2026-10-28/29).
++> **Bridges and PostgreSQL untouched by this work:** WA-01 `sha256:28a646d2…`
++> (last restart `2026-11-02T07:17:09Z`, profile-only), WA-02
++> `sha256:d36ca851…` (start `2026-10-31T13:20:03Z`), PostgreSQL
++> `vps-infra-postgres-1` (start `2026-10-31T10:45:58Z`); all `RestartCount=0`.
++> Cash Freeze intact: **0** current postings (1,586 archive-epoch postings
++> only); no financial posting in this work. The parser release changes
++> `lib/cash-publish.ts` to retain unmatched/name-conflicting Employee IDs in
++> REVIEW and preserve replay idempotency; it does not post or reset instructions.
++> The deployed runtime passes all 11 Owner parser examples (BDT 6,800), source
++> gate checks, and the 29-module runtime import guard. Cash processing remains
++> review-only; no genuine new eligible message arrived for end-to-end testing,
++> so live message-to-instruction completion remains pending.
++> **Open:** RBAC-3 (NOT STARTED — needs explicit Owner instruction), Task B
++> (never received; only Task A was supplied), Phase E, attendance↔pay
++> reconciliation (not started; see §14.3), the deferred `/cash/archive` +
++> `/cash/submissions` typeahead, and the pending authenticated visual check of
++> the new UI (no headless browser on the host).
++>
++> **Superseded banner — 2026-11-02, post-B4 deploy (superseded by the block above; retained as evidence):**
+ > app image `sha256:c2759c80e712439be80ae8e38f08f9b19fe275bcd8021e3f38614dfeac44f3a1`
+ > (tag `local/al-rifai:20261102-b4-cash-page`, source `dd21806`; built with
+ > `--build-context evidence=/var/lib/vps/al-rifai/evidence`, pinned in
+@@ -1035,12 +1199,14 @@ These rules are not negotiable. If an incident seems to require breaking one, st
+     that a correctly-detected functional change makes the drift checker exit
+     **1**; that is success, not an error.
+ 
+-## 14. Work items and recent history (updated 2026-11-02)
++## 14. Work items and recent history (updated 2026-11-04)
+ 
+ ### 14.1 Item tracking
+ 
+ | Item | Scope | Status |
+ |---|---|---|
++| **T01** | Target 01 — logical Vessel order identity and fragment merge, Mother-vessel compatibility, runtime packaging for the reconciliation producer, two historical Program recoveries | **DEPLOYED** ✅ image `sha256:066c9a1c…`, source `46cb23b`, pin `bd04e94` |
++| **T02** | Target 02 — free-text order parser (P1), register row → `CONFIRMED` on Program creation (P2), fail-closed register link | **DEPLOYED** ✅ image `sha256:b058dd48…`, source `ddbd3d5`, pin `91124c0`; **live verification pending** |
+ | **A** | `/transactions` typeahead search — unified employee search, 300 ms debounce, keyboard nav, ARIA, local `buildSuggestions` | **DEPLOYED** ✅ commit `8fb3327`, image `20261031-typeahead` |
+ | **B1** | `/transactions` table — Method/Source abbreviation, per-employee Total column, CSV sync | **DEPLOYED** ✅ commit `6165f35`, pin `6d95083`, image `20261031-b1-columns` |
+ | **SHADOW-FIX** | Phase C SHADOW: recheck + auto-promotion every 10 min inside the worker loop; roster emits `COALESCE(canonical_person_ref, id)`; new `person_ref_mismatch` comparison bucket (Owner-authorized on the frozen path) | **DEPLOYED** ✅ commit `6b457a6`, pin `836e8b1`, image `20261101-shadow-recheck` (`sha256:381fd22f…`) |
+@@ -1048,7 +1214,15 @@ These rules are not negotiable. If an incident seems to require breaking one, st
+ | **B2** | Show All → `/transactions/employee/[phone]` page | **DEPLOYED** ✅ commit `5541d12` (shared util `fa389c1`), pin `df1e2a6`, image `20261102-b2-employee-txn` (`sha256:7735007b…`): per-employee history, 20-row pagination, Print, employee-filtered CSV |
+ | **B3** | Typeahead on the Add Transaction sidebar and `/cash` pages — shared `lib/employee-suggest.ts` + `app/platform/employee-typeahead.tsx`, single implementation for all three pickers, `tests/employee-suggest.mjs` | **DEPLOYED** ✅ commit `c98e57e`, pin `8bc7017`, image `20261101-b3-typeahead` (`sha256:61ccaf56…`) |
+ | **B4** | `/cash` page Total + Show All | **DEPLOYED** ✅ commit `dd21806`, pin `d9168aa`, image `20261102-b4-cash-page` (`sha256:c2759c80…`): Total column (lifetime per employee), Method abbreviation, Show All Actions column, CSV with Total; Source evidence button retained |
+-| **B5** | Complete vessel operations page (salary, conveyance, total days) | **BLOCKED** — awaiting an Owner data-model decision, see §14.3 |
++| **B5** | Vessel operations: pay model + register actions | **DELIVERED 2026-11-02** ✅ `0042`–`0050`: Owner rate schedule (BDT 200/shift + per-destination conveyance), derived `program_pay`, corrected D/N shift model, `fled`/`FLEE_PROGRAM`, Actions column, per-employee program history, filter toolbar, status control. 37 programs released and priced (BDT 168,800); 48 ongoing show ৳— by design. See §14.3 |
++| **R1** | Escort Release Parser — candidates from the release group | **DEPLOYED 2026-11-02** ✅ `0051`–`0055`: staging table, three-pass matching, mismatch kinds, `APPLIED` + confidence, apply recalculates pay; API + `scripts/apply-high-releases.ts`; ingestion hook limited to `120363408741101070@g.us` |
++| **R2** | Release review UI + auto-apply | **DEPLOYED 2026-11-02** ✅ `/platform/release-review`, `0056` `release_auto_apply_log`, high-confidence auto-apply from the ingestion hook (armed; log still empty — the 37 applications came from review/CLI) |
++| **EMP-MASTER** | Employee-master phases 1–5 | **DEPLOYED 2026-11-02/03** ✅ `0057`–`0063`: master fields + statuses, 191 bulk-confirm, 75 escorts, mobile normalization, program view, duplicate trigger, `create_employee_if_new` fail-closed hook, 11-column `/vessel`, register skin + dark sidebar. `employee_master` 216 rows all `CONFIRMED` |
++| **RBAC-2A** | Roles, capabilities, attendance schema, review queue | **DEPLOYED 2026-11-03** ✅ `0064`–`0068`: designation CHECK + 75 backfill, `attendance_entries` + summary (439 entries / 35 employees), `review_items` + `review_decisions`, workflow submit/decide/withdraw + appliers, capability backfill, `/api/employees/lookup`, `PlatformPage access`, adminOnly nav |
++| **RBAC-2B** | Attendance page, review queue, submissions, USER submit paths | **DEPLOYED 2026-11-03** ✅ `0069`: `/attendance`, rebuilt `/review`, `/submissions`, shared `EmployeeLookup`, USER vessel submit, `/api/review/*` + `/api/attendance/*`, `lib/review-api.ts` |
++| **FIX2** | ADMIN vessel command gate + Cash in review queue | **DEPLOYED 2026-11-03** ✅ `825c070` (`canCommandVessel` accepts ADMIN + `vessel.command`), `0070_cash_review_mirror.sql` (mirror + `cash_review_mirror_close`, `cash.read`/`cash.submit` backfill), `/cash/submissions` uses `EmployeeLookup`, `/review` CASH delegates to the Cash decision endpoint |
++| **TASK-A** | Password policy — no current-password prompt, minimum 8 | **DEPLOYED 2026-11-03** ✅ `5a72404` + `b01a53e`: single `lib/password-policy.ts` (`MIN_PASSWORD_LENGTH=8`), applied to `/admin`, `/login` forced change, `/cash`, admin reset and account creation; `tests/password-policy.mjs`. **Exception:** `/admin` "Change username" still verifies the current password. **Disclosed risk:** a stolen session can set a password and lock the Owner out — unmitigated, needs a new instruction |
++| **CASH-PARSER** | Owner Cash message format, source gate, historical reconciliation | **90-ROW REVIEW-ONLY BACKFILL APPLIED 2026-11-03** — batch `backfill-20261103-cash-d7fe95c1`; 65 Employee ID matches, 25 retained for review; 1,997 duplicates skipped; 0 postings. Parser correction remains source-only/not deployed. Native-history coverage is partial; see `docs/NEXT-HANDOFF.md`. |
+ | **D1** | App cutover to `ALRIFAI_ROSTER_SOURCE=DB` | **DONE 2026-11-02** ✅ promotion fired `03:50:59Z` (`roster_shadow.mode="DB"`, 60 cycles, 0 diffs); `app.env` set to `DB`, app recreated on the same pinned image `sha256:381fd22f…` (no rebuild); verified `roster_mode="DB"`, 0 `ROSTER_SHADOW*` lines, 9/9 cursors. Backups `pre-d1-cutover-20261102-0415.dump` + `app.env.pre-d1-cutover-20261102.bak` |
+ | **D2** | Bridge profile generator | **DEPLOYED 2026-11-02** ✅ `scripts/generate-bridge-profile.ts` + `scripts/check-profile-drift.ts`; profile sha256 `1a967be7…`, 11 chats, epoch 4, `root:whatsapp-wa-01` `0440`; drift `chats_added=2`, `bridge_restart_required=true`; WA-01 restarted once; 11/11 cursors clean. Rollback: `native-reader-profile-pre-d2-lid-20261102-0717.json` (sha256 `4708cd0c…`) |
+ | **E** | Wire `/review` to the roster outbox, decommission legacy paths | PENDING — D1 is complete, so this is now the next large work item (see `docs/NEXT-HANDOFF.md`) |
+@@ -1057,66 +1231,178 @@ These rules are not negotiable. If an incident seems to require breaking one, st
+ Item A and B1 are frontend-only. Neither touched a migration, `app.env`,
+ `evidence/`, the roster path or a bridge.
+ 
++The Cash parser correction is a separate, uncommitted source change. It accepts
++forwarded/quoted content from the verified WA-01 Admin in the exact designated
++Accountant direct chat, preserves repeated instructions by source-message/block
++identity, and keeps missing/conflicting Employee ID matches in review. The
++backfill prefers the canonical PostgreSQL original over conflicting staging
++copies and isolates conflicts without a reliable original; unrelated eligible
++instructions proceed. All 19 observed conflict groups resolved to one original.
++After a fresh verified backup and exact digest approval, batch
++`backfill-20261103-cash-d7fe95c1` inserted 90 missing Current instructions in
++`REVIEW` (65 matched, 25 retained for employee review); 1,997 source-linked
++duplicates were skipped. No posting, approval, migration, deployment,
++configuration change or restart occurred. Parser code remains source-only and
++not deployed. Native history is only partially exposed; coverage details and
++the post-apply counts are in `docs/NEXT-HANDOFF.md`.
++
+ ### 14.2 Recent commits (newest first)
+ 
+ ```
+-d9168aa deploy: pin app image to 20261102-b4-cash-page
+-dd21806 feat: cash page method abbreviation and Show All (B4)
+-d81e5d7 docs: update state post-B2 deploy
+-df1e2a6 deploy: pin app image to 20261102-b2-employee-txn
+-5541d12 feat: employee transaction history page with pagination
+-fa389c1 refactor: extract transaction format helpers to shared util
+-d46254b docs: add D2 cycle guardrail to AGENTS.md §13.21
+-e210ac4 docs: D2 deployed — generated bridge profile, LID channels active
+-c3aae52 docs: D1 part 3 — final state sync after roster cutover
+-fa5ba16 docs: D1 part 2 — roster source cutover to DB
+-a8fbf3a docs: D1 part 1 — promotion confirmed; LID channels attempted and reverted
+-7bfc2ab docs: record shadow recheck fix, LID findings, and audit results
+-836e8b1 deploy: pin app image to 20261101-shadow-recheck
+-6b457a6 fix: shadow recheck every 10m and use canonical personRef
+-8bc7017 deploy: pin app image to 20261101-b3-typeahead
+-c98e57e ui: employee typeahead on Add Transaction drawer and Cash search (B3)
+-6d95083 deploy: pin app image to 20261031-b1-columns
+-6165f35 transactions: abbreviate method/source, add total column (B1)
+-51955a6 deploy: pin app image to 20261031-typeahead
+-8fb3327 transactions: add typeahead search with employee suggestions (Item A)
+-6b9df6f docs: update guardrails and project state (AGENTS.md audit)
+-d500bbd deploy: pin app image to 20261031-shadow-v2-fix1
+-656d25c Revert "build: use dockerfile without buildkit mount for local build"
+-bcd77cb Revert "roster: add SHADOW mode with auto-promotion, health visibility, periodic logging"
+-b0c8bfe roster: SHADOW v2 — persistent state, roster-backed comparison, fail-closed
+-f784a5e roster: include all active roster roles in scope loader
+-be8dae9 roster: use real display name for CASH accountant (0041 amend)
+-a5aaf75 roster: add CASH accountant to roster for scope parity (0041)
++f409510 deploy: pin app image to 20261103-password-policy
++b01a53e test: refresh three assertions RBAC-2B left behind
++5a72404 feat(auth): remove the current-password prompt and set the minimum to 8
++e8b1ba1 deploy: pin app image to 20261103-rbac2b-fix2
++5792fd1 feat(cash): shared employee picker and one review queue
++4f5eeaa feat(db): mirror cash submissions into the review queue (0070)
++825c070 fix(vessel): let a signed-in ADMIN command programs
++ae26849 deploy: pin app image to 20261103-rbac2b-hotfix
++a90efb1 fix(submissions): use the workspace page scaffold on the new pages
++9eeb692 fix(vessel-register): add program was disabled for users
++a9cbcc8 fix(routes): allow the workspace pages in the private entry (404 fix)
++b0b2658 deploy: repin app image to 20261103-rbac2b
++104055c fix(vessel): hide admin-only commands from a user (step 14 follow-up)
++282218e deploy: pin app image to 20261103-rbac2b
++4c972fc feat(nav): attendance and my submissions in the sidebar
++b5c1259 feat(vessel): stage user-created programs; add My Submissions (step 14, 15)
++8076871 feat(review): rebuild the review queue and its routes (step 13, 16)
++76abf0a feat(attendance): attendance page and its two routes (step 12, 17)
++b99f85c feat(db): attendance hours and notes, plus the admin direct write (0069)
++3e32021 feat(ui): shared employee picker and CSRF writer (step 11)
++4bd2dfc deploy: pin app image to 20261103-rbac2a
++3d92718 feat(rbac): server-side role gates and role-aware navigation (RBAC-2A)
++a7ecae2 feat(api): employee lookup endpoint for the shared picker
++6880407 feat(rbac): three submit capabilities (0068)
++4457d1f feat(db): review queue, workflow functions and per-domain apply (0066-0067b)
++49a1a48 feat(db): designation vocabulary, attendance table and summary (0064-0065c)
++ea627e9 deploy: pin app image to 20261103-p5-skin
++89d3bdd style(platform): dark sidebar variant for every workspace route (5.2)
++73ab260 style(vessel): legacy register skin for the two register routes (5.1)
++e30f137 fix(db): make the program_with_employee grants reproducible (0063)
++73f706c deploy: pin app image to 20261103-vessel-12col
++1ec95aa feat(vessel): unify /vessel to the 11-column register layout (phase 4)
++61f1db0 deploy: pin app image to 20261103-emp-master-p3
++f60ce25 feat(vessel): toast when a vessel command creates an employee (3.4)
++6dd1e70 feat(vessel): file the escort as an employee before writing the program (3.2)
++8136bff feat(db): create_employee_if_new, the one app write path (0062)
++8c75bf5 deploy: pin app image to 20261103-emp-master-p2
++0b78724 feat(db): prevent duplicate employee rows (0061)
++651af4a feat(db): program_with_employee view (0060)
++7f69dd0 feat(db): backfill escorts known only from programs (0059)
++a429cb5 feat(db): normalize_mobile helper and index (0058)
++1411d1c deploy: pin app image to 20261103-emp-master-p1
++0a3cb2e feat(db): employee master fields (0057)
++ec92c09 deploy: pin app image to 20261103-col-widths
++9820f59 ui: widen vessel columns, leave auto-width columns untouched
++f4815e6 deploy: pin app image to 20261103-header-widths
++ea8aaea ui: widen vessel register vessel columns and rename headers
++be4c6b0 deploy: pin app image to 20261103-tdz-fix
++bbda96a fix: vessel register crashed on a temporal dead zone
++345b1cd deploy: pin app image to 20261103-toolbar-fix
++3cefa9f fix: vessel toolbar did nothing because URL sync remounted the view
++5b14857 deploy: pin app image to 20261102-a3-toolbar
++55fdd2c feat: employee history toolbar
++ff8540f feat: vessel register filter toolbar
++5f06694 feat: widen mother, lighter and escort columns by ~15%
++b6fbbf0 ci: add build-time assertion for worker lib imports
+ ```
+ 
+-### 14.3 B5 hold notes — vessel page data model
++Earlier in the same work (2026-11-02), the B5 pay model and the R1/R2 release
++pipeline:
+ 
+-Investigation on 2026-10-31 established that the vessel salary/conveyance
+-feature has **no data foundation**. Any B5 UI work is blocked until the Owner
+-decides where this data lives.
++```
++fc5c249 deploy: pin app image to 20261102-r2-fix
++70a2b83 fix: ship vessel-command-policy in the runtime image
++c3ac84f feat: auto-apply high-confidence releases from the hook (R2 action 4)
++a73d0d2 db: 0056 auto-apply audit log
++f48a5a3 feat: release review page (R2 action 2)
++fe08add feat: apply-all-high dedupes per program and gains a CLI
++835d55a deploy: pin app image to 20261102-r1-fix1
++51a08eb fix: ship release-parser and release-scan in the runtime image
++e97b3a9 feat: shared release scanner and ingestion hook (R1 step 5)
++ab15ab6 feat: release candidate review API (R1 step 4)
++cb8470d db: 0055 let the apply flow recalculate pay
++c47e28b feat: backfill persists confidence and reports Step D
++7a5182c feat: Step D orphan program matching for lump-sum releases
++26f2060 db: 0054 APPLIED status and confidence
++942c03f feat: backfill verifies its source and reports mismatch kinds
++d9a85c3 fix: payments after a release are new duties, not partials
++a1d0c93 db: 0053 release mismatch kind
++e4dcd64 feat: backfill uses three-pass matching and reports by pass
++e20148c feat: three-pass release matching
++7d4dadc db: 0052 release candidate pass tracking
++58e731a feat: release backfill script (R1 step 3)
++2319890 feat: release parser extraction and roster matching (R1 step 2)
++ed907ad db: 0051 release_candidates staging table (R1 step 1)
++56007ae deploy: pin app image to 20261102-b5-status
++d41e0f2 feat: vessel register status control, narrow columns, flee command
++334b45f deploy: pin app image to 20261102-b5-shiftfix
++b005c01 feat: vessel register shift columns and sidebar edit flow
++71613d8 db: 0049 recalculate under the corrected shift model
++6f15f48 db: 0048 corrected shift model
++24e7f57 deploy: pin app image to 20261102-b5-actions2
++af918fa fix: disable program History when no escort mobile is recorded
++9c5edf0 deploy: pin app image to 20261102-b5-actions
++45871ec feat: vessel actions column and per-employee program history
++6bd0d7e db: 0047 recalculate vessel pay under the Owner rates
++4a6f694 db: 0046 vessel rate schedule (Owner-confirmed)
++41a33e0 deploy: pin app image to 20261102-b5-vessel-pay
++b33464e feat: show derived vessel pay on the register with an honest empty state
++d504505 chore: reconcile migration ledger and pin SQL line endings
++ddf7f6f db: 0045 vessel pay backfill
++6eff545 db: 0044 vessel pay functions
++f3de793 db: 0043 derived program pay table
++a5b5d9e db: 0042 escort rate config and destination aliases
++```
+ 
++Older (B1–B4, D1/D2, SHADOW): `d9168aa` … `a5aaf75`, as recorded in
++`/opt/vps/NEXT-SESSION-HANDOFF.md`.
++
++### 14.3 Vessel pay / release model — resolved facts and remaining limits
++
++**B5 is no longer blocked.** The Owner decided the data model on 2026-11-02 and
++it is deployed (`0042`–`0050`). The notes below replace the earlier "no data
++foundation" hold note, which is now false in several places.
++
++- **Rates exist and are Owner-confirmed.** `public.escort_rate_config`:
++  **BDT 200.00 per shift, uniform across every destination** (a shift is half a
++  day, so BDT 400.00/day), plus per-destination conveyance (BDT 600–1,000),
++  effective `2025-01-01`. Money is **bigint paisa**; the UI divides by 100.
++- **The shift model is `D`/`N`, inclusive.** A program runs
++  `start(date,shift)` → `end(date,shift)` inclusive and `days = shifts / 2`.
++  `2026-11-02(N) → 2026-11-20(D)` = 36 shifts = 18 days = BDT 7,200.
++- **Pay is derived, not stored on the fact.** `public.program_pay` is
++  recomputable by `recalculate_program_pay(program_id)`. It is deliberately not
++  a column on `programs`, which is under an immutability trigger, and it is
++  never a posting or a payment.
++- **Ongoing duty prices to nothing, on purpose.** With an empty `endDate` the
++  row is `UNRESOLVED / END_DATE_REQUIRED` and the register shows `৳—`. Current:
++  37 `CALCULATED` (818 shifts = 409 days; BDT 163,600 salary + BDT 5,200
++  conveyance = BDT 168,800) and 48 `UNRESOLVED`.
+ - **`escort_order_register.status` never equals `'CONFIRMED'`.** Only `DRAFT`
+-  (596 rows) and `REVIEW` (406 rows) exist. Confirmation is recorded by
+-  `confirmation_message_id IS NOT NULL` (128 of 1,002 rows). **Never filter on
+-  `status = 'CONFIRMED'`** — it returns zero rows forever.
+-- **`calculateSourceDuty()` (`lib/duty-calculation.mjs`) returns `UNRESOLVED`
+-  for every row by design.** There is no rates table, no wage/salary column
+-  anywhere in the schema, and no attendance table. It requires verified
+-  `rates[]` (`halfDayMinor`, dated, per `employeeMobile`), a verified `policy`
+-  (`version`, `unit='HALF_DAY'`, `rounding='EXACT_MINOR'`) and verified
+-  `attendance[]`, all passed as arguments.
++  and `REVIEW` exist; confirmation is `confirmation_message_id IS NOT NULL`.
++  **Never filter on `status='CONFIRMED'`** — it returns zero rows forever.
++- **`calculateSourceDuty()` (`lib/duty-calculation.mjs`) still returns
++  `UNRESOLVED` by design.** It is a separate, argument-driven calculator (needs
++  verified `rates[]`, `policy`, `attendance[]`); the deployed pay path uses
++  `lib/vessel-pay.ts` and `program_pay`, not this function. Do not "fix"
++  `calculateSourceDuty` to read tables.
+ - **`program_assignments` is the multi-program-per-employee source**
+   (`(program_id, revision)`, `employee_mobile`, `duty_started_on`,
+   `released_on`, `predecessor_id`, `source_refs`). **`SELECT` is not granted to
+   `alrifai_app`** — any reader needs a `GRANT` or a view.
+-- **No duty-type discriminator exists.** There is no security-duty / tally-duty /
+-  lighter-escort distinction in the schema or in code; every duty is lighter
+-  escort duty.
+-- **Conveyance is not stored.** It is an argument to `calculateSourceDuty` and
+-  yields `CONVEYANCE_NOT_ESTABLISHED` when absent. `programs.details` carries no
+-  conveyance key. The only conveyance figures in the system are legacy Excel
+-  `bills[].conveyance` / `serviceCharge` in `operations.json` evidence.
+-- Two parallel vessel UIs exist (`app/vessel` → `app/vessel-dashboard.tsx`, and
+-  `app/vessel-register` → `view.tsx`); B5 must decide which one it is extending
+-  before writing code.
++- **`duty_type` now exists but is not a duty-type taxonomy.** It holds
++  `'escort'` for 75 rows and NULL for the rest; there is still **no**
++  security-duty / tally-duty distinction in the schema or in code. Do not
++  invent one from a job title.
++- **Attendance is now stored** (`attendance_entries`, 439 backfilled rows from
++  programs, plus `attendance_summary`). Vessel pay still derives from program
++  shift dates, **not** from attendance; the two are not yet reconciled. Do not
++  make pay read attendance without an Owner decision.
++- **Conveyance now comes from the rate table**, not from `programs.details`
++  (which still carries no conveyance key). It is still an argument to
++  `calculateSourceDuty` and still yields `CONVEYANCE_NOT_ESTABLISHED` there.
++- **Two vessel UIs still exist** (`app/vessel` → `app/vessel-dashboard.tsx`, and
++  `app/vessel-register` → `view.tsx`). `/vessel` is the 11-column unified view
++  (`1ec95aa`); `/vessel-register` keeps the legacy register skin. Any change must
++  say which one it is changing.
+diff --git a/README.md b/README.md
+index a62adb9..5c8d94c 100644
+--- a/README.md
++++ b/README.md
+@@ -1,3 +1,50 @@
++> **CURRENT STATUS POINTER — 2026-11-04 (read this first).**
++> The body of this README is a **historical** architecture note closed by the
++> Owner on 11 October 2026; it is preserved unchanged below. Current operational
++> truth lives in `AGENTS.md` §0 and `docs/NEXT-HANDOFF.md`; infrastructure in
++> `docs/VPS_MAP.md`. Running system, verified read-only at `2026-11-04T20:12Z`:
++> image `sha256:b058dd48…` (source `ddbd3d5`, pin `91124c0`), migration ledger 75,
++> 98 Programs, 11/11 ingestion cursors, Cash Freeze active (0 postings),
++> reconciliation inactive, Target 02 live verification **pending**.
++>
++> **What the platform is.** AL-RIFA’I is the Owner’s marine workforce and cash
++> operations platform for a Chattogram shipping agency: escort/lighter Vessel
++> duties, Cash payment instructions, employee identity and attendance, and a
++> read-only review workspace over the WhatsApp evidence that authorises them.
++>
++> **Modules and workflows (current).**
++> *Vessel* — authorised client order → Draft → Admin confirmation → Program →
++> Assignment → derived payroll. *Cash* — verified Admin → Accountant payment
++> instruction captured as a `REVIEW` instruction under Cash Freeze; no posting
++> path exists. *Employee* — `employee_master` identity, attendance entries,
++> review queue. *Evidence* — WA-01 message mirror, release-slip scanner,
++> reconciliation staging (producer currently dormant).
++>
++> **Implementation status.**
++> *IMPLEMENTED* — Vessel order intake, Admin confirmation, Program/Assignment
++> creation, derived payroll (`UNRESOLVED` without an End Date), release candidate
++> extraction and atomic apply, Cash instruction capture (review-only), employee
++> identity, attendance, review queue, session auth.
++> *PARTIALLY IMPLEMENTED* — release image/OCR (interface only, no OCR engine),
++> office-group staffing/advance extraction, ±1-day duplicate review (staging
++> only), historical reconciliation (producer stopped).
++> *PLANNED* — Cash posting/approval/settlement execution, cancellation and
++> reinstatement events, WA-02 outbound messaging and AI assistant, migration
++> 0072–0076 features.
++>
++> **Setup and migration limitation.** `scripts/database.mjs migrate` reads only
++> `db/migrations/`; seven migrations (`0031`–`0036`, `0071`) live under
++> `db/migration-candidates/` and are applied in production but would be missed by
++> a fresh install. A fresh-install parity test is required before any rebuild.
++>
++> **Documentation index.** `AGENTS.md` (agent rules, safety, current position) ·
++> `docs/NEXT-HANDOFF.md` (current handoff and risks) · `docs/VPS_MAP.md`
++> (infrastructure) · `apps/al-rifai/README.md` (application detail) ·
++> `apps/al-rifai/docs/OWNER_BUSINESS_POLICY.md` (business policy) ·
++> `NEXT-SESSION-HANDOFF.md` (historical archive, not a status page).
++
++---
++
+ # AL-RIFA’I AI Platform
+ 
+ **HISTORICAL LEVEL B — CLOSED BY OWNER** (11 October 2026). Historical research, reconciliation, representation qualification, Option A validator repair and related historical-only work are closed. Original acceptance and PASS/FAIL/PARTIAL/BLOCKED/UNVERIFIED findings remain reference evidence; the old validator-repair recommendation is superseded. No import, posting or registry activation is authorized. Do not reopen without new explicit Owner authorization.
+diff --git a/apps/al-rifai/README.md b/apps/al-rifai/README.md
+index 42cc317..3d83bfb 100644
+--- a/apps/al-rifai/README.md
++++ b/apps/al-rifai/README.md
+@@ -1,3 +1,15 @@
++> **CURRENT STATUS POINTER — 2026-11-04.** The "Current Production State
++> (2026-10-27)" section below is now historical. Current state, verified read-only
++> at `2026-11-04T20:12Z`: image `sha256:b058dd48…` (source `ddbd3d5`, compose pin
++> `91124c0`), ledger 75, 98 Programs / 93 Assignments / 93 pay rows (39
++> `CALCULATED`, 54 `UNRESOLVED`), register 616 `DRAFT` / 411 `REVIEW` /
++> 0 `CONFIRMED`, Cash Freeze active (3,726 instructions, 0 postings),
++> 11/11 ingestion cursors, reconciliation inactive, Target 02 live verification
++> pending. Target 01 added logical Vessel order identity, runtime packaging for
++> the reconciliation producer, and two recovered Programs; Target 02 added
++> free-text order parsing and the register → `CONFIRMED` transition. See
++> `AGENTS.md` §0 and `docs/NEXT-HANDOFF.md` for the authoritative position.
++
+ # AL-RIFA’I — Current Production State (2026-10-27)
+ 
+ This section supersedes older status notes below. Verified against the running
+diff --git a/docs/NEXT-HANDOFF.md b/docs/NEXT-HANDOFF.md
+index 5d8ab68..86c12e7 100644
+--- a/docs/NEXT-HANDOFF.md
++++ b/docs/NEXT-HANDOFF.md
+@@ -1,416 +1,811 @@
+-# Next Handoff — 2026-11-02
++# Next Handoff — 2026-11-04 (CURRENT STATE)
+ 
+-> **Scope note.** This file is a short, current-state handoff created after the
+-> Item A and Item B1 deploys. The long-form historical record remains
+-> `/opt/vps/NEXT-SESSION-HANDOFF.md` (3,383 lines, referenced by `AGENTS.md` §0
+-> and §12). Where the two disagree, `AGENTS.md` §0 and this file describe the
+-> running system; the older file is an evidence archive, not a status page.
++> **Scope note.** This is the short, current-state handoff. The long-form
++> historical record remains `/opt/vps/NEXT-SESSION-HANDOFF.md` (3,383 lines,
++> referenced by `AGENTS.md` §0 and §12). Where they disagree, `AGENTS.md` §0 and
++> this file describe the running system; the older file is an evidence archive,
++> not a status page. `docs/VPS_MAP.md` is an infrastructure map with dated
++> audits — its dated sections are history too.
+ 
+-## Production State
++---
++
++## Current position — 2026-11-04 (Target 02 deployed)
++
++Verified read-only at `2026-11-04T20:12Z`. Every number below is a **measurement
++at that timestamp**, not a permanent constant.
++
++| Item | Value |
++|---|---|
++| Running image | `sha256:b058dd4810d7830a9b2ac8e289c1358b7d4cb5668c474e9f4e19563a3ab9cae4` (`local/al-rifai:target02-final`) |
++| Source commit | `ddbd3d5cfa4b3c58eff53c56013665608ecccb93` |
++| Deployment pin commit | `91124c0` |
++| Container | `al-rifai-app-1`, started `2026-11-04T18:28:17Z`, `RestartCount=0`, healthy |
++| PostgreSQL | `721873c3…`, restarts 0, healthy (started 2026-10-31) |
++| WA‑01 / WA‑02 | `28a646d2…` / `d36ca851…`, restarts 0 |
++| Migration ledger | **75** rows, through `0071_release_apply_atomic.sql` |
++| Programs / Assignments / Pay | 98 / 93 / 93 (39 `CALCULATED`, 54 `UNRESOLVED`) |
++| Register | 616 `DRAFT` / 411 `REVIEW` / **0 `CONFIRMED`** |
++| Release candidates | 145 total, 39 applied |
++| Cash | 3,726 instructions (2,140 `REVIEW`, 1,586 `MANUAL_READY`), **0 postings** |
++| Ingestion | 11/11 cursors, 0 errors; scope 7 conversations / 11 addresses |
++| Reconciliation | timer **inactive**, producer dormant, 157 historical runs |
++| Rollback images | `sha256:066c9a1c…` (Target 01), `sha256:924b0525…` (pre-Target 01) |
++| Latest backup | `/var/lib/vps/al-rifai/backups/pre-target02-20261104-1927.dump` (64,420,714 B, sha256 verified) |
++
++### What Target 01 delivered (deployed 2026-11-04T17:34Z as `066c9a1c`)
++
++1. **Logical Vessel order identity** — `orderIdentity` / `orderBusinessDay` /
++   `motherCompatible` / `groupLogicalOrders` collapse repeated order fragments
++   into one order without merging genuine duties (a different Lighter, Master,
++   shift, day or fleet stays separate). The ±1‑day tolerance was **removed**
++   during release review: the duty day must match exactly.
++2. **Runtime packaging** — `scripts/reconcile-ingest.mjs` and
++   `lib/reconciliation-core.mjs` are copied into the runtime image, and
++   `scripts/check-runtime-imports.mjs` now requires both entry points, so the
++   omission that broke the reconciliation producer on 2026‑10‑17 cannot recur.
++3. **Historical recovery** — Rahman Asif (`7030dfe2…`) and Fardin‑7
++   (`e6b961f7…`) were created from their real Admin confirmations, one
++   transaction each, payroll `UNRESOLVED / END_DATE_REQUIRED`. Fardin‑7 keeps
++   `employeeLink=UNRESOLVED` (no verified Employee Master record).
++4. **Borkot Jidan** was deliberately **excluded** and has no Program; its
++   cancellation (`AC762397…`) and reinstatement (`AC492FC1…`) evidence is
++   preserved for the future event model.
++
++### What Target 02 delivered (deployed 2026-11-04T18:28Z as `b058dd48`)
++
++1. **P1 — free-text order parsing.** `parseEscortOrder` recognises the shape
++   `Mother vessel <name>, <prose> / Mv <lighter> / Capacity … / K/a to … /
++   master / <phone>` (line-separated or pipe-separated), gated so ordinary
++   messages never match. It parses the Owner‑authorized Ritaj order correctly in
++   offline evaluation; **no live free-text order has arrived yet**.
++2. **P2 — register transition.** `persistConfirmedProgram` sets
++   `status='CONFIRMED'` — a value the schema CHECK, the API summary and the UI
++   already support — in the same transaction as the Program insert.
++3. **Fail-closed link.** When a `reviewRowId` is named, the register UPDATE must
++   match exactly one row belonging to that order and confirmation; otherwise
++   `REGISTER_ROW_NOT_MATCHED` aborts the transaction. Callers with no register
++   row pass an empty id and are unaffected.
++4. **Tests:** 660 total / 649 pass / 7 environment-dependent failures (the same
++   seven as the Target 01 baseline) / 4 skipped; typecheck and lint clean.
++
++### Target 02 live verification — PENDING
++
++No eligible order or confirmation has occurred since deployment. P1 and P2 are
++**not** live-verified. The procedure and pass criteria are below under
++"Live verification procedure" (multi-lighter drafts, event-specific deltas and
++derived PN/LID scope).
++
++### Git and deployment risks
++
++- `target01-release` (`bd04e94`) and `target02-p1-p2` (`91124c0`) are **local
++  only**; `origin/main` is `8096ed8`. Seven commits are unpushed.
++- The primary `/opt/vps` worktree is on `target01-vessel-fragment-merge`
++  (`cfdcc06`) with 20 dirty entries; local `main` is `6a71c8f`, nine commits
++  behind `origin/main`.
++- The running container's Compose labels record
++  `config_files=/tmp/opencode/target02/...` with the same `working_dir`. The
++  runtime never reads that file, but a future `docker compose` from the recorded
++  path fails once `/tmp` is cleaned. `/opt/vps/apps/al-rifai/compose.yaml` already
++  pins the same digest, so the risk is operational, not a downgrade.
++- Fixing the labels requires recreating the app container (Docker labels are
++  immutable) — a separate authorized deploy window.
++
++### Immediate next actions (Owner‑gated)
++
++1. Observe the next eligible event and run the verification procedure.
++2. Publish `target01-release` and `target02-p1-p2`, tag the deploys, then
++   fast‑forward `main`.
++3. Normalise the deployment path (persistent worktree + one recreation).
++4. Refresh `AGENTS.md` §0/§14.1 and this file when the next release lands.
++
++---
++
++## Business policy summary (2026-11-04)
++
++**Vessel order intake.** Only the three verified Escort Client one-to-one WA-01
++conversations (Hridoy, TCIS, Rezaul, including each PN/LID alias) are authorised
++order sources. Approved groups are **evidence**, never order-originating. A valid
++order needs Mother Vessel, Lighter Vessel and Master Mobile; a single message may
++list several Lighters and each independently identifiable Lighter gets its **own
++Draft**. Missing dates or shifts are never invented.
++
++**Order confirmation.** The verified Admin’s **outgoing** WA-01 message in the
++**same** client conversation, carrying the completed order with Escort Name,
++Escort Mobile, Start Date and Shift, **is** the confirmation — no client
++acknowledgement or second confirmation is required. It links to the original
++Draft and yields exactly one Program and one Assignment per eligible Lighter,
++with `confirmationMessageId` and `orderMessageId` provenance.
++
++**Duplicates.** Unique WhatsApp message identity, `(account, epoch, source_hash,
++block_key)` for drafts, business-key uniqueness, a deterministic Program id,
++Program/Assignment primary keys, `ON CONFLICT DO NOTHING`, advisory locking and
++PN/LID normalisation are enforced by the database plus code and covered by tests.
++The Owner’s ±1-day potential-duplicate rule is implemented **only at staging
++level** (`POTENTIAL_DUPLICATE_WITHIN_ONE_DAY_REQUIRES_REVIEW`) — it is not a
++database constraint, and the release matcher still auto-applies pass 2. The same
++escort on different Lighters the same day is legitimate; different Lighters under
++one Mother Vessel are separate Programs.
++
++**Release vs confirmation.** An order confirmation never ends a duty. Release
++evidence comes from the approved Escort Release Group (messages and images), is
++matched to an Escort and Program, and only then persists a verified End Date.
++Image/OCR is an interface without an engine: release candidates carry
++`image_ref` but no OCR extraction exists. Payroll is `UNRESOLVED /
++END_DATE_REQUIRED` without a verified End Date and `CALCULATED` only once the End
++Date and required inputs exist; `CALCULATED` is **not** `PAID` and cannot create a
++Cash posting.
++
++**Office Group.** Operational evidence only — program assignments, Ghat-duty
++staffing, attendance, advances, transport and salary discussions. Attendance is
++stored (`attendance_entries` 439, summary 216) but was backfilled from Programs,
++not extracted from group messages; staffing/loans/salary extraction is planned.
++Office Group messages never authorise a Program confirmation or a Cash posting.
++
++**Cash.** A verified Admin’s outgoing instruction to the designated Accountant in
++the authorised WA-01 direct conversation is the only authoritative payment
++instruction. It is captured as a `REVIEW` instruction. `MANUAL_READY` means
++“eligible for manual handling” — **not** a posting. There is no posting,
++approval or settlement execution path (`cash_instruction_postings` does not
++exist), which is why Cash Freeze stays in force and unfreezing is not
++recommended.
++
++**WA-02.** Identity-only in production: no cursors, no messages, no outbound
++send capability anywhere in the codebase. Outbound notifications, employee
++verification, AI conversations and recruitment answering are **PLANNED** and
++require separate authorisation.
++
++---
++
++## Live verification procedure (Target 02 P1/P2)
++
++Run only when an eligible event appears. Read-only; never send or replay.
++
++1. **Scope (derived, never hard-coded).** Union of `conversation_scope`
++   `canonical_chat_jid` + `alias_chat_jids`, `escort_roster_channel.chat_jid` and
++   `escort_roster_channel.participant_jid` (`@lid`) → currently **11 addresses /
++   7 conversations**. `conversation_scope.alias_chat_jids` alone misses the
++   Rezaul and TCIS LIDs, which exist only as roster participants.
++2. **Discovery.** New rows in those addresses since the last check; ignore Cash,
++   release-group, office-group, media-only and staffing content.
++3. **Classify before asserting deltas:** new order · new valid confirmation ·
++   duplicate confirmation · already-confirmed Program · ambiguous (multiple
++   drafts) · unmatched (no draft) · invalid/unauthorised. Only a new valid
++   confirmation may add one Program + one Assignment.
++4. **P1 (per Lighter).** Draft count = number of identifiable Lighters; each has
++   correct mother/lighter/master, no invented date or shift, a `logicalOrderId`,
++   one row per `(account, epoch, source_hash, block_key)`, and classification
++   `ORDER_DRAFT_CREATED`. **P1 is only live-verified by a new free-text order** —
++   a structured list does not count.
++5. **P2.** Outgoing Admin in the same conversation, correct escort/mobile/date/
++   shift, linked to the original Draft (a pre-deployment Draft is acceptable),
++   exactly one Program and one Assignment, register row `CONFIRMED` with
++   `parsed.programId` and `programCreatedAt`, payroll `UNRESOLVED` when the End
++   Date is absent, Cash drafts unchanged.
++6. **Verdict:** LIVE VERIFIED · FAILED · AMBIGUOUS (Owner review). Application
++   health or passing tests never substitute for these criteria.
++
++---
++
++## READ THIS FIRST — a new agent's contract
++
++1. **Read, in this order:** `AGENTS.md` (all of it, especially §0, §7, §13,
++   §14) → this file → `docs/VPS_MAP.md` (paths, permissions, containers) →
++   `apps/al-rifai/docs/MIGRATION-READINESS-0031-0032.md` only if working on
++   Vessel command SQL.
++2. **Do not start a destructive edit or change.** No production migration, no
++   deploy, no image build, no container restart, no `app.env` edit, no
++   `evidence/` write, no `git add -A`. A plan being discussed is not approval;
++   approval of a plan is not approval of an unlisted destructive step inside it.
++3. **Verify before you trust any number in a document.** Image digest, ledger
++   count, row counts and cursor counts all drift. Re-read them (commands are in
++   "Read-only verification" below) and report the timestamp with the figure.
++4. **Do not re-run applied migrations.** The ledger is at **74** rows and
++   migrations `0042`–`0070` are applied. `node scripts/database.mjs migrate`
++   only validates/reconciles; never re-execute a numbered SQL file by hand.
++5. **The ingestion worker writes business data.** It auto-applies
++   high-confidence release candidates from the Escort Release Slip group
++   (`RELEASE_GROUP_JID`) and recalculates `program_pay`. Do not disable,
++   re-point or "test" that hook in production, and do not replay candidates.
++6. **Stop-and-ask triggers:** failed build, missing mount, unexpected diff/block
++   on an observation window, permission error on a production table, a route
++   that 404s through the TLS entry, or any request that requires reading message
++   bodies or credentials.
++7. **Report per step, not per batch.** One commit per step; conventional
++   message; explicit paths only. Include the deployed commit SHA and image
++   digest in every deploy note.
++8. **Nothing here authorises RBAC-3.** RBAC-3 has not been started and needs an
++   explicit new Owner instruction.
++
++---
++
++## Cash parser correction and approved backfill — 2026-11-03
++
++The shared live/historical Cash parser and source gate were corrected and
++deployed in the Cash parser release described below. The exact source remains verified WA-01
++Admin outgoing → designated Accountant direct chat. Forwarded, quoted, copied,
++pasted or manually typed content is accepted; `B` and `N` are the only method
++markers. Employee ID remains text and is the match key; payout number is
++separate. Distinct source messages/blocks remain distinct.
++
++The bounded historical apply was explicitly approved for write-set digest
++`d7fe95c1334bc3b6417501b498d18eff0da3566e64baac4aae1ea0ca8e231387` and
++completed as batch `backfill-20261103-cash-d7fe95c1` at
++**2026-11-03T21:59:16.709Z UTC**. It inserted **90** source-linked Current
++Cash instructions, all `REVIEW`: **65** exact Employee ID matches and **25**
++employee-review cases (**18** unmatched IDs, **7** Employee ID/name conflicts).
++The approved set totals **BDT 45,400.00**. No employee was created or changed.
++The batch also verified **1,997** pre-existing source-linked instructions as
++duplicates; the applied run completed with 2,087 eligible blocks, 90 written,
++1,997 duplicates, 25 queued for review, and no unresolved source-verification
++groups. The run is `PUBLISHED` with `inserted=90`, `cash_published=90`,
++`cash_duplicate=1997`.
++
++A fresh pre-write dump was verified at
++`/var/lib/vps/al-rifai/backups/pre-cash-backfill-20261103-2156.dump`
++(64,311,053 bytes, mode `600`, SHA-256
++`78e27c3b7831b4cac9c1b25d6c0edba7ba6d7dcc4379ee07a2b356163819efff`; custom
++archive listing and sidecar checksum both passed). The final post-apply
++read-only reconciliation cutoff was **2026-11-03T21:59:46.915Z UTC**. It found
++0 newly eligible blocks and the same 90 approved source identities linked to
++90 `REVIEW` instructions. Current totals are **2,094 instructions / 0
++postings**; this includes 7 pre-existing Current records without parsed source
++keys. Legacy totals remain **1,586 instructions / 1,586 postings totaling
++BDT 852,259.00**. No posting, approval, settlement, migration, deployment,
++configuration change or restart occurred. Total parsed historical instruction
++amount is **BDT 1,046,499.00**, not a paid or posted amount. The 11 Owner
++samples parse as 11 blocks / 9 Employee IDs / 8 bKash / 3 Nagad and total
++**BDT 6,800**, not BDT 7,100.
++
++**Native history coverage remains partial.** The existing WA-01 native event
++reader was accessible for metadata. Across 45 bounded pages it returned 445
++events in the designated LID chat, including 409 unique Admin-sent message
++IDs; the PN address returned no events. All 409 native IDs matched PostgreSQL,
++with no native-only IDs. PostgreSQL has another **1,892 authorized outgoing
++IDs** absent from the exposed native event stream; no date attribution for
++those IDs was established. The exposed stream begins
++**2026-10-14T14:58:16Z**, while PostgreSQL originals span
++**2026-07-12T14:26:32Z–2026-11-03T18:00:28Z**. `list_native_messages` is
++cursor-bound and a null cursor snapshots the current high-water mark rather
++than returning historical messages. Direct access to the service-owned WA-01
++SQLite store was not used. Thus the backfill is complete for the verified
++PostgreSQL write set, not proof of complete native-history coverage. No message
++bodies were read during native metadata comparison.
++
++The latest source-message timestamp is **2026-11-03T18:00:28Z**; native cursor
++observation reached **21:56:42.845Z** and both Cash channels were enabled and
++error-free. The source set covered **2,491** designated-chat originals plus
++**2,278** staging copies (4,769 storage rows), resolving to 2,491 distinct
++messages. All **19** conflicting source-copy groups selected one canonical
++PostgreSQL original; 2,278 duplicate storage copies were skipped. Of the 2,301
++authorized Admin outgoing messages, 84 were other authorized messages and 130
++had invalid/missing Cash fields. There are no unauthorized-chat Cash
++instructions in the audited instruction set. The 7 Current and 5 legacy
++records without parsed source keys remain separate reconciliation items.
++
++### Cash parser release — deployed 2026-11-03
++
++Source commit `38ce0da8c9623b4b099b5bad87003b9c257e88c8` was pushed to
++`cash-parser-release-20261103`; compose pin commit
++`81f385f36fbf00b8abc0770ed4c1adeb8e2314cb` pins image
++`sha256:103f59f27321a93cb59fb72a1b3dce20ac176da5dd5bb046a68366f8c00a24a5`
++(tag `local/al-rifai:20261103-cash-parser-38ce0da`). The release includes only
++the 10 reviewed parser, source-gate, live processor/publisher, Docker packaging,
++backfill-safety and regression-test files; unrelated Cash USER permission/UI
++changes were excluded and remain uncommitted in the main worktree.
++
++Verification on the committed source: 42 focused tests passed / 2 skipped;
++typecheck, full lint (0 errors/warnings), production build and the 29-module
++runtime import check passed. The deployed container passed all 11 Owner parser
++examples (BDT 6,800), Employee ID/payout separation, and source-gate assertions
++(authorized WA-01 Admin → Accountant eligible; WA-02 and incoming rejected).
++The Cash continuation started in review-only mode; 13,905 Cash processing rows
++had no errors, and all 11 native cursors were error-free. No new authorized
++message arrived during verification, so genuine message-to-instruction
++completion and creation of a new `REVIEW` instruction remain **PENDING**.
++Production smoke checks: `/login` and `/api/health` 200; unauthenticated
++`/vessel`, `/api/vessel-programs`, and `/api/cash/summary` 401. No new error
++signature appeared; app healthy, `RestartCount=0`.
++
++Post-deploy counts are unchanged: Current **2,094 REVIEW instructions / 0
++postings**; Legacy **1,610 instructions / 1,586 postings**. The approved
++backfill remains `PUBLISHED`, 90 inserted. Fresh pre-deploy backup
++`/var/lib/vps/al-rifai/backups/pre-cash-parser-20261103-2353.dump` is
++64,371,520 bytes, mode `600 root:root`, SHA-256
++`0da75c439af5a224a2ecf5f9e45af0d2d027a9831069d52ceff71505fd5e533d`; checksum
++and 765-entry PostgreSQL archive catalog verified. Rollback images
++`sha256:a3e53997…` and `sha256:69ccb8f6…` are present. No migration, financial
++posting, bridge restart, permission change, or Cash Freeze change occurred.
++
++---
++
++## Production State (verified 2026-11-03)
+ 
+ | Field | Value |
+ |---|---|
+-| App image | `sha256:c2759c80e712439be80ae8e38f08f9b19fe275bcd8021e3f38614dfeac44f3a1` (tag `20261102-b4-cash-page`, source `dd21806`, compose pin `d9168aa`) |
++| App image | `sha256:103f59f27321a93cb59fb72a1b3dce20ac176da5dd5bb046a68366f8c00a24a5` (tag `local/al-rifai:20261103-cash-parser-38ce0da`, source `38ce0da`, compose pin `81f385f`) |
+ | App mode | `on` |
+-| SHADOW | **PROMOTED 2026-11-02** — `mode=DB`, `cycles_completed=60`, `diffs_found=0`, `auto_promote_blocked=false` |
+-| SHADOW started | `2026-10-31T15:47:18Z` |
+-| Auto-promote at | `2026-11-02T03:47:18Z` |
+-| Ledger | **41** rows (`0037`–`0041`) |
+-| Roster | 10 active persons / **28** active channels / **epoch 4** |
+-| Bridge profile | sha256 `1a967be7…` — 11 chats, epoch 4, `root:whatsapp-wa-01` `0440` (generated, deployed 2026-11-02) |
+-| Ingestion | **11/11** chats fresh, 0 errors |
+-| Bridges | WA-01 `sha256:28a646d2…` restarted **once** at `2026-11-02T07:17:09Z` for the D2 profile; WA-02 `sha256:d36ca851…` **untouched** |
+-| PostgreSQL | `vps-infra-postgres-1` untouched |
+-| Health | `{"status":"ok","roster_mode":"DB","roster_shadow":{"mode":"DB",…}}` |
+-
+-**Rollback images available**
+-
+-- `sha256:7735007b…` — tag `20261102-b2-employee-txn` (immediate rollback, pre-B4)
+-- `sha256:381fd22f…` — tag `20261101-shadow-recheck` (pre-B2)
+-- `sha256:61ccaf56…` — tag `20261101-b3-typeahead` (pre-recheck-fix)
+-- `sha256:8e4383a9…` — tag `20261031-b1-columns`
+-- `sha256:1911fdfd…` — tag `20261031-typeahead` (Item A)
+-- `sha256:d2c2e675…` — tag `20261031-shadow-v2-fix1`
+-- `sha256:d7a96b1e…` — tag `20261031-shadow-v2`
+-- `sha256:ca27d77c…` — tag `20261030-phase4` (pre-SHADOW)
+-- `sha256:1d4602c3…` — tag `rollback-app-phase2`
+-
+-## Completed This Session
+-
+-- **Item B4 — `/cash` parity with `/transactions` (DEPLOYED 2026-11-02)**
+-  Image `sha256:c2759c80…` (tag `20261102-b4-cash-page`, source `dd21806`),
+-  compose pin `d9168aa`.
+-  - **Method** column renders the shared `methodAbbreviation()` with the raw
+-    value in a `title` tooltip (previously raw `row.method`).
+-  - **Total** column: each employee's lifetime instruction total across the full
+-    Current scope, matching B1's semantics.
+-  - **Actions** column with a "Show All" link to
+-    `/transactions/employee/{employee_mobile}`, rendered only when the mobile is
+-    present. The per-row **Source** evidence button is deliberately retained —
+-    Show All was added beside it, not in place of it.
+-  - **CSV export** gains the Total column.
+-
+-  **Why the Total needed a second data source.** `/api/cash/summary` is
+-  server-paginated (100 rows/page) and hard-caps `limit` at 200, while the
+-  Current scope holds 1,964 instructions, so the page cannot aggregate a
+-  lifetime total from its own rows — a `useMemo` over `rows` would total only the
+-  loaded page and change as the operator pages. The total is therefore built
+-  from one `GET /api/operations?view=cash&export=1` call, which returns the
+-  complete Current set and is reachable with the same Cash session
+-  (`getChatGPTUser` → `currentIdentity` reads the same `__Host-alrifai_cash`
+-  cookie), from the same `public.cash_instructions` CURRENT epoch. The map is
+-  keyed by `normalizeEmployeePhone` so `0…` and `+880…` spellings agree. If that
+-  call fails the column renders `—` rather than a wrong figure, and nothing else
+-  on the page depends on it.
+-
+-  **Accepted deviation:** `className="num"` was not applied. The cash table has
+-  no `.num` rule and no stacked mobile layout, and its Amount column is not
+-  right-aligned, so `num` would have been either a no-op or a single
+-  right-aligned cell among left-aligned ones. `data-label="Total"` was kept;
+-  Owner approved this on 2026-11-02.
+-
+-  Verified: `tsc` and ESLint clean; `/cash` serves 200 (it renders its own login
+-  form client-side); the built client chunk contains the Show All link, the
+-  abbreviation and the totals call; health `roster_mode=DB`; scope 11 chat
+-  addresses; 11/11 cursors with 0 errors; no new error signatures; 1,586
+-  postings unchanged. Authenticated visual check still pending Owner login.
+-
+-- **Item B2 — per-employee transaction history (DEPLOYED 2026-11-02)**
+-  New route `/transactions/employee/[phone]` plus a "Show All" link in each
+-  `/transactions` row. Image `sha256:7735007b…` (tag `20261102-b2-employee-txn`,
+-  source `5541d12`), compose pin `df1e2a6`.
+-  - **Server page → client view**, mirroring `app/transactions/page.tsx`. A
+-    single `"use client"` route was rejected: `PlatformPage` is an async server
+-    function, so a client page would lose the AppShell and the server-side
+-    `requireChatGPTUser` redirect.
+-  - Reuses `GET /api/operations?view=cash&export=1` and filters by employee
+-    phone client-side — no new endpoint, no server-side DB access, no migration.
+-  - Header carries employee name, employee ID, total instructed and count; the
+-    table deliberately omits a Total column because the aggregate is already in
+-    the header. Sort `date DESC, time DESC, id DESC`; 20 rows/page with
+-    Previous/Next and "Page X of Y" (page number clamped, not reset in an
+-    effect). Distinct empty state when the phone matches no Current-scope row.
+-  - Print via `window.print()` with scoped CSS hiding the shell and the page
+-    controls; CSV export mirrors `/transactions`, filtered to this employee.
+-  - Phone matching uses `normalizeEmployeePhone`, so `+880…` and `0…` URLs
+-    resolve to the same person.
+-  - Method/Source abbreviations extracted to `lib/transaction-format.ts`
+-    (commit `fa389c1`) so both tables share one implementation.
+-  - Verified: `tsc` clean, ESLint clean, route registered in
+-    `app-paths-manifest.json` and compiled with the shared util bundled;
+-    `/transactions` and the new route both answer 401 unauthenticated (no 5xx);
+-    health `roster_mode=DB`; scope loaded as 11 chat addresses; 11/11 cursors
+-    with 0 errors; no new error signatures versus the pre-deploy baseline.
+-    **Authenticated visual check is still pending Owner login.**
+-
+-- **Phase C SHADOW — promoted; Phase D1 cutover — done (2026-11-02)**
+-  Auto-promotion fired on its own 10-minute tick at `03:50:59Z` (due
+-  `03:47:18Z`, no restart or manual step) after 60 cycles with `diffs_found=0`:
+-  `roster_shadow.mode` `SHADOW → DB`. Phase D1 then set
+-  `ALRIFAI_ROSTER_SOURCE=DB` in `app.env` (single key; file stayed
+-  `600 root:root`) and recreated the app with
+-  `docker compose up -d --no-deps app` on the **same pinned image**
+-  `sha256:381fd22f…` — no rebuild. Verified: `roster_mode="DB"`,
+-  `roster_shadow.mode="DB"`, zero `ROSTER_SHADOW*` lines, `Approved scope
+-  loaded: 9 chat addresses across 7 conversations`, 9/9 cursors with 0 errors,
+-  bridges and PostgreSQL untouched. Part 1 (LID channels) was attempted and then
+-  reverted as bridge-blocked — see "Phase D1 Part 1" below. This is the first
+-  change session in which the roster tables are the only ingestion scope.
+-
+-- **Phase D2 — bridge profile generated and deployed (2026-11-02)**
+-  The bridge profile is now a generated artifact rather than hand-maintained.
+-  `check-profile-drift.ts` reported `functional_drift=true`, `chats_added=2`
+-  (the two LID aliases), `chats_removed=0`, `participants_changed=0`,
+-  `bridge_restart_required=true`. Deployed as profile sha256 `1a967be7…`
+-  (11 chats, epoch 4, `root:whatsapp-wa-01` `0440`) with exactly one WA-01
+-  restart. Verified 11/11 native cursors clean, no `NATIVE_READER_UNAVAILABLE`
+-  after `07:17:09Z`, and no backfill. This also completed D1 Part 1: the Rezaul
+-  and TCIS LID channels are now live.
+-
+-- **Item A — Typeahead search on `/transactions`**
+-  Unified search + employee picker: one field both filters the table across all
+-  searchable fields and suggests employees by name or mobile. 300 ms debounce,
+-  ↑ ↓ Enter Esc navigation, full ARIA combobox/listbox wiring, local pure
+-  `buildSuggestions` (dedupe to newest name per phone, four-bucket ordering,
+-  cap 10, empty-phone rows excluded). 17 unit assertions.
+-  File: `app/transactions/view.tsx`. Commit `8fb3327`, deployed as
+-  `20261031-typeahead`.
+-
+-- **Item B1 — Table column improvements on `/transactions`**
+-  Method abbreviated to one character (`bkash→B`, `nagad/nagod→N`, `cash→C`,
+-  `hotel→H`, else initial); Source abbreviated (`WhatsApp*`/`chat→WA`,
+-  `review→RV`, `excel→XL`, submission username → last 3 chars, else first 2
+-  uppercased); new per-employee **Total** column aggregated over the full
+-  dataset rather than the filtered view; CSV export gained `Total`; Method 40 px
+-  and Source 50 px with `data-label` preserved for the stacked mobile layout.
+-  Full raw values kept in `title`. 23 unit assertions.
+-  File: `app/transactions/view.tsx`. Commit `6165f35`, pin `6d95083`, deployed
+-  as `20261031-b1-columns`.
+-
+-- **Item B3 — Employee typeahead on the Add Transaction drawer and `/cash`**
+-  (**DEPLOYED 2026-11-01** — image `sha256:61ccaf56…`, tag `20261101-b3-typeahead`,
+-  source `c98e57e`, pin `8bc7017`). The Item A suggestion logic moved to a single
+-  shared module and a single ARIA combobox component, so all three pickers now
+-  share one implementation:
+-  - `lib/employee-suggest.ts` — `buildSuggestions`, `normalizeSearchText`,
+-    300 ms debounce constant, cap 10; identity-only surface (name + employee ID).
+-  - `app/platform/employee-typeahead.tsx` — combobox/listbox wiring, keyboard
+-    navigation, debounce, `suppressSuggestions` guard.
+-  - `app/transactions/view.tsx` — table search now uses the shared component
+-    (behaviour unchanged); the drawer receives the loaded rows as candidates.
+-  - `app/platform/ui.tsx` — `AddTransactionDrawer({employees})`; picking a
+-    suggestion fills employee name **and employee ID only**, never the payout
+-    number (business rule preserved and stated in the form).
+-  - `app/cash/page.tsx` — the Cash search field is the shared combobox;
+-    candidates come from the loaded, authorized result page only, and a pick
+-    filters on the employee ID.
+-  - `tests/employee-suggest.mjs` — 12 tests (ranking, dedupe, caps, ordering,
+-    identity-surface rejection, single-implementation guards), added to the
+-    canonical `test` command.
+-  Validation: `tsc --noEmit` clean; canonical TAP block 252 tests / 0 fail /
+-  3 skip; full glob matches the known expected 7 file-level failures only.
+-  In-image gates at build: message-mirror test, `typecheck`, `Lint: 0 errors,
+-  0 warnings`, built output contains the B3 strings in server and client chunks.
+-  Post-deploy: health `ok`, SHADOW unchanged (`mode=SHADOW`, 0 diffs, not
+-  blocked), 9/9 cursors observed 25 s after restart with 0 errors, DB counts
+-  identical (ledger 41, instructions 3,552, postings 1,586, users 3), WA-01 /
+-  WA-02 / PostgreSQL untouched (same image IDs, `RestartCount=0`, same start
+-  times), `app.env` still `600 root:root`, no new error signatures vs the
+-  24 h log baseline.
+-  Not browser-verified. No migration, `app.env`, evidence, or bridge change.
+-
+-  **Deferred sub-task (Owner decision 2026-11-01):** typeahead on
+-  `/cash/archive` and `/cash/submissions` requires new employee lookup API
+-  endpoint — deferred. Neither page currently loads an employee candidate set
+-  (`/cash/archive` pages server-side; `/cash/submissions` is self-scoped), so a
+-  typeahead there needs a read-only lookup endpoint and is out of B3 scope.
+-
+-- **Phase C SHADOW recheck + canonical personRef fix — deployed 2026-11-01**
+-  Two defects found by an audit of the SHADOW observation window, fixed in one
+-  commit (`6b457a6`, image `20261101-shadow-recheck`, pin `836e8b1`).
+-
+-  1. **The comparison ran only at worker start.** `loadConversationScopeWithShadow`
+-     was called once before `while(true)`, so `cycles_completed` counted process
+-     starts, not observation cycles, and `auto_promote_at` could pass without
+-     ever being evaluated. The worker now re-loads the scope on a wall-clock
+-     `SHADOW_RECHECK_MS = 10 * 60 * 1000` throttle inside the loop, logging
+-     `ROSTER_SHADOW_RECHECK cycles=N diffs=D`. A recheck failure is caught and
+-     keeps the current scope (two independent try/catch layers: the outer keeps
+-     the scope, the inner only guards the diagnostic state read), so a roster or
+-     state defect can never stop ingestion.
+-  2. **The roster emitted the wrong person reference.** `loadRosterScope` used the
+-     roster row id (`escort-person-hridoy-wa01`) where the legacy scope uses
+-     `canonical_person_ref` (`escort-hridoy-wa01`), and no comparison bucket
+-     covered that field — so a real attribution divergence still reported zero
+-     differences. The loader now selects `COALESCE(canonical_person_ref, id)`
+-     for both the conversation and identity keys, and `compareScopes` gained a
+-     `person_ref_mismatch` bucket included in `total`.
+-
+-  Validation: `tsc --noEmit` clean; canonical TAP block 252 tests / 0 fail /
+-  3 skip; full glob matches the same 6 file-level failures as pristine `HEAD`
+-  (proven by re-running them against a clean `HEAD` tree — historical
+-  hash-pin drift on `lib/escort-intake-candidate.mjs` plus DB/HTTP-dependent
+-  files, unrelated to this change); `Lint: 0 errors, 0 warnings` on the
+-  build-context tree.
+-  Post-deploy: health `ok`, `mode=SHADOW`, **two consecutive real recheck
+-  cycles 10 min apart** (`18:41:04Z`, `18:51:09Z`), `cycles_completed` 5 → 6 → 7,
+-  `diffs_found=0` throughout, `auto_promote_at` unchanged. Pre-deploy backup
+-  `pre-shadow-recheck-20261101-1827.dump` (sha256 `c9e42086…`, 75 table-data
+-  sections, mode 600). Bridges, PostgreSQL, `app.env` and the roster tables
+-  untouched.
+-
+-- **Phase C SHADOW v2 deployed and healthy** — roster-backed comparison reading
+-  the roster tables (not the Phase B views), state persisted in
+-  `public.roster_shadow_state`, health reporting configured and effective mode
+-  separately. Zero diffs across 3 cycles.
+-
+-- **D2 bridge profile generator — code complete, not deployed**
+-  `scripts/generate-bridge-profile.ts` renders the WA-01 native-reader profile
+-  from the roster; `scripts/check-profile-drift.ts` compares generated against
+-  live (set-based, restart required only when the chat set changes). Execution
+-  verified in a throwaway container: identical chat set, identical per-chat
+-  members including order, identical binding; only top-level ordering differs.
+-  Deliberately not deployed — regenerating would change production bytes for no
+-  functional gain.
+-
+-- **Documentation audit** — `AGENTS.md` guardrails extended (§13.13–§13.20),
+-  `docs/VPS_MAP.md` current-state pointer, design doc §12 implementation status.
+-
+-## SHADOW Promotion Schedule
+-
+-- Started: `2026-10-31T15:47:18Z`
+-- Auto-promote at: `2026-11-02T03:47:18Z` (~09:47 Asia/Dhaka, 2 Nov)
+-- **Recheck cadence: every 10 minutes, on a wall clock timer inside the worker
+-  loop** (since `6b457a6`, 2026-11-01). Each tick re-loads the approved scope,
+-  runs the SHADOW comparison, and evaluates the auto-promotion predicate, so
+-  `cycles_completed` advances on real observation cycles rather than process
+-  starts. Confirmed live: `18:41:04Z` and `18:51:09Z`, 10 min apart,
+-  `cycles_completed` 5 → 6 → 7 with `diffs_found=0`.
+-- **Auto-promotion therefore fires automatically** at the due time on the first
+-  tick after it, with **no restart, deploy, or manual step required**. Do not
+-  restart the container to force a check — restarting is unnecessary and
+-  `cycles_completed` now advances on its own. Two log lines per tick are
+-  expected: `ROSTER_SHADOW_OK` (loader) and `ROSTER_SHADOW_RECHECK` (worker).
+-- **Signal:** `roster_shadow.mode` in `/api/health` flips to `"DB"`.
+-  `roster_mode` reports the configured env value, so it stayed `"SHADOW"` until
+-  Phase D1 changed `ALRIFAI_ROSTER_SOURCE`; it has read `"DB"` since the
+-  2026-11-02 cutover.
+-- Once promoted the process will not revert on its own. Reverting requires a
+-  deploy and an explicit `DELETE FROM roster_shadow_state` to restart the period.
+-- **Observation window is intact.** The 36 h period, `diffs_found=0` and
+-  `auto_promote_at` were not reset by the 2026-11-01 fix; only the sampling rate
+-  changed.
+-- **SHADOW code path is FROZEN.** Do not touch `lib/conversation-scope.ts`, the
+-  scope-loading path in `scripts/message-ingestion-worker.ts`, migrations
+-  `0037`–`0041`, `public.roster_shadow_state`, or the `ALRIFAI_ROSTER_*` values
+-  in `app.env`. A diff or block is reported, never remediated. The single
+-  exception on record is the Owner-authorized 2026-11-01 fix above; the freeze
+-  resumed on completion. **Lifted 2026-11-02:** the `=SHADOW` condition no longer
+-  holds (promoted, then `ALRIFAI_ROSTER_SOURCE=DB`), so the freeze is over by its
+-  own terms — see `AGENTS.md` §13.20 (`RESOLVED`). The paths stay subject to the
+-  normal rules; unfrozen does not mean freely editable.
+-
+-**Promotion result — 2026-11-02.** The predicate fired on its own tick at
+-`03:50:59Z`, ~3 min 40 s after the `03:47:18Z` deadline, with no restart,
+-deploy or manual step. `roster_shadow.mode` = `DB`, `cycles_completed` = 60,
+-`diffs_found` = 0, `auto_promote_blocked` = false, and the worker logged
+-`ROSTER_AUTO_PROMOTED after 36 hours, 0 diffs`. The app began routing from
+-`escort_roster`/`escort_roster_channel` on the next scope load while
+-`roster_mode` still reported `SHADOW` (the configured env value) until the Phase
+-D1 cutover below.
+-
+-### Phase D1 Part 1 + D2 — LID channels: reverted, then activated via a generated profile
+-
+-Promotion was confirmed first, then Part 1 ran on **2026-11-02** and was reverted
+-in the same session once a blocker was proven.
+-
+-| Person | PN | LID | LID↔PN evidence | Roster channel |
+-|---|---|---|---|---|
+-| Rezaul Karim | `8801836743754` | `155508031901923` | WA-01 `whatsmeow_lid_map` | **reverted** |
+-| TCIS W/A | `8801757622300` | `243103839576097` | WA-01 `whatsmeow_lid_map` | **reverted** |
+-
+-- **What was written, then undone.** Two `escort_roster_channel` DIRECT rows
+-  (`ch-rezaul-direct-lid`, `ch-tcis-direct-lid`), and in
+-  `whatsapp_identity_aliases` the `lid_bare` value plus `verification`
+-  `BRIDGE_LID_MAP` for both people. `escort_roster_epoch` went 2 → 3. Both
+-  LID↔PN pairs were confirmed against the bridge store's authoritative
+-  `whatsmeow_lid_map`, not taken from the plan text
+-  (`155508031901923 → 8801836743754`, `243103839576097 → 8801757622300`; the
+-  TCIS LID appears in no other source in the repo or the mirror).
+-- **The plan SQL was not run verbatim — it would have failed or silently
+-  no-opped.** (a) the alias `INSERT` omitted `scope_account`, which is `NOT
+-  NULL`; (b) worse, both people already had an alias row on the unique
+-  `(scope_account, pn_bare)` index with an empty `lid_bare`, so
+-  `INSERT … ON CONFLICT DO NOTHING` would have changed **nothing** while an
+-  insert-then-count check reported success. It was replaced with an idempotent
+-  `UPDATE … WHERE lid_bare IS DISTINCT FROM …`; (c) the epoch bump was made
+-  conditional so a re-run could not inflate it. A re-run produced
+-  `channels_present=2 aliases_updated=0 epoch_rows=0`.
+-- **Blocker: the bridge, not the roster, decides what is readable.** The scope
+-  loaded 11 chat addresses and the worker created cursors for both new LIDs, but
+-  both failed immediately with `NATIVE_READER_UNAVAILABLE`. Cause:
+-  `native-reader-profile.json` (WA-01 control dir) allowlists **exactly nine**
+-  chats and neither LID is among them; in the bridge store Rezaul's LID chat
+-  holds **0 messages** and TCIS's LID has **no chat row at all** (Hridoy's LID
+-  works only because it holds 38). Because the bridge normalizes LID traffic to
+-  the PN, these streams may never populate on their own.
+-- **Consequence, then outcome.** One failed per-chat read marks the whole cycle
+-  failed, so the loop backed off from 15 s toward its 60 s cap and logged two
+-  `WA-01 approved chat ingestion failed; cursor retained` lines per cycle. **No
+-  message was lost or duplicated** (cursors retained; activation never replays
+-  history). **Owner decision: revert.** The two channel rows and the two inert
+-  cursor rows (no cursor, no sequence, no activation, zero messages) were
+-  deleted; the `whatsapp_identity_aliases` LID values were kept. Roster is back
+-  to 26 active channels, 9/9 cursors, 0 errors.
+-- **Activating these LIDs requires Phase D2 plus a bridge change** — a
+-  regenerated `native-reader-profile.json` covering both LIDs and a WA-01
+-  restart. Neither is authorized. Do **not** re-add the roster channels before
+-  that profile exists: it yields failing cursors and slower ingestion with no
+-  capture benefit.
+-- **Do not backfill.** The mirror key is `(wa_account, chat_jid, message_id)`
+-  and `ensureNativeCursor` starts at the current stream boundary, so replaying
+-  history would create duplicates rather than recover anything.
+-
+-**Resolution (2026-11-02) — activated via Phase D2.** The dry run proved the
+-ordering constraint: `generate-bridge-profile.ts` derives `chats` from
+-`escort_roster_channel`, so with the LID rows absent the regenerated profile was
+-byte-different only in chat ordering (`functional_drift=false`,
+-`bridge_restart_required=false`) — a no-op that would still have left the LIDs
+-unreadable. The rows were therefore re-added first, then the profile regenerated:
+-
+-| Check | Result |
++| App container | `al-rifai-app-1`, healthy, `RestartCount=0` |
++| Migration ledger | **74** rows in `public.alrifai_schema_migrations` (through `0070_cash_review_mirror.sql`) |
++| Roster source | `DB` (Phase D1 cutover 2026-11-02); health reports `roster_mode="DB"` and `roster_shadow.mode="DB"`, `cycles_completed=60`, `diffs_found=0` |
++| Roster | 10 active persons / 28 active channels / epoch 4 |
++| Bridge profile | sha256 `1a967be7…` — 11 chats, epoch 4, `root:whatsapp-wa-01` `0440` |
++| Ingestion | **11/11** native cursors, `last_error=NULL`, 0 errors |
++| Employee master | **216** rows, all `CONFIRMED`; **75** `duty_type='escort'`, **75** `designation='escort'` |
++| Programs | **90** (`85` Confirmed / `5` Draft); **37** carry an `endDate` (released) |
++| Derived vessel pay | `program_pay` = **85** rows: **37** `CALCULATED` (818 shifts = 409 days, salary BDT 163,600 + conveyance BDT 5,200 = **BDT 168,800**), **48** `UNRESOLVED` (ongoing duty, no `endDate` → UI shows ৳—) |
++| Rates | `escort_rate_config`: **BDT 200.00 per shift** (uniform; half-day unit, so BDT 400/day) + per-destination conveyance, effective `2025-01-01` |
++| Release candidates | **140** rows: **37** `APPLIED`, **13** `MATCHED`, **6** `NO_PAYMENT`, **84** `ROSTER_MISMATCH` |
++| Review queue | `review_items` = 0 live rows (all workflow test items rolled back) |
++| Cash accounts | 3 (1 `ADMIN` / 2 `USER`), 0 must-change, last password change 2026-10-28/29 |
++| Bridges | WA-01 `sha256:28a646d2…` (profile restart `2026-11-02T07:17:09Z`); WA-02 `sha256:d36ca851…` untouched |
++| PostgreSQL | `vps-infra-postgres-1` untouched (`RestartCount=0`) |
++| `app.env` | `600 root:root`, 557 bytes, mtime 2026-11-02 |
++| Cash Freeze | intact — **0** current postings (1,586 archive-epoch postings only); no financial write in this work |
++
++Health shape:
++
++```json
++{"status":"ok","roster_mode":"DB","roster_shadow":{"mode":"DB","cycles_completed":60,"diffs_found":0,"auto_promote_blocked":false}}
++```
++
++**Rollback images (local, verified present):**
++
++- `sha256:a3e53997…` — tag `20261103-rbac2b-fix2` (immediate rollback)
++- `sha256:69ccb8f6…` — tag `20261103-rbac2b-hotfix`
++- `sha256:e93005db…` — tag `20261103-rbac2b`
++- `sha256:87a46169…` — tag `20261103-rbac2a`
++- `sha256:ad590773…` — tag `20261103-p5-skin`
++- `sha256:2ca12a94…` — tag `20261103-vessel-12col`
++- `sha256:7792e489…` — tag `20261103-emp-master-p3`
++- `sha256:d382b6da…` — tag `20261103-emp-master-p2`
++- `sha256:895ad208…` — tag `20261103-emp-master-p1`
++- older: `20261102-b4-cash-page` (`c2759c80…`), `20261102-b2-employee-txn` (`7735007b…`), `20261101-shadow-recheck` (`381fd22f…`), `20261101-b3-typeahead` (`61ccaf56…`), `20261031-b1-columns` (`8e4383a9…`), `20261031-typeahead` (`1911fdfd…`), `20261030-phase4` (`ca27d77c…`), `rollback-app-phase2` (`1d4602c3…`)
++
++**Backups (mode 600 + `.sha256` sidecar, `/var/lib/vps/al-rifai/backups/`):**
++
++| Phase | File |
++|---|---|
++| Employee master P1/P2 | `pre-r1-candidates-20261102-2057.dump`, `pre-r1-passes-20261102-2106.dump`, `pre-r1-seq-20261102-2130.dump`, `pre-r1-stepd-20261102-2159.dump` |
++| Vessel page | `pre-r1-deploy-20261102-2206.dump`, `pre-r2-deploy-20261102-2231.dump`, `pre-a3-deploy-20261102-2257.dump`, `pre-toolbar-fix-20261102-2306.dump` |
++| Phase 5 skin | `pre-0063-20261103-090136.dump` |
++| RBAC-2A | `pre-rbac2-20261103-120642.dump` (64,243,998 B) |
++| RBAC-2B | `pre-rbac2b-20261103-123406.dump` (64,302,468 B) |
++| Password policy (latest) | `pre-password-policy-20261103-1733.dump` — 64,309,318 B, sha256 `4f864c2c82786b5f312c521042d40a063860aee19d2ed8efe4bc10a866bbfdac`, 83 table-data sections |
++
++Every phase took its own `pg_dump` before any migration or deploy. Keep that
++rule: a new phase starts with a new dump, hash recorded in the commit message or
++handoff, never `/tmp`.
++
++---
++
++## What changed in this work (2026-11-02 → 2026-11-03)
++
++### B5 — vessel pay model and register operations (migrations `0042`–`0050`)
++
++The Owner decided the data model on 2026-11-02, so B5 is no longer blocked. What
++was built:
++
++- `0042_escort_rate_config.sql` — `escort_rate_config` + destination aliases.
++  Only 21 of 83 programs carried a destination and the spellings disagreed
++  (`Narayanganj`, `Narayongonj`, `N. Gonj`, `N.Para`, …), so pricing goes through
++  a normalized `destination_key`, never a raw string join. Money is **bigint
++  paisa**, consistent with `cash_instructions.amount_minor`.
++- `0046_vessel_rate_seed.sql` — the real, **Owner-confirmed** schedule:
++  **BDT 200.00 per shift, uniform across every destination** (a shift is half a
++  day, so BDT 400.00/day) plus per-destination conveyance (BDT 600–1,000),
++  effective `2025-01-01`. `N. Gonj` is the umbrella name; individual ghats
++  (Murapara, Habib Ghat, Nitaigonj, …) carry their own conveyance.
++- `0043_program_pay.sql` — `program_pay`, a **derived** table. It cannot live on
++  `programs`: that table is under an immutability trigger
++  (`program_command_history`), so a later rate correction could not rewrite a
++  stored salary without fabricating a command. Every row is reproducible by
++  `recalculate_program_pay(program_id)`; cascading deletes keep it aligned.
++- `0044` / `0045` / `0047` / `0049` — pay functions, first backfill, recalculation
++  under the Owner rates, recalculation under the corrected shift model.
++- `0048_vessel_shift_model.sql` — **the correct shift model** (Owner, 2026-11-02):
++  each day has shift `D` and `N`; a program runs `start(date,shift)` →
++  `end(date,shift)` **inclusive**; `days = shifts / 2`. Example:
++  `2026-11-02(N) → 2026-11-20(D)` = 36 shifts = 18 days = BDT 7,200.
++  **While `endDate` is empty the duty is ongoing, so nothing is calculated** —
++  `UNRESOLVED / END_DATE_REQUIRED`, and the register honestly shows `৳—`.
++- `0050_vessel_fled_command.sql` — `fled` status + `FLEE_PROGRAM` command
++  ("Fleed A" / absconded), modelled exactly on the void command (same guards,
++  optimistic revision check, idempotent command key, append-only event log).
++- UI: `/vessel` shows derived pay (b33464e), Actions column + per-employee
++  program history (45871ec), status control and the flee command (d41e0f2),
++  shift columns and the sidebar edit flow (b005c01), plus the filter toolbar and
++  employee-history toolbar (`ff8540f`, `55fdd2c`) with the URL-sync remount bug
++  fixed in `3cefa9f` and a temporal-dead-zone crash fixed in `bbda96a`.
++
++**Current result:** 37 programs have been released (`endDate` set) and are
++`CALCULATED`; 48 remain `UNRESOLVED` because they are still running. Totals:
++818 shifts = 409 days, BDT 163,600 salary + BDT 5,200 conveyance = **BDT
++168,800**.
++
++### R1 — Escort Release Parser (migrations `0051`–`0055`)
++
++- `0051_release_candidates.sql` — `release_candidates` staging table. Adapted to
++  reality: the register is `public.programs` with a TEXT id (not
++  `vessel_programs` with an integer key); `REJECTED` added to the status CHECK
++  (the reject endpoint needs it); dedupe is per `(source_msg_id, escort)`
++  because one message can describe several escorts.
++- Parser + roster matching (`2319890`), then three-pass matching (`e20148c`) and
++  the backfill (`58e731a`, `e4dcd64`): `MATCHED`, `ROSTER_MISMATCH`,
++  `NO_PAYMENT`, `PENDING_REVIEW`, `REJECTED`.
++- `0052` pass tracking, `0053` `mismatch_kind`, `0054` `APPLIED` +
++  `confidence` (`high` for Steps A/B/C, `medium` for Step D lump-sum
++  settlements), `0055` makes the apply flow recalculate pay.
++- `942c03f` — the backfill verifies its source and reports mismatch kinds
++  instead of inventing a match; `d9a85c3` — a payment after a release is a new
++  duty, not a partial.
++- API `GET/POST /api/release-candidates`, per-candidate `[id]`, and
++  `apply-all-high`; CLI `scripts/apply-high-releases.ts`.
++- Ingestion hook (`e97b3a9`): **only** the Escort Release Slip group
++  `120363408741101070@g.us`, only when new records arrived, and any parser error
++  is logged and swallowed so it can never disturb ingestion.
++
++### R2 — release review UI and auto-apply (migration `0056`)
++
++- `/platform/release-review` (`f48a5a3`) — admin review surface for candidates.
++- `0056_release_auto_apply_log.sql` — dedicated audit table. The specification
++  said "migration_ledger", but that is `alrifai_schema_migrations`, which
++  `scripts/database.mjs migrate` validates; polluting it would break validation.
++- `c3ac84f` — the ingestion hook auto-applies **only** candidates that are
++  `MATCHED`, `confidence='high'`, `match_pass IN (1,2)`, with a program that is
++  lower-case `confirmed` and has an empty `endDate`, and with `end_shift`
++  present. Everything else queues for review. Each application appends a
++  `RELEASE_PROGRAM` command event; the log table adds the machine-triggered
++  context. Failures are counted and queued, never retried blindly.
++- `70a2b83` — `vessel-command-policy` had to be shipped in the runtime image;
++  the build-time assertion from `b6fbbf0` now guards this class of missing-module
++  bug.
++
++**Current result:** 140 candidates — **37 APPLIED**, 13 MATCHED, 6 NO_PAYMENT,
++84 ROSTER_MISMATCH. `release_auto_apply_log` is **empty**, i.e. the 37 were
++applied through the review/CLI flow, not by the ingestion hook. The hook is
++live, so the next new high-confidence release message can apply a release
++without a human step — that is an intentional production write authority and
++must not be "fixed" without an Owner instruction.
++
++### Phase 1 — employee master: fields, statuses, duty types
++
++- Migration `0057_employee_master_fields.sql`: adds the master columns
++  (`designation`, `duty_type`, `status`, `confirmed_by`, `confirmed_at`, …) to
++  `public.employee_master`.
++- **191** register rows moved `REVIEW → CONFIRMED` under
++  `confirmed_by='owner_bulk_confirm_phase1'` (explicit Owner authorization).
++- **50** rows set `duty_type='escort'`; final distribution **75 escort / 141
++  NULL** out of 216. `duty_type` is a *duty* discriminator, not a rank.
++- Commits `0a3cb2e` + `1411d1c`, image `895ad208…`.
++
++### Phase 2 — mobile normalization, escorts backfilled, readable view, duplicate guard
++
++- `0058_normalize_mobile.sql`: normalization function + index.
++- `0059_backfill_program_escorts.sql`: **25** additional escorts backfilled →
++  216 total.
++- `0060_program_with_employee_view.sql`: read-only view joining program rows to
++  the master (**85/90** join at the time; cash join 191/191).
++- `0061_prevent_duplicate_employee.sql`: trigger preventing a duplicate identity
++  for the same `(scope_account, employee_mobile)`.
++- Commits `a429cb5`, `7f69dd0`, `651af4a`, `0b78724`, `8c75bf5`; image
++  `d382b6da…`.
++
++### Phase 3 — employee auto-create from vessel programs
++
++- `0062_create_employee_if_new.sql`: idempotent create-if-new used by the
++  Vessel program write path.
++- Hook in `app/api/vessel-programs/route.ts` (add + edit paths), **fail-closed**:
++  if the employee cannot be resolved, the program write is refused and mapped to
++  a 400, never silently skipped.
++- Added the `sonner` `<Toaster>` used by the new UI surfaces.
++- Commits `8136bff`, `6dd1e70`, `f60ce25`, `61f1db0`; image `7792e489…`.
++- **Disclosed mistake:** a synthetic row `+8801799887766 / "priv test"` was
++  created during a privilege test and deleted immediately. Zero rows remain with
++  `confirmed_by='vessel_auto'`. Treat synthetic business data as prohibited.
++
++### Phase 4 — unified `/vessel` table
++
++- One table, **11 headers / 11 cells**, Mother vessel + Lighter split, columns
++  End / Days / Salary / Conv. / Total, `data-record-id` on every row,
++  responsive min-width 720 → 1100 px.
++- Commits `1ec95aa`, `73f706c`; image `2ca12a94…`.
++
++### Phase 5 — design skin
++
++- `0063_grant_program_view.sql`: durable grant of `program_with_employee` to
++  `ir_review_runtime` (runtime role used by the Cash read path).
++- `app/register-skin.css` applied to `/vessel-register` and
++  `/employee/[phone]/programs`.
++- `app/sidebar-dark.css` + `AppShell` `variant='light'|'dark'`.
++- Contrast corrected to WCAG AA (verified by computed ratios, not by eye).
++- Commits `e30f137`, `73ab260`, `89d3bdd`, `ea627e9`; image `ad590773…`.
++
++### RBAC-2A — attendance, review queue schema, capabilities
++
++- `0064_designation_check.sql` — designation CHECK + backfill (**75**).
++- `0065_attendance_entries.sql`, `0065b_attendance_summary.sql`,
++  `0065c_attendance_summary_owner_rights.sql` — attendance table + summary view
++  and its owner rights.
++- Backfill `db/backfills/0065_attendance_from_programs.sql` — **439** entries
++  across **35** employees, derived from existing program rows (no invented data).
++- `0066_review_queue.sql` — `review_items` + `review_decisions` (append-only).
++- `0067_workflow_functions.sql`, `0067b_workflow_decide_audit_id.sql` —
++  `workflow_submit()`, `workflow_decide()`, `workflow_withdraw()` and the domain
++  appliers.
++- `0068_capabilities.sql` — capability vocabulary/backfill.
++- New `GET /api/employees/lookup` (read-only employee search).
++- `PlatformPage` gains `access='user'|'admin'`; nav entries gain `adminOnly`.
++- Commits `49a1a48`, `4457d1f`, `6880407`, `a7ecae2`, `3d92718`, `4bd2dfc`;
++  image `87a46169…`.
++
++### RBAC-2B — attendance page, review queue UI, submissions, submit paths
++
++- `0069_attendance_direct.sql` — hours/notes columns + `attendance_create_direct`
++  for ADMIN.
++- New UI: `/attendance`, rebuild of `/review`, `/submissions`.
++- Shared `EmployeeLookup` component (one picker, no duplicated suggestion code).
++- Vessel USER path: USER can create/edit a program and **submit it for review**
++  rather than write it confirmed.
++- Routes: `POST /api/review/submit`, `POST /api/review/decide`,
++  `POST /api/review/withdraw`, `GET /api/review/list`,
++  `GET /api/attendance/summary`, `POST /api/attendance/add`.
++- `lib/review-api.ts` — thin client for those routes.
++- Integration flows verified inside rolled-back transactions (no residual rows).
++- Commits `3e32021`, `b99f85c`, `76abf0a`, `8076871`, `b5c1259`, `4c972fc`,
++  `282218e`, `b0b2658`; image `e93005db…`.
++
++### RBAC-2B hotfix — pages were 404 through the TLS entry
++
++- `a9cbcc8`: `/review`, `/attendance`, `/submissions` added to
++  `WORKSPACE_PATHS` in `release/entry-rules.mjs` (Next served them; the private
++  entry answered 404 first — this is the classic symptom, see constraints).
++- `9eeb692`: USER "Add program" was disabled in `/vessel-register`; enabled with
++  toasts.
++- `a90efb1`: `.wx-page` scaffold applied to the three new pages.
++- `ae26849`: deploy pin. Image `69ccb8f6…`.
++
++### Fix batch 2 — ADMIN vessel command, Cash in the review queue
++
++- `825c070`: `canCommandVessel` accepted only `userId === 'local-validator'`, so
++  ADMIN could not add a program from `/vessel` despite the UI. Now accepts
++  ADMIN + the `vessel.command` capability. **The actor env was never the
++  problem** — `ALRIFAI_VESSEL_COMMAND_ACTOR` is unset and falls back to the
++  verified `ALRIFAI_CASH_OWNER_PERSON_REF`.
++- `4f5eeaa`: `0070_cash_review_mirror.sql` — Cash keeps its own two-step
++  authority (`cash_submissions` → `cash_submission_reviews`). Submissions are
++  **mirrored** into `review_items` (`domain='CASH'`) for visibility;
++  `cash_review_mirror_close()` closes the mirror row when the Cash decision is
++  recorded, so the queue never shows a stale PENDING item. Also backfills
++  `cash.read` / `cash.submit` onto stored capability arrays (role defaults exist
++  in code, but `workflow_submit()` checks the stored array).
++- `5792fd1`: `/cash/submissions` uses the shared `EmployeeLookup`; `/review`
++  CASH actions delegate to `/api/cash/submissions/{id}/decision`.
++- `e8b1ba1`: deploy pin. Image `a3e53997…`.
++
++### Task A — password policy
++
++- `5a72404`: the **current-password prompt is removed** from every self-service
++  change flow (`/admin`, the forced change at `/login`, `/cash`). Minimum
++  password length is **8**, defined once in `lib/password-policy.ts`
++  (`MIN_PASSWORD_LENGTH`, `isAcceptablePassword()`), used by `hashPassword`, both
++  password routes and all three forms.
++- `b01a53e`: refreshed three stale test pins RBAC-2B had left behind
++  (`resolveCapabilities('USER')` defaults, `/review` allowed on the cash host,
++  "Source Review" nav label).
++- New `tests/password-policy.mjs`, registered in `package.json`, pins the 8-char
++  rule and the one documented exception.
++- `f409510`: deploy pin. Image `be6767d1…`.
++
++**Deliberate exception:** the `/admin` **"Change username"** flow still verifies
++the current password (5 remaining `currentPassword` occurrences). Changing a
++login identity is more dangerous than changing a password and was not part of
++the instruction. `tests/password-policy.mjs` asserts the exception so a later
++refactor does not remove it silently.
++
++**Security consequence — stated, not mitigated:** a password change now needs
++only a live session cookie + CSRF token. Anyone who steals a session can set a
++new password and lock the Owner out. The Owner was told before deployment; no
++mitigation was implemented. If this matters, the remedy is a second factor or a
++step-up check, and it needs its own Owner instruction.
++
++The policy applies uniformly to self-change, admin reset and account creation
++(temporary password). Login identity change stays password-confirmed.
++
++---
++
++## Migrations applied in this work
++
++All are applied and ledgered; the ledger is **74**. Do not re-run them.
++
++| File | Purpose |
+ |---|---|
+-| `escort_roster_channel` active | 26 → **28** |
+-| `escort_roster_epoch` | 3 → **4** |
+-| Generated chats / epoch | **11** / 4 |
+-| Drift `chats_added` | `155508031901923@lid`, `243103839576097@lid` |
+-| Drift `chats_removed` / `participants_changed` / `binding_drift` | none / none / none |
+-| `functional_drift` / `bridge_restart_required` | **true** / **true** |
+-
+-**Deployed.** Live profile backed up to
+-`/var/lib/vps/al-rifai/backups/native-reader-profile-pre-d2-lid-20261102-0717.json`
+-(sha256 `4708cd0c…`, mode 600); new profile sha256
+-`1a967be7…` installed `root:whatsapp-wa-01` `0440`; then a single
+-`docker restart vps-whatsapp-wa-01-cap4-20261011`. WA-02, PostgreSQL and the app
+-container were **not** restarted, and `systemctl restart docker` was not used.
+-
+-**Verified after restart:** bridge reconnected (`✓ Connected to WhatsApp!`);
+-all **11** native cursors carry a valid cursor with `last_error=NULL` (the LID
+-cursors had failed with `NATIVE_READER_UNAVAILABLE` until this point); **zero**
+-`NATIVE_READER_UNAVAILABLE` lines after `07:17:09Z`; and **no backfill** —
+-neither LID chat has any historic `whatsapp_messages_original` row, consistent
+-with activation starting at the stream boundary. A nonzero drift exit code (1)
+-is expected here: it reports a functional change, not a failure.
+-
+-**Rollback:** copy the backup back over
+-`/var/lib/vps/whatsapp/wa-01/control/native-reader-profile.json`, restore
+-`root:whatsapp-wa-01` / `0440`, and restart WA-01 once. Cursor advances are not
+-rewound (documented and accepted).
+-
+-## Pending Work (Priority Order)
+-
+-**Next up:** Phase E (`/review` wired to the roster outbox, legacy paths
+-decommissioned) or B5 (vessel operations page — still blocked on an Owner
+-data-model decision). B2 and B4 are done; D1-LID is resolved and the LID
+-channels are live. The bridge profile is now a generated artifact, so any future
+-roster change must be followed by regenerate + drift check + Owner review of the
+-diff + profile deploy + a single WA-01 restart.
+-
+-1. ~~Verify SHADOW auto-promotion after `2026-11-02T03:47Z`~~ — **DONE
+-   2026-11-02**: fired at `03:50:59Z`, `roster_shadow.mode == "DB"`.
+-2. **Phase D1** — app cutover — **DONE 2026-11-02**: `ALRIFAI_ROSTER_SOURCE=DB`
+-   in `app.env`, app recreated on the same pinned image, verified
+-   `roster_mode="DB"`, no `ROSTER_SHADOW*` lines, 9/9 cursors, bridges and
+-   PostgreSQL untouched. Part 1 (LID channels) was later completed via Phase D2
+-   (see "Phase D1 Part 1 + D2" above).
+-3. ~~**Item B2** — Show All → `/transactions/employee/[phone]` page.~~ — **DONE
+-   2026-11-02** (image `sha256:7735007b…`, source `5541d12`).
+-4. **Item B3** — Typeahead on the Add Transaction sidebar and `/cash` pages —
+-   **DEPLOYED 2026-11-01** (image `sha256:61ccaf56…`, source `c98e57e`, pin
+-   `8bc7017`). Deferred sub-task: `/cash/archive` and `/cash/submissions`
+-   typeahead requires a new employee lookup API endpoint — deferred.
+-5. ~~**Item B4** — `/cash` page Total + Show All.~~ — **DONE 2026-11-02** (image
+-   `sha256:c2759c80…`, source `dd21806`). Source evidence button retained.
+-6. **Item B5** — Vessel page. **BLOCKED**: no salary/rate, attendance or
+-   conveyance data exists. Needs an Owner data-model decision. See
+-   `AGENTS.md` §14.3.
+-7. **Phase E** — wire `/review` to the roster outbox, decommission legacy paths.
+-8. **AI/Ollama** integration — deferred.
+-
+-## Key Constraints
+-
+-- **NEVER `systemctl restart docker`.** Bridges run `RestartPolicy=no` and do
+-  not come back; this caused a 2 h 34 m outage on 2026-10-31.
+-- **NEVER `git add -A`** — stage explicit paths only.
+-- No writes to `app.env` or `/var/lib/vps/al-rifai/evidence/` without
+-  explicit Owner authorization.
+-- A failed build is stop-and-ask, never a workaround. Use
+-  `docker build --build-context evidence=/var/lib/vps/al-rifai/evidence`.
+-- `/tmp` (including `/tmp/opencode`) is not durable across reboots.
+-- One commit per item, conventional messages, push source before deploying.
+-- Record the deployed commit SHA and image digest in every deployment note.
+-
+-## Key File Paths
++| `0042_escort_rate_config.sql` | rate config + destination aliases |
++| `0043_program_pay.sql` | derived `program_pay` table |
++| `0044_vessel_pay_functions.sql` | pay calculation functions |
++| `0045_vessel_pay_backfill.sql` | first pay backfill |
++| `0046_vessel_rate_seed.sql` | Owner-confirmed rate schedule (BDT 200/shift) |
++| `0047_vessel_pay_recalculate.sql` | recalculate under the Owner rates |
++| `0048_vessel_shift_model.sql` | D/N shift model, inclusive, days = shifts/2 |
++| `0049_vessel_pay_shift_recalc.sql` | recalculate under the corrected shift model |
++| `0050_vessel_fled_command.sql` | `fled` status + `FLEE_PROGRAM` command |
++| `0051_release_candidates.sql` | release candidate staging |
++| `0052_release_candidate_passes.sql` | match pass tracking |
++| `0053_release_mismatch_kind.sql` | mismatch kind |
++| `0054_release_confidence_applied.sql` | `APPLIED` status + confidence |
++| `0055_recalculate_privileges.sql` | apply flow may recalculate pay |
++| `0056_release_auto_apply_log.sql` | auto-apply audit table |
++| `0057_employee_master_fields.sql` | master columns, statuses, confirmation fields |
++| `0058_normalize_mobile.sql` | mobile normalization + index |
++| `0059_backfill_program_escorts.sql` | backfill escorts from program rows |
++| `0060_program_with_employee_view.sql` | `program_with_employee` read view |
++| `0061_prevent_duplicate_employee.sql` | duplicate-identity trigger |
++| `0062_create_employee_if_new.sql` | idempotent create-if-new |
++| `0063_grant_program_view.sql` | grant view to `ir_review_runtime` |
++| `0064_designation_check.sql` | designation CHECK + backfill |
++| `0065_attendance_entries.sql` | `attendance_entries` |
++| `0065b_attendance_summary.sql` | attendance summary view |
++| `0065c_attendance_summary_owner_rights.sql` | owner rights on the view |
++| `0066_review_queue.sql` | `review_items`, `review_decisions` |
++| `0067_workflow_functions.sql` | submit/decide/withdraw + appliers |
++| `0067b_workflow_decide_audit_id.sql` | audit id on decisions |
++| `0068_capabilities.sql` | capability backfill |
++| `0069_attendance_direct.sql` | hours/notes + direct create for ADMIN |
++| `0070_cash_review_mirror.sql` | Cash mirror rows + mirror-close + cash caps |
++
++Backfill: `db/backfills/0065_attendance_from_programs.sql` — already executed;
++it is a record, not a pending script.
++
++**Ledger insertion procedure used (and required):** insert the ledger row by hand
++as `vps_pg_admin` with the migration file's sha256, then let the deployed image's
++`node scripts/database.mjs migrate` validate/reconcile. Never point a raw
++migration file at the production database.
++
++---
++
++## RBAC / review workflow — how it actually behaves
++
++- **Roles are stored in `cash_portal_users`** (table name retained on purpose;
++  it is the account table for both domains). One `ADMIN`, two `USER`.
++- **Capabilities** live in `lib/unified-auth-policy.ts`:
++  - ADMIN: `cash.read`, `cash.submit`, `cash.review`, `vessel.read`,
++    `vessel.command`, `vessel.submit`, `employee.submit`, `attendance.submit`,
++    `audit.read`
++  - USER: `cash.read`, `cash.submit`, `vessel.read`, `vessel.submit`,
++    `employee.submit`, `attendance.submit`
++  - USER never holds a direct-write capability; it stages work for review.
++- **Implemented review domains:** `VESSEL_PROGRAM`, `ATTENDANCE`, `EMPLOYEE`.
++  `VESSEL_EDIT`, `CASH`, `PROGRAM_RELEASE` are accepted at submit time but refuse
++  approval with `DOMAIN_NOT_IMPLEMENTED:<domain>`.
++- **`workflow_decide()` refusal codes:** `ADMIN_REQUIRED`,
++  `REVIEWER_IS_SUBMITTER`, `VERSION_CONFLICT`, `ITEM_NOT_PENDING`,
++  `DOMAIN_NOT_IMPLEMENTED:<domain>`.
++- **Every write route resolves the caller's user id from the
++  `__Host-alrifai_cash` session cookie.** Never accept an actor/user id from the
++  request body. This is enforced by tests; do not weaken it.
++- **Single-admin consequence:** with only one ADMIN, an admin's own submission
++  cannot be approved (`REVIEWER_IS_SUBMITTER`) — true from both `/review` and
++  `/cash/submissions`. This is intentional; do not "fix" it by allowing
++  self-approval.
++- **Cash keeps its own two-step authority.** `/review` is a visibility and
++  delegation surface for `domain='CASH'`, never a second approval path.
++- **ADMIN creates go straight to CONFIRMED.** The review workflow covers regular
++  USER creates; there is no PENDING state outside the queue.
++- **Employee appearing from a pending program stays `REVIEW`** and is hidden
++  from staff views until confirmed.
++
++---
++
++## Read-only verification (safe to run)
++
++```bash
++# health
++curl -fsS http://127.0.0.1:3000/api/health
++
++# image actually running + restart count
++docker inspect al-rifai-app-1 --format '{{.Config.Image}} {{.RestartCount}} {{.State.Health.Status}}'
++
++# ledger
++docker exec -i vps-infra-postgres-1 psql -U alrifai_app -d alrifai -At \
++  -c "SELECT count(*) FROM public.alrifai_schema_migrations;"
++
++# cursors
++docker exec -i vps-infra-postgres-1 psql -U alrifai_app -d alrifai -At -F'|' \
++  -c "SELECT count(*), count(*) FILTER (WHERE last_error IS NULL) FROM whatsapp_native_sync_state;"
++
++# containers
++docker ps --format '{{.Names}}\t{{.RunningFor}}\t{{.Status}}' \
++  | grep -E 'al-rifai-app|wa-0|postgres'
++```
++
++**Through-`:443` probes are the only valid route check.** `127.0.0.1:3000` talks
++to Next directly and bypasses the TLS private entry (`release/entry-rules.mjs`),
++which is exactly how a previous "it works" became a 404 in production:
++
++```bash
++curl -sS -o /dev/null -w '%{http_code} %{size_download}\n' \
++  -H 'Host: alrifai.iamazim.com' https://127.0.0.1/vessel
++```
++
++Expected: workspace pages **401**, `/login` **200**, unknown paths **403** on the
++main host and **404** on the cash host, with 0-byte bodies.
++
++---
++
++## Open items / next session
++
++| Item | State | Needs |
++|---|---|---|
++| **RBAC-3** | NOT STARTED | explicit Owner instruction. Do not infer it from RBAC-2B. |
++| **Task B** | never received | the "Two Tasks" message supplied only Task A. Ask the Owner. |
++| **B5** — vessel operations page (salary, conveyance, total days) | **DELIVERED** — Owner confirmed the model 2026-11-02; rates `0042`/`0046`, derived pay `0043`–`0049`, register actions/status/flee `0050`. 37 programs released and priced; 48 ongoing show ৳— by design. | nothing blocking; extend only with a new instruction. |
++| **R1/R2** — release parser, review UI, auto-apply | **DEPLOYED** — `0051`–`0056`, `/platform/release-review`, ingestion hook. 37 releases applied. | monitor; do not disable auto-apply or replay candidates without an instruction. |
++| **Phase E** — wire `/review` to the roster outbox, decommission legacy paths | pending | next large work item; design first. |
++| Typeahead on `/cash/archive` and `/cash/submissions` | deferred | needs a read-only employee lookup endpoint (note: `/api/employees/lookup` now exists — re-check whether this is unblocked before writing a new one). |
++| Authenticated visual check of new UI | pending Owner login | no headless browser on the host; verification so far is code/data/bundle/log/metric level. |
++| Password-policy risk | accepted, disclosed | theft of a session can take over the account. Mitigation needs its own instruction. |
++| AI/Ollama assistant | deferred | — |
++
++---
++
++## Hard constraints (repeat of `AGENTS.md` §13 — follow it verbatim)
++
++- **NEVER `systemctl restart docker`.** Bridges run `RestartPolicy=no` and do not
++  come back; this caused a 2 h 34 m outage on 2026-10-31. Use
++  `docker restart <container>` for one container, and
++  `docker compose -f compose.yaml up -d --no-deps app` for the app.
++- **NEVER `git add -A` / `git add .`.** Stage explicit paths; read
++  `git status --short` before committing.
++- **No writes to `app.env`** and **no writes to
++  `/var/lib/vps/al-rifai/evidence/`** without explicit Owner authorization.
++  `app.env` must stay `600 root:root`; evidence files are checksum-pinned and
++  overwriting one turns evidence-backed routes into 500s.
++- **Backup before every phase/migration/deploy**: `pg_dump`, hash, mode 600,
++  `.sha256` sidecar, persistent path. `/tmp` is not durable.
++- **Deploy the exact verified artifact.** Never re-cut an image to piggyback a
++  change. Compose pin edits keep the `sha256:` prefix on both sides; verify with
++  `grep '^    image:'` and `docker compose config -q`.
++- **Build with** `--build-context evidence=/var/lib/vps/al-rifai/evidence`.
++  A failed build is stop-and-ask — never a Dockerfile rewrite or a placeholder.
++- **Deploy gate** is the TAP block with 0 failures (259 tests, 3 skip), not the
++  `pnpm test` exit code (the post-TAP `source-register.mjs` needs Owner
++  evidence). `node scripts/lint.mjs` exits 1 on the host because it walks
++  untracked `data/` and `qualification/`; use per-file ESLint on changed files.
++- **Roster change ⇒ full D2 cycle** (`AGENTS.md` §13.21): regenerate profile →
++  drift check → Owner approves the diff → deploy profile `root:whatsapp-wa-01`
++  `0440` with a backup → `docker restart` WA-01 **once**. Roster rows must exist
++  before regeneration; a functional diff exits **1** and that is success.
++- **No `nsenter`/`strace`/namespace attachment**, no reading secret files,
++  no printing token/password values. Use `test -r` to check a secret exists.
++- **No WhatsApp sends, no re-pairing, no cursor resets, no table clears, no
++  employee merges, no scope expansion** without exact authorization.
++
++---
++
++## Known operational gotchas
++
++- **`lib/*.ts` imported by `node --experimental-strip-types` needs the explicit
++  `.ts` extension** (e.g. `./password-policy.ts`), or it fails with
++  `ERR_MODULE_NOT_FOUND`.
++- **`release/entry-rules.mjs` is the TLS allowlist.** A new page reachable in
++  Next can still 404 in production because the private entry rejects it before
++  Next sees the request. Add the path to `WORKSPACE_PATHS` (shared by both hosts)
++  and cover it in `tests/entry-rules.mjs`.
++- **`escort_order_register.status` never equals `'CONFIRMED'`.** Only `DRAFT` and
++  `REVIEW` exist; confirmation is `confirmation_message_id IS NOT NULL`. Filtering
++  on `status='CONFIRMED'` returns zero rows forever.
++- **`alrifai_app` has no SELECT on `cash_portal_users`, `cash_instructions` or
++  `cash_postings`.** Use the documented read paths or `vps_pg_admin` for
++  inspection; a `permission denied` is not a missing table.
++- **The deployed runtime image does not ship `tests/`.** Running `node --test`
++  inside the container yields `1..0` — that is not evidence of passing tests.
++- **Currency:** DB stores paisa; UI shows Taka (÷ 100). Do not "fix" totals by
++  multiplying.
++- **`lib/cash-publish.ts` is untouched** by all of this work; Cash still inserts
++  `REVIEW` and never resets state.
++
++---
++
++## Key file paths
+ 
+ | Purpose | Path |
+ |---|---|
+@@ -418,14 +813,42 @@ diff + profile deploy + a single WA-01 restart.
+ | App env | `/etc/vps/apps/al-rifai/app.env` (`600 root:root`) |
+ | App DB password | `/etc/vps/apps/al-rifai/database_password` → `/run/secrets/database_password` |
+ | Cash read credential | `/etc/vps/apps/al-rifai/auth/pg-password` (role `ir_review_runtime`) |
+-| Evidence (checksum-pinned) | `/var/lib/vps/al-rifai/evidence/` |
++| Evidence (checksum-pinned, read-only) | `/var/lib/vps/al-rifai/evidence/` |
+ | Backups | `/var/lib/vps/al-rifai/backups/` |
+ | WA-01 control | `/var/lib/vps/whatsapp/wa-01/control/` |
+ | Bridge profile | `/var/lib/vps/whatsapp/wa-01/control/native-reader-profile.json` |
+-| Transactions view | `apps/al-rifai/app/transactions/view.tsx` |
+-| Scope loader (FROZEN) | `apps/al-rifai/lib/conversation-scope.ts` |
+-| Ingestion worker (FROZEN scope path) | `apps/al-rifai/scripts/message-ingestion-worker.ts` |
+-| Roster migrations | `apps/al-rifai/db/migrations/0037–0041` |
+-| Migrations applied | `public.alrifai_schema_migrations` (41 rows) |
+-| SHADOW state | `public.roster_shadow_state` (singleton) |
++| TLS entry rules | `apps/al-rifai/release/entry-rules.mjs` |
++| Password policy | `apps/al-rifai/lib/password-policy.ts` |
++| Capabilities / roles | `apps/al-rifai/lib/unified-auth-policy.ts` |
++| Vessel command gate | `apps/al-rifai/lib/vessel-command-policy.ts` |
++| Vessel pay | `apps/al-rifai/lib/vessel-pay.ts`, `public.escort_rate_config`, `public.program_pay` |
++| Release parser | `apps/al-rifai/lib/release-parser.ts`, `lib/release-scan.ts`, `lib/release-apply.ts` |
++| Release review UI | `apps/al-rifai/app/platform/release-review/` |
++| Release apply CLI | `apps/al-rifai/scripts/apply-high-releases.ts` |
++| Review API client | `apps/al-rifai/lib/review-api.ts` |
++| Cash API (authority, mirror, password) | `apps/al-rifai/app/api/cash/[...path]/route.ts` |
++| Review routes | `apps/al-rifai/app/api/review/{submit,decide,withdraw,list}` |
++| Attendance routes | `apps/al-rifai/app/api/attendance/{summary,add}` |
++| Employee lookup | `apps/al-rifai/app/api/employees/lookup` |
++| Migrations applied | `public.alrifai_schema_migrations` (74 rows) |
++| Roster state | `public.roster_shadow_state` (singleton, `mode=DB`) |
+ | Long-form history | `/opt/vps/NEXT-SESSION-HANDOFF.md` |
++| Infrastructure map | `/opt/vps/docs/VPS_MAP.md` |
++| Authority file | `/opt/vps/AGENTS.md` |
++
++---
++
++## Earlier history (condensed; details in `/opt/vps/NEXT-SESSION-HANDOFF.md`)
++
++- **Items A / B1 / B2 / B3 / B4** (2026-10-31 → 2026-11-02): `/transactions`
++  typeahead, Method/Source abbreviations + Total column, per-employee history
++  page, typeahead on the Add Transaction drawer and `/cash`, `/cash` Total +
++  Show All. All frontend-only; no migration, no `app.env` change, no bridge
++  restart. The `/cash` lifetime Total is built from one
++  `GET /api/operations?view=cash&export=1` call because `/api/cash/summary` is
++  paginated with a 200-row cap; on failure the cell shows `—`.
++- **Phase C SHADOW → Phase D1 cutover → Phase D2 profile** (2026-10-31 →
++  2026-11-02): 36 h observation, 60 cycles, `diffs_found=0`, auto-promotion at
++  `2026-11-02T03:50:59Z`, then `ALRIFAI_ROSTER_SOURCE=DB`, then the generated
++  bridge profile with the two LID channels (11 chats, epoch 4) and one WA-01
++  restart. No backfill; cursors start at the stream boundary.
+diff --git a/docs/VPS_MAP.md b/docs/VPS_MAP.md
+index 3feba56..94203e3 100644
+--- a/docs/VPS_MAP.md
++++ b/docs/VPS_MAP.md
+@@ -1,5 +1,29 @@
+ # START AUDIT — APP CONSTITUTION DOCUMENTATION — 14 October 2026 (Asia/Dhaka)
+ 
++> **CURRENT STATE POINTER — 2026-11-04 — read this before the dated sections below.**
++> This file is an infrastructure map plus dated audits. Its dated sections are
++> **historical evidence**, not current status. The authoritative running-system
++> position is `AGENTS.md` §0; the actionable handoff and the "read first / do not
++> do" contract is `docs/NEXT-HANDOFF.md`.
++> As of 2026-11-04 (verified `20:12Z`): app image
++> `sha256:b058dd4810d7830a9b2ac8e289c1358b7d4cb5668c474e9f4e19563a3ab9cae4`
++> (tag `local/alrifai:target02-final`, source `ddbd3d5`, compose pin `91124c0`),
++> migration ledger **75** rows through `0071_release_apply_atomic.sql`, roster
++> source `DB`, ingestion 11/11 cursors with 0 errors, **98 programs**
++> (39 priced / 54 `UNRESOLVED`), 93 assignments, 145 release candidates
++> (39 applied), **0 `CONFIRMED` register rows**, 3,726 Cash instructions
++> (2,140 `REVIEW` / 1,586 `MANUAL_READY`, **0 postings**), reconciliation timer
++> **inactive**.
++> Containers: `al-rifai-app-1` (started 2026-11-04T18:28:17Z, restarts 0),
++> `vps-infra-postgres-1` (`721873c3…`), WA-01 `28a646d2…`, WA-02 `d36ca851…`.
++> Deployment path note: the running container's Compose labels still reference
++> `/tmp/opencode/target02`; the tracked canonical file is
++> `/opt/vps/apps/al-rifai/compose.yaml` (same digest). See
++> `docs/NEXT-HANDOFF.md` "Git and deployment risks".
++> No image digest, ledger count, row count or permission statement in the dated
++> sections below is current without re-verification. Nothing here authorises a
++> migration, deploy, restart, `app.env` edit or `evidence/` write.
++
+ Owner authorized root read/edit of only the three documents below. Documentation only; preserve previous content. Existing latest integration-readiness handoff reviewed (2026-10-13T20:57:56.793473+00:00 UTC). Its production findings are prior evidence, not live checks rerun here.
+ 
+ ## App Constitution — Owner-authoritative — 14 October 2026 (Asia/Dhaka)
+-- 
+2.34.1
+

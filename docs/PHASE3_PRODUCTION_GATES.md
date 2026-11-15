@@ -478,7 +478,7 @@ Rollback: set `AI_AUTO_REPLY_ENABLED=0`; drafts become manual again.
 `env_file`. Use the explicit production command:
 
 ```bash
-docker compose --env-file /opt/vps/al-rifai-standalone/apps/al-rifai/.env \
+docker compose --env-file /opt/al-rifai-platform/.env \
   -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d app sync
 ```
 

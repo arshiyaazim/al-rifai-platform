@@ -126,7 +126,7 @@ node scripts/sync-worker.mjs --mode=status
 ```
 
 Production env file:
-`/opt/vps/al-rifai-standalone/apps/al-rifai/.env`
+`/opt/al-rifai-platform/.env`
 Bridge stores:
 `/var/lib/vps/whatsapp/wa-01/store/messages.db`,
 `/var/lib/vps/whatsapp/wa-02/store/messages.db`.

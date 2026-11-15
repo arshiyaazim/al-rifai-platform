@@ -55,8 +55,8 @@ unexpected behaviour or data-integrity concern).
      -f /opt/al-rifai-platform/compose.yaml \
      -f /opt/al-rifai-platform/compose.phase3.yaml down
 
-   cp -p /opt/vps/al-rifai-standalone/apps/al-rifai/.env.pre-phase3 \
-         /opt/vps/al-rifai-standalone/apps/al-rifai/.env
+   cp -p /opt/al-rifai-platform/.env.pre-phase3 \
+         /opt/al-rifai-platform/.env
 
    OLD_APP=$(docker ps -aq --filter label=com.docker.compose.project=al-rifai-v2 --filter label=com.docker.compose.service=app)
    OLD_SYNC=$(docker ps -aq --filter label=com.docker.compose.project=al-rifai-v2 --filter label=com.docker.compose.service=sync)
