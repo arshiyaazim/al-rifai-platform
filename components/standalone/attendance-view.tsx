@@ -70,7 +70,7 @@ async function readPayload(params: URLSearchParams): Promise<Payload> {
   return body as Payload;
 }
 
-export function AttendanceView() {
+export function AttendanceView({canManage = false}: {canManage?: boolean}) {
   const thisMonth = monthBounds(0);
   const lastMonth = monthBounds(-1);
   const today = new Date().toISOString().slice(0, 10);
@@ -258,12 +258,12 @@ export function AttendanceView() {
                     </span>
                   </td>
                   <td>
-                    {row.source === 'NON_VESSEL' ? (
+                    {row.source === 'NON_VESSEL' && canManage ? (
                       <Button type="button" size="icon-sm" variant="ghost" aria-label={`Edit attendance ${row.source_id}`}
                         onClick={() => { setEditing(asRecord(row)); setFormOpen(true); }}>
                         <Eye className="size-4" />
                       </Button>
-                    ) : <span className="muted" title="Vessel duty is derived from the program">—</span>}
+                    ) : <span className="muted" title={row.source === 'NON_VESSEL' ? 'Edit requires attendance.manage' : 'Vessel duty is derived from the program'}>—</span>}
                   </td>
                 </tr>
               ))}

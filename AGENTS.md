@@ -67,6 +67,7 @@ docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d -
 - **11** — docs/image/git cleanup; **12** — recruitment AI 5-step flow + follow-ups (`0.1.12-flow`).
 - **13** — **v3.3.4 hotfix (2026-11-14):** Approve/Reject fix, applicability preflight, hidden backend fields, pending rows removed from `/vessel`.
 - **14** — **v3.3.4.1 hotfix (2026-11-15):** Raw WhatsApp review Approve timestamp crash + error surfacing.
+- **15** — **v3.3.5 (2026-11-15):** Domain-separated review tables, Vessel View sidebar, Employee/Attendance/Cash review, attendance USER edit gate.
 
 ## v3.3.4 hotfix (2026-11-14)
 
@@ -86,10 +87,20 @@ docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d -
 
 **Rollback:** set `ALRIFAI_TAG=v3.3.4` in both `.env` files and re-run the compose command.
 
+## v3.3.5 (2026-11-15)
+
+**Summary:** Review page restructure into domain-separated tables. Vessel Review mirrors the `/vessel` table columns and opens a View sidebar with editable fields, look-ups and Save/Approve/Decline. Employee and Attendance Review tables mirror their domain pages; Attendance uses a modal and the USER edit icon is now gated by `attendance.manage`. Cash Review mirrors `/cash` and handles AI-extracted `cash_submissions` only. Raw WhatsApp queue rows are folded into Vessel Review; release/confirmation items without an automatic match stay in review for manual handling.
+
+**Scope note:** AI-assisted fuzzy vessel/escort matching remains a later feature. v3.3.5 does not add automatic release/confirmation matching beyond the existing server paths.
+
+**Files changed:** `lib/standalone/vessel-review.ts`, `lib/standalone/review.ts`, `app/api/review/route.ts`, `app/(workspace)/review/page.tsx`, `app/(workspace)/attendance/page.tsx`, `components/standalone/vessel-review-panel.tsx`, `components/standalone/vessel-review-sidebar.tsx`, `components/standalone/employee-review-panel.tsx`, `components/standalone/attendance-review-panel.tsx`, `components/standalone/cash-review-panel.tsx`, `components/standalone/attendance-view.tsx`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
+
+**Rollback:** set `ALRIFAI_TAG=v3.3.4.1` in both `.env` files and re-run the compose command.
+
 ## Rollback
 
-- Current: `local/al-rifai-platform:v3.3.4.1`
-- Available: `local/al-rifai-platform:v3.3.4`, `local/al-rifai-platform:v3.3.3`, `local/al-rifai-platform:v3.3.2`
+- Current: `local/al-rifai-platform:v3.3.5`
+- Available: `local/al-rifai-platform:v3.3.4.1`, `local/al-rifai-platform:v3.3.4`, `local/al-rifai-platform:v3.3.3`
 - Set `ALRIFAI_TAG` in both `.env` files and re-run the compose command.
 
 ## Safety boundary

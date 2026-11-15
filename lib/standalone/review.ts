@@ -462,9 +462,9 @@ function validateCorrections(domain: string, corrections: Record<string, unknown
     : domain === 'CASH'
       ? ['employeeName', 'employeeMobile', 'payoutMobile', 'method', 'amountMinor', 'purpose', 'accountId']
       : domain === 'EMPLOYEE'
-        ? ['preferredName', 'employeeMobile', 'dutyType']
+        ? ['preferredName', 'employeeMobile', 'dutyType', 'designation', 'state', 'dateOfJoin', 'altMobile', 'homePhone', 'presentAddress', 'permanentAddress', 'referenceName', 'referenceMobile', 'nidNumber', 'birthCertNumber', 'passportNumber', 'notes']
         : domain === 'ATTENDANCE'
-          ? ['employeeMobile', 'dutyDate', 'state', 'hours']
+          ? ['employeeMobile', 'attendanceDate', 'dutyDate', 'shift', 'location', 'clientName', 'designation', 'remarks', 'state', 'hours']
           : [];
   for (const [key, value] of Object.entries(corrections)) {
     if (!allowed.includes(key)) throw new DomainError('UNSUPPORTED_CORRECTION', 400);
@@ -484,15 +484,21 @@ function validateCorrections(domain: string, corrections: Record<string, unknown
       clean[key] = method;
       continue;
     }
+    if (key === 'shift' && domain === 'ATTENDANCE') {
+      const nextShift = String(value).toUpperCase();
+      if (!['D', 'N', 'FULL'].includes(nextShift)) throw new DomainError('INVALID_SHIFT');
+      clean[key] = nextShift;
+      continue;
+    }
     if (key === 'startShift' || key === 'endShift') {
       clean[key] = shift(value, key);
       continue;
     }
-    if (key === 'startDate' || key === 'endDate' || key === 'dutyDate') {
+    if (key === 'startDate' || key === 'endDate' || key === 'dutyDate' || key === 'attendanceDate' || key === 'dateOfJoin') {
       clean[key] = isoDate(value, key);
       continue;
     }
-    if (key === 'employeeMobile' || key === 'payoutMobile' || key === 'escortMobile') {
+    if (key === 'employeeMobile' || key === 'payoutMobile' || key === 'escortMobile' || key === 'altMobile' || key === 'referenceMobile') {
       clean[key] = optionalMobile(value, key);
       continue;
     }
@@ -845,6 +851,60 @@ export async function listPendingProgramReviews(limit = 300): Promise<PendingPro
         : null,
     };
   });
+}
+
+export type PendingEmployeeReview = {
+  id: string;
+  action: string;
+  target_ref: string | null;
+  payload: Record<string, unknown>;
+  submitted_by: string;
+  submitter_name: string | null;
+  created_at: string;
+};
+
+/** PENDING EMPLOYEE submissions for the /review employee table. */
+export async function listPendingEmployeeReviews(limit = 300): Promise<PendingEmployeeReview[]> {
+  return rows<PendingEmployeeReview>(
+    `SELECT r.id, r.action, r.target_ref, r.payload, r.submitted_by,
+            u.display_name AS submitter_name, r.created_at::text AS created_at
+       FROM review_items r
+       LEFT JOIN cash_portal_users u ON u.id = r.submitted_by
+      WHERE r.domain = 'EMPLOYEE' AND r.state = 'PENDING'
+      ORDER BY r.created_at DESC
+      LIMIT $1`,
+    [limit],
+  );
+}
+
+export type PendingAttendanceReview = {
+  id: string;
+  action: string;
+  target_ref: string | null;
+  payload: Record<string, unknown>;
+  submitted_by: string;
+  submitter_name: string | null;
+  created_at: string;
+  preferred_name: string | null;
+  employee_designation: string | null;
+};
+
+/** PENDING ATTENDANCE submissions for the /review attendance table. */
+export async function listPendingAttendanceReviews(limit = 300): Promise<PendingAttendanceReview[]> {
+  return rows<PendingAttendanceReview>(
+    `SELECT r.id, r.action, r.target_ref, r.payload, r.submitted_by,
+            u.display_name AS submitter_name, r.created_at::text AS created_at,
+            e.preferred_name, e.designation AS employee_designation
+       FROM review_items r
+       LEFT JOIN cash_portal_users u ON u.id = r.submitted_by
+       LEFT JOIN employees e
+              ON right(regexp_replace(e.employee_mobile, '[^0-9]', '', 'g'), 10)
+               = right(regexp_replace(r.payload->>'employeeMobile', '[^0-9]', '', 'g'), 10)
+      WHERE r.domain = 'ATTENDANCE' AND r.state = 'PENDING'
+      ORDER BY r.created_at DESC
+      LIMIT $1`,
+    [limit],
+  );
 }
 
 export async function decideReview(actor: Actor, id: string, decision: 'APPROVED' | 'REJECTED', reason?: string) {

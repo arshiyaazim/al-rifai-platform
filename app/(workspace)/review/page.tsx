@@ -1,9 +1,16 @@
 import {pageUser} from '@/lib/standalone/session';
-import {listCashReviewCandidates, listPendingProgramReviews, reviewQueueCounts} from '@/lib/standalone/review';
+import {
+  listCashReviewCandidates, listPendingAttendanceReviews, listPendingEmployeeReviews,
+} from '@/lib/standalone/review';
 import {listUnifiedVesselReview} from '@/lib/standalone/vessel-review';
-import {ReviewQueueTables} from '@/components/standalone/review-queue-tables';
-import {ReviewQueueClient} from '@/components/standalone/review-queue-client';
+import {listEmployees} from '@/lib/standalone/employees';
+import {listAccounts} from '@/lib/standalone/finance';
+import {rows} from '@/lib/standalone/db';
+import {can} from '@/lib/standalone/authz';
 import {VesselReviewPanel} from '@/components/standalone/vessel-review-panel';
+import {EmployeeReviewPanel} from '@/components/standalone/employee-review-panel';
+import {AttendanceReviewPanel} from '@/components/standalone/attendance-review-panel';
+import {CashReviewPanel} from '@/components/standalone/cash-review-panel';
 import {ActionForm} from '@/components/standalone/action-form';
 import {RealtimeRefresher} from '@/components/standalone/realtime-refresher';
 
@@ -15,14 +22,19 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
   const user = await pageUser();
   await searchParams;
 
-  const [rows, cashCandidates, counts, programReviews] = await Promise.all([
+  const [vesselRows, employeeRows, attendanceRows, cashCandidates, employees, accounts, motherRows, lighterRows, escortNameRows, escortMobileRows] = await Promise.all([
     listUnifiedVesselReview(300),
-    listCashReviewCandidates({state: 'PENDING_REVIEW', actor: user as never}),
-    reviewQueueCounts(),
-    listPendingProgramReviews(300),
+    listPendingEmployeeReviews(300),
+    listPendingAttendanceReviews(300),
+    listCashReviewCandidates({state: 'PENDING_REVIEW', limit: 300}),
+    listEmployees({limit: 1000}),
+    listAccounts(),
+    rows<{vessel_name: string}>("SELECT vessel_name FROM vessels WHERE vessel_type = 'mother' ORDER BY vessel_name"),
+    rows<{vessel_name: string}>("SELECT vessel_name FROM vessels WHERE vessel_type = 'lighter' ORDER BY vessel_name"),
+    rows<{escort_name: string}>('SELECT DISTINCT escort_name FROM programs WHERE escort_name IS NOT NULL ORDER BY escort_name'),
+    rows<{escort_mobile: string}>('SELECT DISTINCT escort_mobile FROM programs WHERE escort_mobile IS NOT NULL ORDER BY escort_mobile'),
   ]);
-  const messageRows = rows.filter((row) => row.kind === 'message');
-  const messageCount = messageRows.length;
+  const canDecide = can(user as never, 'review.decide');
 
   return (
     <div className="vessel-workspace">
@@ -30,14 +42,14 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
         <div>
           <h1>Review Queue</h1>
           <p className="muted">
-            Human-readable WhatsApp evidence. No internal review/program/message identifier is used as the label.
-            Approve writes the program; Decline and Ignore close the item; Save Draft stores corrections without deciding.
+            Domain-separated pending work. Open a row, edit fields in the same sidebar as the domain page, then Save, Approve or Decline.
           </p>
         </div>
         <div className="row-actions">
-          <span className="pill warn">{programReviews.length} pending program(s)</span>
-          <span className="pill warn">{messageCount} raw message(s)</span>
-          <span className="pill warn">{counts.cashPending} cash candidate(s)</span>
+          <span className="pill warn">{vesselRows.length} vessel</span>
+          <span className="pill warn">{employeeRows.length} employee</span>
+          <span className="pill warn">{attendanceRows.length} attendance</span>
+          <span className="pill warn">{cashCandidates.length} cash</span>
           <RealtimeRefresher domain="REVIEW" label="Live queue" />
         </div>
       </div>
@@ -57,43 +69,39 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
         </details>
       ) : null}
 
-      <VesselReviewPanel items={programReviews} />
+      <VesselReviewPanel
+        rows={vesselRows}
+        mothers={motherRows.map((row) => row.vessel_name)}
+        lighters={lighterRows.map((row) => row.vessel_name)}
+        escortNames={escortNameRows.map((row) => row.escort_name)}
+        escortMobiles={escortMobileRows.map((row) => row.escort_mobile)}
+        canDecide={canDecide}
+      />
 
-      <section className="card" style={{marginBottom: 18, padding: 14}}>
-        <div className="page-head" style={{marginBottom: 8}}>
-          <div><h3 style={{margin: 0}}>Raw WhatsApp message review</h3></div>
-          <span className="muted">Sender · chat type · Bengali problem · full message · correction fields</span>
-        </div>
-        <ReviewQueueClient rows={messageRows} />
-      </section>
+      <EmployeeReviewPanel rows={employeeRows} canDecide={canDecide} />
 
-      <section className="card" style={{marginBottom: 18, padding: 14}}>
-        <div className="page-head" style={{marginBottom: 8}}>
-          <div><h3 style={{margin: 0}}>Cash review candidates</h3></div>
-          <span className="muted">Cash queue is unchanged (v1.12.0); shown here for a single review surface.</span>
-        </div>
-        <ReviewQueueTables
-          rows={[]}
-          cashCandidates={cashCandidates.map((candidate) => ({
-            id: candidate.id,
-            category: candidate.category,
-            state: candidate.state,
-            submitter_name: candidate.submitter_name,
-            submitted_by: candidate.submitted_by,
-            created_at: candidate.created_at,
-            source_message_id: candidate.source_message_id,
-            payload: candidate.payload,
-          }))}
-        />
-      </section>
+      <AttendanceReviewPanel rows={attendanceRows} canDecide={canDecide} />
+
+      <CashReviewPanel
+        rows={cashCandidates}
+        employees={employees.map((employee) => ({
+          mobile: employee.employee_mobile,
+          name: employee.preferred_name,
+          designation: employee.designation ?? null,
+          dateOfJoin: employee.date_of_join ?? null,
+        }))}
+        accounts={accounts.map((account) => ({id: account.id, code: account.code, name: account.name}))}
+        canDecide={canDecide}
+      />
 
       <section className="card">
         <h3>How this queue works</h3>
         <ul style={{marginTop: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.6}}>
-          <li><strong>Approve</strong> creates or updates the program, assigns/auto-creates the escort and marks the item resolved.</li>
-          <li><strong>Decline</strong> is final and audited. <strong>Ignore</strong> keeps the evidence but removes it from the queue.</li>
-          <li><strong>Save Draft</strong> stores the correction fields and leaves the item pending for a later decision.</li>
-          <li>Dates and shifts are edited in Dhaka local time; the server re-checks authority and state.</li>
+          <li><strong>View</strong> opens the same domain sidebar/modal used by the domain page.</li>
+          <li><strong>Save Edit</strong> updates the review payload only; the row stays pending.</li>
+          <li><strong>Approve</strong> writes the domain record and removes the row from review.</li>
+          <li><strong>Decline</strong> is final and audited; the row leaves review.</li>
+          <li>Release/confirmation items without an automatic match stay in review for manual handling.</li>
         </ul>
       </section>
     </div>

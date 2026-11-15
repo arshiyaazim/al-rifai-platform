@@ -21,8 +21,8 @@ export const dynamic = 'force-dynamic';
 const CORRECTION_FIELDS: Record<string, string[]> = {
   PROGRAM: ['motherVessel', 'lighterVessel', 'masterMobile', 'destination', 'escortName', 'escortMobile', 'startDate', 'startShift', 'endDate', 'endShift', 'notes'],
   CASH: ['employeeName', 'employeeMobile', 'payoutMobile', 'method', 'amountMinor', 'purpose', 'accountId'],
-  EMPLOYEE: ['preferredName', 'employeeMobile', 'dutyType'],
-  ATTENDANCE: ['employeeMobile', 'dutyDate', 'state', 'hours'],
+  EMPLOYEE: ['preferredName', 'employeeMobile', 'dutyType', 'designation', 'state', 'dateOfJoin', 'altMobile', 'homePhone', 'presentAddress', 'permanentAddress', 'referenceName', 'referenceMobile', 'nidNumber', 'birthCertNumber', 'passportNumber', 'notes'],
+  ATTENDANCE: ['employeeMobile', 'attendanceDate', 'dutyDate', 'shift', 'location', 'clientName', 'designation', 'remarks', 'state', 'hours'],
 };
 
 function pickCorrections(body: Record<string, unknown>, domain: string): Record<string, unknown> {

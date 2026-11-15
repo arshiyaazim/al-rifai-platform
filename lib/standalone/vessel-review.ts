@@ -29,16 +29,24 @@ export type ReviewFields = {
   motherVessel: string;
   lighterVessel: string;
   masterMobile: string;
+  masterName: string;
+  destination: string;
   escortName: string;
   escortMobile: string;
   startDate: string;
   shift: '' | 'D' | 'N';
+  endDate: string;
+  endShift: '' | 'D' | 'N';
+  notes: string;
 };
 
 export type UnifiedVesselReview = {
   kind: 'message' | 'item';
   id: string;
+  sourceMessageId: string | null;
+  targetRef: string | null;
   sender: string;
+  senderMobile: string;
   chatType: 'Direct' | 'Group';
   chatJid: string;
   problem: string;
@@ -52,6 +60,9 @@ export type UnifiedVesselReview = {
 
 const clean = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
 const digits = (value: unknown) => String(value ?? '').replace(/[^0-9]/g, '').replace(/^880(1[3-9][0-9]{8})$/, '0$1');
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+const CASH_PATTERN = /\bI\s*D\s*:?\s*[+\d\s()-]{10,18}\s+.+?\s+[+\d\s()-]{10,18}\s*\(\s*[BNRC]\s*\)\s*[-/\s]*\d[\d,]*\s*[-/\s]+/i;
 
 function chatType(jid: string): 'Direct' | 'Group' {
   return String(jid ?? '').endsWith('@g.us') ? 'Group' : 'Direct';
@@ -71,8 +82,8 @@ function problemFor(reason: string, category: string): string {
 
 function fieldsFrom(text: string, timestamp: string): ReviewFields {
   const empty: ReviewFields = {
-    motherVessel: '', lighterVessel: '', masterMobile: '', escortName: '',
-    escortMobile: '', startDate: '', shift: '',
+    motherVessel: '', lighterVessel: '', masterMobile: '', masterName: '', destination: '',
+    escortName: '', escortMobile: '', startDate: '', shift: '', endDate: '', endShift: '', notes: '',
   };
   try {
     const blocks = parseEscortOrder(text, {messageDate: String(timestamp ?? '').slice(0, 10)}) as Array<Record<string, unknown>>;
@@ -83,10 +94,15 @@ function fieldsFrom(text: string, timestamp: string): ReviewFields {
       motherVessel: clean(fields.motherVessel),
       lighterVessel: clean(fields.lighterVessel),
       masterMobile: digits(block.masterMobile ?? fields.masterMobile),
+      masterName: clean(fields.masterName),
+      destination: clean(fields.destination),
       escortName: clean(fields.escortName),
       escortMobile: digits(block.employeeMobile ?? fields.escortMobile),
-      startDate: String(block.assignmentDate ?? '').slice(0, 10),
+      startDate: String(block.assignmentDate ?? fields.startDate ?? '').slice(0, 10),
       shift: block.shift === 'D' || block.shift === 'N' ? block.shift : '',
+      endDate: String(fields.endDate ?? '').slice(0, 10),
+      endShift: fields.endShift === 'D' || fields.endShift === 'N' ? fields.endShift : '',
+      notes: clean(fields.notes),
     };
   } catch {
     return empty;
@@ -96,30 +112,55 @@ function fieldsFrom(text: string, timestamp: string): ReviewFields {
 export async function listUnifiedVesselReview(limit = 200): Promise<UnifiedVesselReview[]> {
   const [messages, items] = await Promise.all([
     rows<Record<string, unknown>>(
-      `SELECT id::text, sender_display_name, sender_mobile, sender_jid, source_chat_jid,
+      `SELECT id::text, source_message_id, sender_display_name, sender_mobile, sender_jid, source_chat_jid,
               source_timestamp::text AS source_timestamp, message_text, confusion_reason,
               suggested_workflow, status, created_at::text AS created_at
          FROM message_review_queue WHERE status = 'PENDING'
          ORDER BY created_at DESC LIMIT $1`, [limit]),
     rows<Record<string, unknown>>(
-      `SELECT id, payload, category, state, target_ref, created_at::text AS created_at
-         FROM review_items WHERE state = 'PENDING' AND domain = 'PROGRAM'
-         ORDER BY created_at DESC LIMIT $1`, [limit]),
+      `SELECT r.id, r.payload, r.category, r.state, r.target_ref, r.created_at::text AS created_at,
+              coalesce(ident.display_name, emp.preferred_name) AS sender_name,
+              ident.canonical_jid AS sender_canonical_jid
+         FROM review_items r
+         LEFT JOIN LATERAL (
+           SELECT ia.display_name, ia.canonical_jid
+             FROM identity_aliases ia
+            WHERE ia.jid = r.payload->>'senderJid'
+               OR ia.jid = (r.payload->>'senderJid') || '@lid'
+               OR ia.canonical_jid = r.payload->>'senderJid'
+            ORDER BY (ia.canonical_jid IS NOT NULL) DESC,
+                     (ia.display_name IS NOT NULL) DESC,
+                     ia.updated_at DESC
+            LIMIT 1
+         ) ident ON true
+         LEFT JOIN LATERAL (
+           SELECT e.preferred_name
+             FROM employees e
+            WHERE right(regexp_replace(e.employee_mobile, '[^0-9]', '', 'g'), 10)
+                  = right(regexp_replace(coalesce(ident.canonical_jid, r.payload->>'senderJid'), '[^0-9]', '', 'g'), 10)
+            LIMIT 1
+         ) emp ON true
+        WHERE r.state = 'PENDING' AND r.domain = 'PROGRAM'
+        ORDER BY r.created_at DESC LIMIT $1`, [limit]),
   ]);
 
   const mapped: UnifiedVesselReview[] = [];
   for (const item of messages) {
     const text = String(item.message_text ?? '');
     const timestamp = iso(item.source_timestamp);
+    const suggested = String(item.suggested_workflow ?? 'vessel').toLowerCase();
     mapped.push({
       kind: 'message',
       id: String(item.id),
+      sourceMessageId: String(item.source_message_id ?? '') || null,
+      targetRef: null,
       sender: clean(item.sender_display_name) || clean(item.sender_mobile) || clean(item.sender_jid) || 'Unknown',
+      senderMobile: clean(item.sender_mobile),
       chatType: chatType(String(item.source_chat_jid ?? '')),
       chatJid: String(item.source_chat_jid ?? ''),
       problem: problemFor(String(item.confusion_reason ?? ''), ''),
       reasonCode: String(item.confusion_reason ?? ''),
-      suggestedWorkflow: String(item.suggested_workflow ?? 'vessel').toLowerCase(),
+      suggestedWorkflow: suggested === 'vessel' && CASH_PATTERN.test(text) ? 'cash' : suggested,
       message: text,
       timestamp,
       createdAt: iso(item.created_at ?? timestamp),
@@ -131,35 +172,82 @@ export async function listUnifiedVesselReview(limit = 200): Promise<UnifiedVesse
     const text = String(payload.rawText ?? payload.messageText ?? '');
     const timestamp = iso(payload.sourceTimestamp ?? payload.source_timestamp ?? item.created_at ?? '');
     const parser = String(payload.parser ?? '');
+    const classification = String(payload.classification ?? '');
+    const rawFields = fieldsFrom(text, timestamp);
+    const payloadFields = {
+      ...asRecord(payload.fields),
+      ...asRecord(payload.extractedFields),
+      ...payload,
+    };
+    const canonical = String(item.sender_canonical_jid ?? '');
+    const canonicalDigits = canonical.replace(/[^0-9]/g, '').replace(/^880/, '0');
+    const suggestedWorkflow = payload.releaseCategory || parser.startsWith('release') ? 'release'
+      : parser === 'applyConfirmation' || classification.startsWith('CONFIRMATION_') ? 'confirmation'
+        : parser === 'message-router' && CASH_PATTERN.test(text) ? 'cash'
+          : 'vessel';
     mapped.push({
       kind: 'item',
       id: String(item.id),
-      sender: clean(payload.senderName) || clean(payload.senderJid) || 'Unknown',
+      sourceMessageId: String(payload.sourceMessageId ?? '') || null,
+      targetRef: String(item.target_ref ?? '') || null,
+      sender: clean(item.sender_name) || clean(payload.senderName) || clean(payload.senderJid) || 'Unknown',
+      senderMobile: canonicalDigits.length >= 11 ? canonicalDigits.slice(-11) : '',
       chatType: chatType(String(payload.sourceChatJid ?? '')),
       chatJid: String(payload.sourceChatJid ?? ''),
-      problem: problemFor(String(payload.classification ?? ''), String(item.category ?? '')),
+      problem: problemFor(classification, String(item.category ?? '')),
       reasonCode: String(item.category ?? ''),
-      suggestedWorkflow: payload.releaseCategory || parser.startsWith('release') ? 'release' : 'vessel',
+      suggestedWorkflow,
       message: text,
       timestamp,
       createdAt: iso(item.created_at ?? timestamp),
-      fields: fieldsFrom(text, timestamp),
+      fields: {
+        motherVessel: clean(payloadFields.motherVessel ?? rawFields.motherVessel),
+        lighterVessel: clean(payloadFields.lighterVessel ?? rawFields.lighterVessel),
+        masterMobile: digits(payloadFields.masterMobile ?? rawFields.masterMobile),
+        masterName: clean(payloadFields.masterName ?? rawFields.masterName),
+        destination: clean(payloadFields.destination ?? rawFields.destination),
+        escortName: clean(payloadFields.escortName ?? rawFields.escortName),
+        escortMobile: digits(payloadFields.escortMobile ?? rawFields.escortMobile),
+        startDate: String(payloadFields.startDate ?? rawFields.startDate ?? '').slice(0, 10),
+        shift: payloadFields.startShift === 'D' || payloadFields.startShift === 'N' ? payloadFields.startShift
+          : payloadFields.shift === 'D' || payloadFields.shift === 'N' ? payloadFields.shift
+            : rawFields.shift,
+        endDate: String(payloadFields.endDate ?? rawFields.endDate ?? '').slice(0, 10),
+        endShift: payloadFields.endShift === 'D' || payloadFields.endShift === 'N' ? payloadFields.endShift
+          : rawFields.endShift,
+        notes: clean(payloadFields.notes ?? rawFields.notes),
+      },
     });
   }
-  return mapped.sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt))).slice(0, limit);
+
+  const deduped = new Map<string, UnifiedVesselReview>();
+  for (const row of mapped) {
+    const key = row.sourceMessageId ? `msg:${row.sourceMessageId}` : `${row.kind}:${row.id}`;
+    const existing = deduped.get(key);
+    if (!existing || row.kind === 'item') deduped.set(key, row);
+  }
+  return [...deduped.values()]
+    .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt)))
+    .slice(0, limit);
 }
 
 function mergeFields(payload: Record<string, unknown>): ReviewFields {
   const fields = (payload.fields ?? {}) as Record<string, unknown>;
+  const startShift = payload.startShift ?? payload.shift ?? fields.startShift ?? fields.shift;
+  const endShift = payload.endShift ?? fields.endShift;
   return {
     motherVessel: clean(payload.motherVessel ?? fields.motherVessel),
     lighterVessel: clean(payload.lighterVessel ?? fields.lighterVessel),
     masterMobile: digits(payload.masterMobile ?? fields.masterMobile),
+    masterName: clean(payload.masterName ?? fields.masterName),
+    destination: clean(payload.destination ?? fields.destination),
     escortName: clean(payload.escortName ?? fields.escortName),
     escortMobile: digits(payload.escortMobile ?? fields.escortMobile),
     startDate: String(payload.startDate ?? fields.startDate ?? '').slice(0, 10),
-    shift: payload.shift === 'D' || payload.shift === 'N' ? payload.shift
-      : fields.shift === 'D' || fields.shift === 'N' ? fields.shift : '',
+    shift: startShift === 'D' || startShift === 'N' ? startShift : '',
+    endDate: String(payload.endDate ?? fields.endDate ?? '').slice(0, 10),
+    endShift: endShift === 'D' || endShift === 'N' ? endShift : '',
+    notes: clean(payload.notes ?? fields.notes),
   };
 }
 

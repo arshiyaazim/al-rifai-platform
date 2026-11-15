@@ -1,15 +1,15 @@
 # DEVELOPER_START_HERE.md — AL-RIFA'I Platform
 
 **Last Updated**: 2026-11-14
-**Current Version**: v3.3.4.1 hotfix (raw WhatsApp review Approve timestamp/error fix)
+**Current Version**: v3.3.5 (domain-separated review tables + Vessel/Employee/Attendance/Cash review sidebars)
 **Schema Version**: 1.13.7 (60 tables; 25 migration files 001–026)
-**Main Release HEAD**: v3.3.4.1 hotfix commit (previous v3.3.4 = `96b7898`). `feat/15-task-roadmap` is **merged and no longer the source of truth**; the branch is retained for history, not deleted.
-**Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.3.4.1` (app and sync on the same tag)
-**Rollback image**: `local/al-rifai-platform:v3.3.4`
+**Main Release HEAD**: v3.3.5 commit (previous v3.3.4.1 = `f602a3c`). `feat/15-task-roadmap` is **merged and no longer the source of truth**; the branch is retained for history, not deleted.
+**Status**: Production deployed, healthy — image `local/al-rifai-platform:v3.3.5` (app and sync on the same tag)
+**Rollback image**: `local/al-rifai-platform:v3.3.4.1`
 
 > **Agent reference:** for agent-readable system state, see `AGENTS.md` in this repo and `/opt/al-rifai-recruitment-ai/AGENTS.md`.
 >
-> **Recent batches:** 6 cash autoconfirm · 7 UI diagnosis (Phase 4 UI was only on `feat/15-task-roadmap`) · 8 merge + `v3.0.0-phase4-merged` · 9 UI polish, `/home`, security attendance, join-date backfill (`v3.2.0-home-security`) · 10 Escort Release parser + `/release` + structured backfill (`v3.3.0-escort-release`) · 11 vessel review queue (`v3.3.3`) · 12/13 **v3.3.4 hotfix** · 14 **v3.3.4.1 hotfix**. See `README.md` for one-line detail.
+> **Recent batches:** 6 cash autoconfirm · 7 UI diagnosis (Phase 4 UI was only on `feat/15-task-roadmap`) · 8 merge + `v3.0.0-phase4-merged` · 9 UI polish, `/home`, security attendance, join-date backfill (`v3.2.0-home-security`) · 10 Escort Release parser + `/release` + structured backfill (`v3.3.0-escort-release`) · 11 vessel review queue (`v3.3.3`) · 12/13 **v3.3.4 hotfix** · 14 **v3.3.4.1 hotfix** · 15 **v3.3.5 review restructure**. See `README.md` for one-line detail.
 
 ### v3.3.4 hotfix (2026-11-14)
 
@@ -28,6 +28,16 @@
 **Files changed:** `lib/standalone/message-review-queue.ts`, `lib/standalone/vessel-review.ts`, `components/standalone/review-queue-client.tsx`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
 
 **Rollback:** set `ALRIFAI_TAG=v3.3.4` in both `.env` files and re-run the compose command.
+
+### v3.3.5 (2026-11-15)
+
+**Summary:** Review page restructure into domain-separated tables. Vessel Review mirrors the `/vessel` table columns and opens a View sidebar with editable fields, look-ups and Save/Approve/Decline. Employee and Attendance Review tables mirror their domain pages; Attendance uses a modal and the USER edit icon is now gated by `attendance.manage`. Cash Review mirrors `/cash` and handles AI-extracted `cash_submissions` only. Raw WhatsApp queue rows are folded into Vessel Review; release/confirmation items without an automatic match stay in review for manual handling.
+
+**Scope note:** AI-assisted fuzzy vessel/escort matching remains a later feature. v3.3.5 does not add automatic release/confirmation matching beyond the existing server paths.
+
+**Files changed:** `lib/standalone/vessel-review.ts`, `lib/standalone/review.ts`, `app/api/review/route.ts`, `app/(workspace)/review/page.tsx`, `app/(workspace)/attendance/page.tsx`, `components/standalone/vessel-review-panel.tsx`, `components/standalone/vessel-review-sidebar.tsx`, `components/standalone/employee-review-panel.tsx`, `components/standalone/attendance-review-panel.tsx`, `components/standalone/cash-review-panel.tsx`, `components/standalone/attendance-view.tsx`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
+
+**Rollback:** set `ALRIFAI_TAG=v3.3.4.1` in both `.env` files and re-run the compose command.
 
 > **Historical — Vessel Phase 2 complete (2026-11-10):** Migration 019 applied.
 > All five stages are active: processing, draft-to-Admin, draft-to-Office,
