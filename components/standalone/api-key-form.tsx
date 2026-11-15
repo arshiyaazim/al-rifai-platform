@@ -13,6 +13,7 @@ export type EditableKey = {
   masked_key: string;
   model: string | null;
   notes: string | null;
+  purpose?: string;
 };
 
 async function csrfToken(): Promise<string> {
@@ -23,12 +24,13 @@ async function csrfToken(): Promise<string> {
 }
 
 export function ApiKeyForm({
-  onCreated, editing, onSaved, onCancel,
+  onCreated, editing, onSaved, onCancel, defaultPurpose = 'recruitment',
 }: {
   onCreated?: () => void;
   editing?: EditableKey | null;
   onSaved?: () => void;
   onCancel?: () => void;
+  defaultPurpose?: 'recruitment' | 'general';
 }) {
   const editingMode = Boolean(editing);
   const [open, setOpen] = useState(false);
@@ -37,6 +39,10 @@ export function ApiKeyForm({
   const [provider, setProvider] = useState<AiProvider>((editing?.provider as AiProvider) ?? 'gemini');
   const [model, setModel] = useState(editing?.model ?? defaultModel((editing?.provider as AiProvider) ?? 'gemini'));
   const [baseUrl, setBaseUrl] = useState(baseUrlFromNotes(editing?.notes));
+  const [purpose, setPurpose] = useState<'recruitment' | 'general'>(
+    (editing?.purpose as 'recruitment' | 'general') ?? defaultPurpose,
+  );
+  const [verifiedModels, setVerifiedModels] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -68,6 +74,26 @@ export function ApiKeyForm({
     finally { setBusy(false); }
   }
 
+  async function verify() {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const token = await csrfToken();
+      const response = await fetch('/api/settings/api-keys/models', {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token},
+        body: JSON.stringify(editingMode ? {id: editing?.id, baseUrl} : {apiKey, baseUrl}),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
+      if (!body.ok) throw new Error(`${body.error ?? 'FAILED'}${body.status ? ` (${body.status})` : ''}`);
+      const models = (body.models ?? []) as string[];
+      setVerifiedModels(models);
+      if (models.length && !models.includes(model)) setModel(models[0]);
+      setNotice(`Verified · ${models.length} models available`);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Verify failed'); }
+    finally { setBusy(false); }
+  }
+
   async function save() {
     setBusy(true); setError(''); setNotice('');
     try {
@@ -79,8 +105,8 @@ export function ApiKeyForm({
         credentials: 'same-origin',
         headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token},
         body: JSON.stringify(editingMode
-          ? {id: editing?.id, model, baseUrl: provider === 'other' ? baseUrl : undefined}
-          : {apiKey, model, baseUrl: provider === 'other' ? baseUrl : undefined}),
+          ? {id: editing?.id, model, purpose, baseUrl: provider === 'other' ? baseUrl : undefined}
+          : {apiKey, model, purpose, baseUrl: provider === 'other' ? baseUrl : undefined}),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
@@ -91,7 +117,7 @@ export function ApiKeyForm({
     finally { setBusy(false); }
   }
 
-  const options = PROVIDER_MODELS[provider];
+  const options = verifiedModels.length ? verifiedModels : PROVIDER_MODELS[provider];
   const body = (
     <div className="grid gap-2">
       {editingMode ? (
@@ -110,6 +136,13 @@ export function ApiKeyForm({
       <div className={`pill ${provider === 'other' ? 'warn' : 'ok'}`} style={{width: 'fit-content'}}>
         Detected: {PROVIDER_LABEL[provider]}
       </div>
+
+      <label className="text-sm">Purpose
+        <select className="vessel-select" value={purpose} onChange={(event) => setPurpose(event.target.value as 'recruitment' | 'general')}>
+          <option value="general">AI / LLM — platform assistant (encrypted)</option>
+          <option value="recruitment">Recruitment application</option>
+        </select>
+      </label>
 
       <label className="text-sm">Model
         {provider === 'other' ? (
@@ -133,6 +166,9 @@ export function ApiKeyForm({
       <div className="row-actions">
         <Button type="button" size="sm" onClick={() => void save()} disabled={busy}>
           {busy ? 'Working…' : editingMode ? 'Save' : 'Add Key'}
+        </Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => void verify()} disabled={busy || (!editingMode && !apiKey)}>
+          Verify &amp; Load Models
         </Button>
         <Button type="button" size="sm" variant="outline" onClick={() => void test()} disabled={busy || (!editingMode && !apiKey)}>
           Test Key

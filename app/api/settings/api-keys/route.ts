@@ -37,6 +37,7 @@ export async function POST(request: Request) {
     const apiKey = String(body.apiKey ?? '').trim();
     const provider = detectProvider(apiKey);
     const baseUrl = String(body.baseUrl ?? '').trim();
+    const purpose = String(body.purpose ?? 'recruitment').trim().toLowerCase() || 'recruitment';
     if (provider === 'other' && !baseUrl) return ok({error: 'BASE_URL_REQUIRED'}, 400);
     const model = String(body.model ?? '').trim() || defaultModel(provider);
     if (!model) return ok({error: 'MODEL_REQUIRED'}, 400);
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
       keyName,
       apiKey,
       model,
-      purpose: 'recruitment',
+      purpose,
       dailyLimit: null,
       notes: provider === 'other' ? notesWithBaseUrl(baseUrl) : null,
     }), 201);
@@ -66,6 +67,7 @@ export async function PATCH(request: Request) {
     return ok(await updateApiKey(actor as never, {
       id: String(body.id ?? ''),
       model: body.model === undefined ? undefined : String(body.model),
+      purpose: body.purpose === undefined ? undefined : String(body.purpose),
       isActive: body.isActive === undefined ? undefined : Boolean(body.isActive),
       notes: baseUrl === undefined ? undefined : notesWithBaseUrl(baseUrl),
     }));

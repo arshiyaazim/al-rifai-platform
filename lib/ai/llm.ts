@@ -5,6 +5,11 @@
 // may only rephrase it in the contact's language. It gets no database access,
 // no tools and no send authority. If the provider is unavailable, slow, or
 // changes any numeric fact, the deterministic answer is used verbatim.
+//
+// Two providers are supported and routed by task:
+//   live  -> Gemini via its OpenAI-compatible endpoint (low latency, WhatsApp)
+//   draft -> local Ollama (offline / privacy-sensitive drafting)
+//   vision-> local Ollama vision model (OCR of cash slips and release docs)
 
 export type LlmStatus = {
   configured: boolean;
@@ -25,6 +30,13 @@ type LlmEnv = {
   maxTokens: number;
 };
 
+export type LlmTask = 'live' | 'draft';
+
+type ResolvedConfig = LlmEnv & {task: LlmTask; keySource: 'env' | 'db' | 'ollama'};
+
+const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_OLLAMA_BASE_URL = 'http://ollama:11434/v1';
+
 function env(name: string): string {
   return (process.env[name] ?? '').trim();
 }
@@ -35,10 +47,12 @@ function numberEnv(name: string, fallback: number, min: number, max: number): nu
   return Math.min(Math.max(Math.floor(value), min), max);
 }
 
+const stripSlash = (value: string) => value.replace(/\/+$/, '');
+
 function readConfig(): LlmEnv {
   const apiKey = env('AI_LLM_API_KEY') || null;
   const model = env('AI_LLM_MODEL') || null;
-  const baseUrl = (env('AI_LLM_BASE_URL') || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  const baseUrl = stripSlash(env('AI_LLM_BASE_URL') || DEFAULT_BASE_URL);
   return {
     enabled: env('AI_LLM_ENABLED') === '1',
     apiKey,
@@ -47,6 +61,54 @@ function readConfig(): LlmEnv {
     timeoutMs: numberEnv('AI_LLM_TIMEOUT_MS', 12_000, 1_000, 60_000),
     maxTokens: numberEnv('AI_LLM_MAX_TOKENS', 500, 64, 2_000),
   };
+}
+
+/** Local Ollama configuration, independent of the Gemini switch. */
+function readOllamaConfig(): LlmEnv {
+  return {
+    enabled: Boolean(env('AI_OLLAMA_MODEL')),
+    apiKey: env('AI_OLLAMA_API_KEY') || 'ollama',
+    model: env('AI_OLLAMA_MODEL') || null,
+    baseUrl: stripSlash(env('AI_OLLAMA_BASE_URL') || DEFAULT_OLLAMA_BASE_URL),
+    timeoutMs: numberEnv('AI_OLLAMA_TIMEOUT_MS', 60_000, 1_000, 300_000),
+    maxTokens: numberEnv('AI_OLLAMA_MAX_TOKENS', 700, 64, 4_000),
+  };
+}
+
+/**
+ * Resolve the provider for a task. For `live`, an active `general` key stored
+ * through the settings page is used when the environment has no key.
+ */
+async function resolveConfig(task: LlmTask): Promise<ResolvedConfig> {
+  if (task === 'draft') {
+    const ollama = readOllamaConfig();
+    return {...ollama, task, keySource: 'ollama'};
+  }
+
+  const base = readConfig();
+  if (!base.enabled) return {...base, task, keySource: 'env'};
+  if (base.apiKey && base.model) return {...base, task, keySource: 'env'};
+
+  try {
+    // Dynamic import keeps the env-only unit tests free of database access.
+    const {getPlatformKey} = await import('./key-store.ts');
+    const stored = await getPlatformKey('gemini');
+    if (stored?.apiKey) {
+      return {
+        enabled: true,
+        apiKey: stored.apiKey,
+        model: base.model || stored.model || 'gemini-2.0-flash',
+        baseUrl: stored.baseUrl ? stripSlash(stored.baseUrl) : base.baseUrl,
+        timeoutMs: base.timeoutMs,
+        maxTokens: base.maxTokens,
+        task,
+        keySource: 'db',
+      };
+    }
+  } catch {
+    // No database (unit tests) or no encryption key: fall through to unset.
+  }
+  return {...base, task, keySource: 'env'};
 }
 
 /** Configuration summary without any secret. */
@@ -69,6 +131,35 @@ export function llmStatus(): LlmStatus {
   };
 }
 
+/** Which provider each task uses, with no secrets. */
+export function routerStatus() {
+  const live = readConfig();
+  const ollama = readOllamaConfig();
+  const host = (url: string) => url.replace(/\/\/([^/]+).*/, '//$1');
+  return {
+    live: {
+      provider: 'gemini',
+      enabled: live.enabled,
+      model: live.model,
+      baseUrl: host(live.baseUrl),
+      keySource: live.apiKey ? 'env' as const : 'database' as const,
+      timeoutMs: live.timeoutMs,
+    },
+    draft: {
+      provider: 'ollama',
+      enabled: ollama.enabled,
+      model: ollama.model,
+      baseUrl: host(ollama.baseUrl),
+      timeoutMs: ollama.timeoutMs,
+    },
+    vision: {
+      provider: 'ollama',
+      model: env('AI_OLLAMA_VISION_MODEL') || 'qwen3-vl:2b',
+      baseUrl: host(stripSlash(env('AI_OLLAMA_BASE_URL') || DEFAULT_OLLAMA_BASE_URL)),
+    },
+  };
+}
+
 const BENGALI_DIGITS = '০১২৩৪৫৬৭৮৯';
 function normalizeDigits(value: string): string {
   return value
@@ -81,6 +172,17 @@ export function numericFactsPreserved(source: string, output: string): boolean {
   const extract = (value: string) =>
     (normalizeDigits(value).match(/\d{2,}/g) ?? []).sort().join('|');
   return extract(source) === extract(output);
+}
+
+/**
+ * Reasoning models wrap their scratchpad in <think>…</think>. The scratchpad is
+ * never part of a WhatsApp reply: strip it, and treat an unterminated block as
+ * an empty response so the deterministic answer wins.
+ */
+export function stripThinking(value: string): string {
+  const withoutBlocks = String(value).replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '');
+  if (/<think(?:ing)?>/i.test(withoutBlocks)) return '';
+  return withoutBlocks.trim();
 }
 
 type Counter = {calls: number; day: string; perConversation: Map<string, number[]>};
@@ -138,14 +240,21 @@ export type ComposeResult = {
  * Rewrite the deterministic answer. Any failure or numeric drift returns the
  * deterministic answer unchanged, so authorization and facts never depend on
  * the provider.
+ *
+ * `options.task` selects the provider: `live` (default, Gemini) or `draft`
+ * (local Ollama).
  */
-export async function composeReply(input: ComposeInput): Promise<ComposeResult> {
-  const config = readConfig();
+export async function composeReply(
+  input: ComposeInput,
+  options: {task?: LlmTask} = {},
+): Promise<ComposeResult> {
+  const task: LlmTask = options.task ?? 'live';
+  const config = await resolveConfig(task);
   const fallback = (reason: string, model: string | null = config.model): ComposeResult => ({
     text: input.deterministicAnswer, used: false, reason, model, tokens: null,
   });
 
-  if (!config.enabled) return fallback('AI_LLM_DISABLED', null);
+  if (!config.enabled) return fallback(task === 'draft' ? 'AI_OLLAMA_DISABLED' : 'AI_LLM_DISABLED', null);
   if (!config.apiKey || !config.model) return fallback('AI_LLM_NOT_CONFIGURED', null);
   const limited = rateLimited(input.conversationId);
   if (limited) return fallback(limited);
@@ -192,7 +301,8 @@ export async function composeReply(input: ComposeInput): Promise<ComposeResult> 
     };
     const candidate = data.choices?.[0]?.message?.content;
     if (typeof candidate !== 'string' || !candidate.trim()) return fallback('AI_LLM_EMPTY_RESPONSE');
-    const text = candidate.trim().slice(0, 4000);
+    const text = stripThinking(candidate).slice(0, 4000);
+    if (!text) return fallback('AI_LLM_EMPTY_RESPONSE');
     if (!numericFactsPreserved(input.deterministicAnswer, text)) return fallback('AI_LLM_FACT_DRIFT');
     return {
       text,
@@ -207,6 +317,61 @@ export async function composeReply(input: ComposeInput): Promise<ComposeResult> 
   } catch (error) {
     const name = error instanceof Error ? error.name : '';
     return fallback(name === 'TimeoutError' || name === 'AbortError' ? 'AI_LLM_TIMEOUT' : 'AI_LLM_REQUEST_FAILED');
+  }
+}
+
+export type VisionResult = {
+  text: string;
+  used: boolean;
+  reason: string | null;
+  model: string | null;
+};
+
+/**
+ * Describe an image with the local vision model (OCR for cash slips, release
+ * documents). Independent of the WhatsApp reply path: callers decide what to do
+ * with the text; nothing here writes to the database.
+ */
+export async function composeVision(input: {
+  imageBase64: string;
+  mimeType?: string;
+  prompt: string;
+  timeoutMs?: number;
+}): Promise<VisionResult> {
+  const ollama = readOllamaConfig();
+  const model = env('AI_OLLAMA_VISION_MODEL') || 'qwen3-vl:2b';
+  const fallback = (reason: string): VisionResult => ({text: '', used: false, reason, model});
+  if (!input.imageBase64) return fallback('AI_VISION_NO_IMAGE');
+
+  const mimeType = input.mimeType || 'image/jpeg';
+  const timeoutMs = input.timeoutMs ?? numberEnv('AI_OLLAMA_VISION_TIMEOUT_MS', 120_000, 5_000, 300_000);
+
+  try {
+    const response = await fetch(`${ollama.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {'content-type': 'application/json', authorization: `Bearer ${ollama.apiKey}`},
+      body: JSON.stringify({
+        model,
+        temperature: 0.1,
+        max_tokens: 1_200,
+        messages: [{
+          role: 'user',
+          content: [
+            {type: 'text', text: input.prompt},
+            {type: 'image_url', image_url: {url: `data:${mimeType};base64,${input.imageBase64}`}},
+          ],
+        }],
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) return fallback(`AI_VISION_HTTP_${response.status}`);
+    const data = (await response.json()) as {choices?: Array<{message?: {content?: unknown}}>};
+    const candidate = data.choices?.[0]?.message?.content;
+    if (typeof candidate !== 'string' || !candidate.trim()) return fallback('AI_VISION_EMPTY_RESPONSE');
+    return {text: stripThinking(candidate).slice(0, 8_000), used: true, reason: null, model};
+  } catch (error) {
+    const name = error instanceof Error ? error.name : '';
+    return fallback(name === 'TimeoutError' || name === 'AbortError' ? 'AI_VISION_TIMEOUT' : 'AI_VISION_REQUEST_FAILED');
   }
 }
 

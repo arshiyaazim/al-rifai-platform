@@ -39,7 +39,8 @@ export async function testApiKey(input: {
         },
       );
     } else if (input.provider === 'openai') {
-      response = await fetch('https://api.openai.com/v1/chat/completions', {
+      const base = String(input.baseUrl ?? '').trim().replace(/\/+$/, '') || 'https://api.openai.com/v1';
+      response = await fetch(`${base}/chat/completions`, {
         method: 'POST', signal: timeout,
         headers: {'Authorization': `Bearer ${input.apiKey}`, 'Content-Type': 'application/json'},
         body: JSON.stringify({model: input.model, messages: [{role: 'user', content: 'Say OK'}], max_tokens: 5}),
@@ -77,6 +78,69 @@ export async function testApiKey(input: {
   } catch (error) {
     return {
       ok: false, provider: input.provider, model: input.model, latency_ms: Date.now() - started,
+      error: error instanceof Error
+        ? (error.name === 'TimeoutError' ? 'TIMEOUT_10S' : error.message.slice(0, 300))
+        : 'REQUEST_FAILED',
+    };
+  }
+}
+
+export type ModelListResult = {
+  ok: boolean;
+  provider: AiProvider;
+  models: string[];
+  status?: number;
+  error?: string;
+};
+
+/**
+ * Verify a key and return the models it can actually use.
+ * Gemini: GET /v1beta/models (only models supporting generateContent).
+ * OpenAI-compatible: GET {baseUrl}/models.
+ */
+export async function listModels(input: {
+  provider: AiProvider; apiKey: string; baseUrl?: string;
+}): Promise<ModelListResult> {
+  const timeout = AbortSignal.timeout(TIMEOUT_MS);
+  const base = (value?: string) => String(value ?? '').trim().replace(/\/+$/, '');
+  try {
+    if (input.provider === 'gemini') {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(input.apiKey)}`,
+        {signal: timeout},
+      );
+      if (!response.ok) {
+        return {ok: false, provider: 'gemini', models: [], status: response.status, error: await readError(response)};
+      }
+      const body = await response.json().catch(() => ({})) as {
+        models?: Array<{name?: string; supportedGenerationMethods?: string[]}>;
+      };
+      const models = (body.models ?? [])
+        .filter((model) => (model.supportedGenerationMethods ?? []).includes('generateContent'))
+        .map((model) => String(model.name ?? '').replace(/^models\//, ''))
+        .filter(Boolean)
+        .sort();
+      return {ok: models.length > 0, provider: 'gemini', models,
+        ...(models.length ? {} : {error: 'NO_MODELS'})};
+    }
+    if (input.provider === 'openai' || input.provider === 'other') {
+      const url = base(input.baseUrl) || (input.provider === 'openai' ? 'https://api.openai.com/v1' : '');
+      if (!url) return {ok: false, provider: input.provider, models: [], error: 'BASE_URL_REQUIRED'};
+      const response = await fetch(`${url}/models`, {
+        signal: timeout, headers: {'Authorization': `Bearer ${input.apiKey}`},
+      });
+      if (!response.ok) {
+        return {ok: false, provider: input.provider, models: [], status: response.status, error: await readError(response)};
+      }
+      const body = await response.json().catch(() => ({})) as {data?: Array<{id?: string}>};
+      const models = (body.data ?? []).map((model) => String(model.id ?? '')).filter(Boolean).sort();
+      return {ok: models.length > 0, provider: input.provider, models,
+        ...(models.length ? {} : {error: 'NO_MODELS'})};
+    }
+    return {ok: false, provider: input.provider, models: [], error: 'MODELS_UNSUPPORTED'};
+  } catch (error) {
+    return {
+      ok: false, provider: input.provider, models: [],
       error: error instanceof Error
         ? (error.name === 'TimeoutError' ? 'TIMEOUT_10S' : error.message.slice(0, 300))
         : 'REQUEST_FAILED',

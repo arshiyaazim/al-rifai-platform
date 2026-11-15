@@ -1,6 +1,7 @@
 import {row, rows, tx, text, optionalText, DomainError, type Actor} from './db.ts';
 import {recordAudit} from './audit.ts';
 import {assertCapability} from './authz.ts';
+import {decryptSecret, encryptSecret, safeDecryptSecret} from '../ai/crypto.ts';
 
 export type ApiKeyProvider = 'gemini' | 'openai' | 'anthropic' | 'other';
 export type ApiKeyPurpose = 'recruitment' | 'vessel-ai' | 'general' | 'other';
@@ -21,11 +22,16 @@ function validateKey(provider: string, apiKey: string) {
   if (!apiKey.trim() || apiKey.length > 500) throw new DomainError('INVALID_KEY_FORMAT', 400);
 }
 
+// Keys with purpose `general` are used by the platform AI layer and are
+// encrypted at rest. `recruitment` keys stay plaintext because the separate
+// recruitment application reads that column directly.
+const isPlatformPurpose = (purpose: string) => purpose === 'general';
+
 const publicRow = (rowData: Record<string, unknown>) => ({
   id: rowData.id,
   provider: rowData.provider,
   key_name: rowData.key_name,
-  masked_key: maskKey(String(rowData.api_key ?? '')),
+  masked_key: maskKey(safeDecryptSecret(String(rowData.api_key ?? ''))),
   model: rowData.model,
   purpose: rowData.purpose,
   is_active: rowData.is_active,
@@ -71,15 +77,21 @@ export async function createApiKey(actor: Actor, input: {
   if (limit !== null && (!Number.isInteger(limit) || limit < 1)) throw new DomainError('INVALID_DAILY_LIMIT', 400);
 
   return tx(async (client) => {
-    const duplicate = await client.query('SELECT 1 FROM api_keys WHERE api_key = $1 LIMIT 1', [apiKey]);
-    if (duplicate.rowCount) throw new DomainError('DUPLICATE_KEY', 409);
+    const existing = await client.query<{api_key: string}>(
+      'SELECT api_key FROM api_keys WHERE provider = $1', [provider],
+    );
+    const duplicate = existing.rows.some((item) => safeDecryptSecret(item.api_key) === apiKey);
+    if (duplicate) throw new DomainError('DUPLICATE_KEY', 409);
+    const stored = isPlatformPurpose(purpose) ? encryptSecret(apiKey) : apiKey;
     const created = await client.query<Record<string, unknown>>(
       `INSERT INTO api_keys (provider, key_name, api_key, model, purpose, daily_limit, notes, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [provider, keyName, apiKey, model, purpose, limit, optionalText(input.notes, 'notes', 2000), actor.id],
+      [provider, keyName, stored, model, purpose, limit, optionalText(input.notes, 'notes', 2000), actor.id],
     );
     await recordAudit({actor, action: 'API_KEY_CREATED', entity: 'api_key',
-      entityId: String(created.rows[0].id), detail: {provider, purpose, keyName, masked: maskKey(apiKey)}}, client);
+      entityId: String(created.rows[0].id), detail: {
+        provider, purpose, keyName, masked: maskKey(apiKey), encrypted: isPlatformPurpose(purpose),
+      }}, client);
     return publicRow(created.rows[0]);
   });
 }
@@ -137,9 +149,11 @@ export function providerDefaultModel(provider: string): string {
 }
 
 export async function getApiKeyForTest(id: string) {
-  return row<{id: string; provider: string; api_key: string; model: string | null; notes: string | null}>(
+  const data = await row<{id: string; provider: string; api_key: string; model: string | null; notes: string | null}>(
     'SELECT id, provider, api_key, model, notes FROM api_keys WHERE id = $1', [id],
   );
+  if (!data) return data;
+  return {...data, api_key: decryptSecret(data.api_key)};
 }
 
 export async function recordKeyTest(id: string, result: {ok: boolean; error?: string}) {
