@@ -5,6 +5,7 @@ import {usePathname} from 'next/navigation';
 import {useEffect, useRef, useState, type ReactNode} from 'react';
 import {LogoutButton} from '@/components/standalone/logout-button';
 import {ThemeToggle} from '@/components/standalone/theme-toggle';
+import {FloatingAssistant} from '@/components/standalone/floating-assistant';
 
 export type WorkspaceNavItem = {
   href: string;
@@ -167,6 +168,7 @@ export function WorkspaceSidebar({navItems, pendingReviews, user, children}: Pro
       ) : null}
 
       <main id="workspace-content" className="wx-workspace__content">{children}</main>
+      <FloatingAssistant />
     </div>
   );
 }

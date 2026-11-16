@@ -130,7 +130,7 @@ async function databaseKeys(purpose: KeyPurpose): Promise<PlatformKey[] | null> 
  * have not migrated yet, and it keeps env-only unit tests off the database. When
  * neither exists the caller answers deterministically.
  */
-async function resolveKeys(task: LlmTask): Promise<PlatformKey[]> {
+async function resolveKeys(task: LlmTask, purpose: KeyPurpose = 'platform-llm'): Promise<PlatformKey[]> {
   if (task === 'draft') {
     const ollama = readOllamaConfig();
     if (!ollama.enabled || !ollama.model) return [];
@@ -149,7 +149,9 @@ async function resolveKeys(task: LlmTask): Promise<PlatformKey[]> {
   }
 
   const config = readConfig();
-  const stored = await databaseKeys('platform-llm');
+  let stored = await databaseKeys(purpose);
+  // The assistant purpose falls back to the general platform pool.
+  if (purpose !== 'platform-llm' && !stored?.length) stored = await databaseKeys('platform-llm');
   if (stored?.length) return orderForLive(stored);
 
   if (config.apiKey && config.model) {
@@ -303,9 +305,10 @@ function mapReason(reason: string): string {
  */
 export async function composeReply(
   input: ComposeInput,
-  options: {task?: LlmTask} = {},
+  options: {task?: LlmTask; purpose?: KeyPurpose} = {},
 ): Promise<ComposeResult> {
   const task: LlmTask = options.task ?? 'live';
+  const purpose: KeyPurpose = options.purpose ?? 'platform-llm';
   const config = readConfig();
   const fallback = (reason: string, model: string | null = config.model): ComposeResult => ({
     text: input.deterministicAnswer, used: false, reason, model, tokens: null,
@@ -321,7 +324,7 @@ export async function composeReply(
   const limited = rateLimited(input.conversationId);
   if (limited) return fallback(limited);
 
-  const keys = await resolveKeys(task);
+  const keys = await resolveKeys(task, purpose);
   if (!keys.length) {
     return fallback(task === 'draft' ? 'AI_OLLAMA_DISABLED' : 'AI_LLM_NOT_CONFIGURED', null);
   }

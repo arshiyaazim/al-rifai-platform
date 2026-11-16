@@ -3,7 +3,9 @@ import {integrationStatus, listChats} from '@/lib/standalone/whatsapp';
 import {money, pageUser, when} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
 import {listUsers} from '@/lib/standalone/users';
+import {assistantEnabled} from '@/lib/standalone/assistant-settings';
 import {ActionForm} from '@/components/standalone/action-form';
+import {AssistantToggle} from '@/components/standalone/assistant-toggle';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +14,8 @@ export default async function SettingsPage() {
   const canManageAccounts = can(user as never, 'cash.account.manage');
   const canManageWhatsapp = can(user as never, 'whatsapp.manage');
   const canRouteWhatsapp = can(user as never, 'whatsapp.route');
-  const [accounts, status] = await Promise.all([listAccounts(), integrationStatus()]);
+  const canManageSettings = can(user as never, 'settings.manage');
+  const [accounts, status, assistantOn] = await Promise.all([listAccounts(), integrationStatus(), assistantEnabled()]);
   const users = user.superAdmin ? await listUsers() : [];
   const chats = await Promise.all((status.accounts as Array<{id: string}>).map((account) => listChats(account.id)));
 
@@ -120,6 +123,11 @@ export default async function SettingsPage() {
       </div>
 
       <div className="split">
+        <section className="card">
+          <h3>Floating AI Assistant</h3>
+          <p className="muted" style={{marginTop: 2}}>Read-only helper for all signed-in users. It answers dashboard questions only and never drafts, approves or sends anything.</p>
+          {canManageSettings ? <AssistantToggle initial={assistantOn} /> : <p className="muted">ADMIN settings access required.</p>}
+        </section>
         <section className="card">
           <h3>Your session</h3>
           <p className="muted">{user.displayName} · {user.username} · {user.role}</p>
