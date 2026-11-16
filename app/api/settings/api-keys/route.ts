@@ -81,6 +81,7 @@ export async function PATCH(request: Request) {
       priority: body.priority === undefined ? undefined : (body.priority as number),
       isFree: body.isFree === undefined ? undefined : Boolean(body.isFree),
       isActive: body.isActive === undefined ? undefined : Boolean(body.isActive),
+      apiKey: body.apiKey === undefined ? undefined : String(body.apiKey),
       notes: body.notes === undefined ? undefined : String(body.notes),
     }));
   } catch (error) { return errorResponse(error); }

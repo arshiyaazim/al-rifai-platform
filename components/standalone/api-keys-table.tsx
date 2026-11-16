@@ -1,14 +1,23 @@
 'use client';
 
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useState, type CSSProperties} from 'react';
 import {toast} from 'sonner';
 import {Button} from '@/components/ui/button';
 import {ApiKeyForm} from '@/components/standalone/api-key-form';
-import {RowActionsMenu} from '@/components/standalone/row-actions-menu';
 import {providerLabel} from '@/lib/ai-provider';
+import {isAuthenticationFailure, redirectToLogin} from '@/components/standalone/session-redirect';
+
+/** Every cell is single-line; long values are clipped and exposed via title. */
+const ELLIPSIS: CSSProperties = {overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'};
+
+const shortModel = (value: string | null) => {
+  const text = String(value ?? '—');
+  return text.length > 24 ? `${text.slice(0, 23)}…` : text;
+};
 
 type KeyRow = {
-  id: string; provider: string; key_name: string; masked_key: string; model: string | null;
+  id: string; provider: string; key_name: string; masked_key: string; has_key: boolean;
+  model: string | null;
   purpose: string; purpose_tags: string[]; base_url: string | null; priority: number;
   is_free: boolean; fail_count: number; is_active: boolean; usage_count: number;
   last_used_at: string | null; last_error: string | null; last_error_at: string | null;
@@ -18,16 +27,34 @@ type KeyRow = {
 
 async function csrfToken(): Promise<string> {
   const response = await fetch('/api/auth/session', {credentials: 'same-origin', cache: 'no-store'});
-  const body = await response.json() as {csrf?: string};
+  const body = await response.json().catch(() => ({}));
+  if (isAuthenticationFailure(response.status, body)) {
+    redirectToLogin();
+    throw new Error('Session expired — sign in again.');
+  }
   if (!body.csrf) throw new Error('SESSION_EXPIRED');
-  return body.csrf;
+  return body.csrf as string;
 }
 
 const cooldownLeft = (value: string | null) => {
   if (!value) return 0;
   return Math.max(0, Math.ceil((new Date(value).getTime() - Date.now()) / 1000));
 };
-const providerBadge = (provider: string) => providerLabel(provider);
+
+type StatusView = {label: 'Active' | 'Disabled' | 'Error'; color: string; title: string};
+
+function statusOf(row: KeyRow): StatusView {
+  const left = cooldownLeft(row.cooldown_until);
+  if (!row.is_active) {
+    return {label: 'Disabled', color: 'var(--muted, #64748b)', title: row.last_error ?? 'Disabled by an administrator'};
+  }
+  if (row.last_error || left > 0) {
+    const title = [row.last_error ?? 'Last request failed', left > 0 ? `cooldown ${left}s remaining` : '']
+      .filter(Boolean).join(' · ');
+    return {label: 'Error', color: 'var(--danger, #b91c1c)', title};
+  }
+  return {label: 'Active', color: '#15803d', title: 'Active and available'};
+}
 
 export function ApiKeysTable() {
   const [keys, setKeys] = useState<KeyRow[]>([]);
@@ -73,10 +100,16 @@ export function ApiKeysTable() {
         body: JSON.stringify({...body, id: row.id}),
       });
       const payload = await response.json().catch(() => ({}));
+      if (isAuthenticationFailure(response.status, payload)) {
+        redirectToLogin();
+        throw new Error('Session expired — sign in again.');
+      }
       if (!response.ok) throw new Error(payload.error ?? `HTTP_${response.status}`);
       if (body.action === 'test') {
         if (payload.ok) toast.success(`Key OK · ${payload.provider} · ${payload.model} · ${payload.latency_ms} ms`);
         else toast.error(`Test failed: ${payload.error ?? 'FAILED'}${payload.status ? ` (${payload.status})` : ''}`, {duration: Infinity});
+      } else if (body.action === 'delete') {
+        toast.success('Key deleted.');
       } else {
         toast.success('Key updated.');
       }
@@ -100,69 +133,75 @@ export function ApiKeysTable() {
 
       <section className="card">
         <p className="muted" style={{margin: '0 0 8px', fontSize: 12}}>
-          Status: <span className="pill ok">✅ Active</span>{' '}
-          <span className="pill warn">⏳ Rate-limited</span>{' '}
-          <span className="pill bad">❌ Failed</span>{' '}
-          <span className="pill">🔘 Inactive</span>
+          Status: <span className="pill ok">● Active</span>{' '}
+          <span className="pill">● Disabled</span>{' '}
+          <span className="pill bad">● Error</span>
         </p>
-        <div className="table-wrap" style={{overflowX: 'auto'}}>
-          <table className="cash-payment-table" style={{minWidth: 1040}}>
+        <div className="table-wrap" style={{overflowX: 'auto', maxWidth: '100%'}}>
+          <table className="cash-payment-table" style={{minWidth: 900, width: '100%', tableLayout: 'fixed'}}>
             <colgroup>
-              <col style={{width: 12}} />
-              <col style={{width: 150}} />
+              <col style={{width: 36}} />
+              <col style={{width: 110}} />
+              <col style={{width: 220}} />
+              <col style={{width: 90}} />
               <col style={{width: 140}} />
               <col style={{width: 100}} />
-              <col style={{width: 180}} />
-              <col style={{width: 200}} />
-              <col style={{width: 70}} />
-              <col style={{width: 120}} />
-              <col style={{width: 70}} />
+              <col style={{width: 240}} />
             </colgroup>
-            <thead><tr><th>#</th><th>Key Name</th><th>Purpose</th><th>Provider</th><th>Model</th><th>Masked Key</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead>
+              <tr><th>#</th><th>Provider</th><th>Model</th><th>API Key</th><th>Purpose</th><th>Status</th><th>Actions</th></tr>
+            </thead>
             <tbody>
-              {loading ? <tr><td colSpan={9} className="muted">Loading keys…</td></tr> : null}
+              {loading ? <tr><td colSpan={7} className="muted">Loading keys…</td></tr> : null}
               {!loading && pageRows.map((row, index) => {
-                const left = cooldownLeft(row.cooldown_until);
+                const status = statusOf(row);
+                const tags = [row.purpose, ...(row.purpose_tags ?? []).filter((tag) => tag !== row.purpose)];
                 return (
-                  <tr key={row.id}>
-                    <td style={{width: 12, padding: '2px 0', fontSize: 10, textAlign: 'center'}}>{(safePage - 1) * limit + index + 1}</td>
-                    <td>{row.key_name}</td>
-                    <td>
-                      <span className="pill">{row.purpose}</span>
-                      {(row.purpose_tags ?? []).filter((tag) => tag !== row.purpose).map((tag) => (
-                        <span key={tag} className="pill" style={{marginLeft: 4}}>+{tag}</span>
-                      ))}
+                  <tr key={row.id} title={row.key_name}>
+                    <td style={{...ELLIPSIS, textAlign: 'center', fontSize: 10}}>{(safePage - 1) * limit + index + 1}</td>
+                    <td style={ELLIPSIS} title={providerLabel(row.provider)}>{providerLabel(row.provider)}</td>
+                    <td style={ELLIPSIS}
+                      title={`${row.model ?? '—'}\nBase URL: ${row.base_url ?? '(provider default)'}`}>
+                      <span style={{textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 2, cursor: 'help'}}>
+                        {shortModel(row.model)}
+                      </span>
                     </td>
-                    <td><span className="pill">{providerBadge(row.provider)}</span></td>
-                    <td>{row.model ?? '—'}</td>
-                    <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{row.masked_key}</td>
-                    <td>{row.priority}{row.is_free ? <span className="pill ok" style={{marginLeft: 4}}>free</span> : null}</td>
-                    <td>
-                      {!row.is_active ? <span className="pill" title={row.last_error ?? 'disabled'}>🔘 Inactive</span>
-                        : left > 0 ? <span className="pill warn">⏳ {left}s</span>
-                          : row.last_error ? <span className="pill bad" title={row.last_error}>❌ Error</span>
-                            : <span className="pill ok">✅ Active</span>}
+                    <td style={{...ELLIPSIS, fontWeight: 600}}>
+                      {row.has_key
+                        ? <span style={{color: '#15803d'}}>✓ Set</span>
+                        : <span style={{color: '#b91c1c'}}>✗ None</span>}
+                    </td>
+                    <td style={ELLIPSIS} title={tags.join(', ')}><span className="pill">{row.purpose}</span></td>
+                    <td style={ELLIPSIS} title={status.title}>
+                      <span style={{color: status.color, fontWeight: 600}}>● {status.label}</span>
                     </td>
                     <td>
-                      <RowActionsMenu items={[
-                        {label: 'Test', onClick: () => void action(row, {action: 'test'})},
-                        {label: 'Edit', onClick: () => setEditing(row)},
-                        {label: row.is_active ? 'Disable' : 'Enable', onClick: () => {
-                          // Soft guard: a `general` key is shared with the
-                          // recruitment worker, which reads plaintext only.
-                          if (!row.is_active && row.purpose === 'general'
-                            && !window.confirm('This key is encrypted. Enabling it may cause issues with the recruitment app. Are you sure?')) return;
-                          void action(row, {action: 'update', isActive: !row.is_active});
-                        }},
-                        {label: 'Delete', danger: true, onClick: () => {
-                          if (window.confirm(`Delete ${row.key_name}?`)) void action(row, {action: 'delete'});
-                        }},
-                      ]} label={`Actions for ${row.key_name}`} />
+                      <div style={{display: 'flex', gap: 4, flexWrap: 'nowrap'}}>
+                        <Button type="button" size="sm" variant="outline" title="Edit this key"
+                          aria-label="Edit key" onClick={() => setEditing(row)}>✎</Button>
+                        <Button type="button" size="sm" variant="outline" title="Send a tiny test prompt"
+                          aria-label="Test key" onClick={() => void action(row, {action: 'test'})}>▶</Button>
+                        <Button type="button" size="sm" variant="outline"
+                          title={row.is_active ? 'Disable this key' : 'Enable this key'}
+                          aria-label={row.is_active ? 'Disable key' : 'Enable key'}
+                          onClick={() => {
+                            // Soft guard: a `general` key is shared with the
+                            // recruitment worker, which reads plaintext only.
+                            if (!row.is_active && row.purpose === 'general'
+                              && !window.confirm('This key is encrypted. Enabling it may cause issues with the recruitment app. Are you sure?')) return;
+                            void action(row, {action: 'update', isActive: !row.is_active});
+                          }}>⏻</Button>
+                        <Button type="button" size="sm" variant="outline" title="Delete this key"
+                          aria-label="Delete key" style={{color: 'var(--danger, #b91c1c)'}}
+                          onClick={() => {
+                            if (window.confirm(`Delete ${row.key_name}? This cannot be undone.`)) void action(row, {action: 'delete'});
+                          }}>✕</Button>
+                      </div>
                     </td>
                   </tr>
                 );
               })}
-              {!loading && !pageRows.length ? <tr><td colSpan={9} className="muted">No API keys yet.</td></tr> : null}
+              {!loading && !pageRows.length ? <tr><td colSpan={7} className="muted">No API keys yet.</td></tr> : null}
             </tbody>
           </table>
         </div>

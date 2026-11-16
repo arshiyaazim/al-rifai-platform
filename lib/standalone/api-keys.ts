@@ -15,6 +15,18 @@ const PURPOSES = new Set<string>([
   'platform-llm', 'platform-assistant', 'ocr',
 ]);
 
+/** Recruitment purpose is served by the separate worker. */
+const RECRUITMENT_PROVIDERS = ['gemini', 'openai', 'anthropic', 'other'];
+
+function assertRecruitmentProvider(provider: string, purpose: string): void {
+  if (purpose !== 'recruitment') return;
+  if (RECRUITMENT_PROVIDERS.includes(provider)) return;
+  throw new DomainError(
+    'RECRUITMENT_PROVIDER_NOT_SUPPORTED', 400,
+    'recruitment keys work with gemini, openai (use openai for OpenRouter keys), anthropic or other',
+  );
+}
+
 /** Recruitment is the only purpose the separate worker reads as plaintext. */
 const isEncryptedPurpose = (purpose: string) => purpose !== 'recruitment';
 
@@ -54,6 +66,7 @@ const publicRow = (rowData: Record<string, unknown>) => ({
   id: rowData.id,
   provider: rowData.provider,
   key_name: rowData.key_name,
+  has_key: Boolean(rowData.api_key),
   masked_key: maskKey(safeDecryptSecret(String(rowData.api_key ?? ''))),
   model: rowData.model,
   purpose: rowData.purpose,
@@ -98,6 +111,7 @@ export async function createApiKey(actor: Actor, input: {
   if (!provider) throw new DomainError('INVALID_PROVIDER', 400);
   const purpose = String(input.purpose ?? 'recruitment').trim().toLowerCase();
   if (!PURPOSES.has(purpose)) throw new DomainError('INVALID_PURPOSE', 400);
+  assertRecruitmentProvider(provider, purpose);
 
   // Ollama needs no credential; a placeholder keeps the NOT NULL column honest.
   const supplied = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
@@ -141,7 +155,7 @@ export async function createApiKey(actor: Actor, input: {
 
 export async function updateApiKey(actor: Actor, input: {
   id: string; keyName?: string; provider?: string; model?: string; purpose?: string;
-  baseUrl?: string | null; priority?: number; isFree?: boolean;
+  baseUrl?: string | null; priority?: number; isFree?: boolean; apiKey?: string;
   dailyLimit?: number | null; isActive?: boolean; notes?: string | null;
 }) {
   assertCapability(actor as never, 'settings.manage');
@@ -154,11 +168,28 @@ export async function updateApiKey(actor: Actor, input: {
     const purpose = input.purpose === undefined ? String(existing.purpose) : String(input.purpose).toLowerCase();
     if (!PURPOSES.has(purpose)) throw new DomainError('INVALID_PURPOSE', 400);
 
-    // Moving a key across the encryption boundary rewrites it, because the
-    // recruitment worker reads plaintext while every platform purpose is sealed.
+    const provider = input.provider === undefined ? String(existing.provider) : normalizeProvider(input.provider);
+    if (!provider || provider.length > 60) throw new DomainError('INVALID_PROVIDER', 400);
+    assertRecruitmentProvider(provider, purpose);
+
+    // A pasted replacement is written in the same form the purpose expects;
+    // otherwise a purpose change rewrites the existing secret, because the
+    // recruitment worker reads plaintext while platform purposes are sealed.
     let storedKey = String(existing.api_key ?? '');
     let reencrypted = false;
-    if (purpose !== String(existing.purpose)) {
+    let replaced = false;
+    const replacement = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
+    if (replacement) {
+      validateKey(provider, replacement);
+      const duplicate = await client.query<{id: string; api_key: string}>(
+        'SELECT id, api_key FROM api_keys WHERE provider = $1 AND id <> $2', [provider, id],
+      );
+      if (duplicate.rows.some((item) => safeDecryptSecret(item.api_key) === replacement)) {
+        throw new DomainError('DUPLICATE_KEY', 409);
+      }
+      storedKey = isEncryptedPurpose(purpose) ? encryptSecret(replacement) : replacement;
+      replaced = true;
+    } else if (purpose !== String(existing.purpose)) {
       const plain = safeDecryptSecret(storedKey);
       if (plain) {
         const next = isEncryptedPurpose(purpose) ? encryptSecret(plain) : plain;
@@ -166,9 +197,6 @@ export async function updateApiKey(actor: Actor, input: {
         storedKey = next;
       }
     }
-
-    const provider = input.provider === undefined ? String(existing.provider) : normalizeProvider(input.provider);
-    if (!provider || provider.length > 60) throw new DomainError('INVALID_PROVIDER', 400);
 
     const currentLimit = existing.daily_limit;
     const limit: number | null = input.dailyLimit === undefined
@@ -199,7 +227,7 @@ export async function updateApiKey(actor: Actor, input: {
         notesForPurpose(purpose, notesText, baseUrl), storedKey],
     );
     await recordAudit({actor, action: 'API_KEY_UPDATED', entity: 'api_key', entityId: id,
-      detail: {updated: Object.keys(input), reencrypted}}, client);
+      detail: {updated: Object.keys(input), reencrypted, replaced}}, client);
     return publicRow(updated.rows[0]);
   });
 }
