@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.3.12-hotfix — Employee workspace 500s + settings cleanup (2026-11-16)
+
+- Fixed the employee detail card 500s: migration 028's employee_documents table
+  had no runtime grant, so the profile query failed with Postgres 42501. The
+  grant list now ships the table and the profile degrades to an empty document
+  list instead of failing the whole request.
+- Fixed the attendance and vessel sub-table 500s: empty date inputs were sent
+  as `date_from=`/`from=`, which Postgres rejects as an invalid date
+  (22007). Empty range values are now omitted, so "all dates" works.
+- Uploads report a clear 503 (EMPLOYEE_DOCUMENTS_NOT_GRANTED) instead of a 500
+  when the grant is missing.
+- Settings: the unused "Authorized chats" table is hidden behind a flag; the
+  WhatsApp API and the query remain intact.
+- Recruitment provider guard now explains the OpenRouter rule directly.
+
 ## v3.3.11-employees — Employee workspace + file uploads (2026-11-16)
 
 - Employee detail card on /employees: name, ID, secondary and family mobile,
