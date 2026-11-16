@@ -2,7 +2,8 @@
 
 import {displayMobile} from '@/lib/display-mobile';
 import {ASSISTANT_DENIAL} from '@/lib/standalone/ai-assistant-prompt';
-import {buildNavigation, isBlockedQuestion, isConfidentMatch} from '@/lib/standalone/ai-assistant-functions';
+import {buildNavigation, isBlockedQuestion, isConfidentMatch, suppressesModelBubble} from '@/lib/standalone/ai-assistant-functions';
+import {TEMPLATE_GROUPS, templatesForDomain} from '@/lib/standalone/ai-assistant-templates';
 import {transliterate} from '@/lib/standalone/transliterate';
 import {useEffect, useReducer, useRef, useState} from 'react';
 import {usePathname, useRouter} from 'next/navigation';
@@ -19,7 +20,12 @@ import {
  * Navigation and sidebar actions wait for an explicit "হ্যাঁ"/"yes".
  */
 type TableData = {columns: string[]; rows: string[][]};
-type Message = {role: 'user' | 'assistant'; text: string; table?: TableData; more?: number; note?: string};
+type Chip = {label: string; value: string};
+type ActionChip = {label: string; href: string};
+type Message = {
+  role: 'user' | 'assistant'; text: string; table?: TableData; more?: number; note?: string;
+  suggestions?: string[]; actions?: ActionChip[]; chips?: Chip[];
+};
 
 type Pending =
   | {kind: 'navigate'; url: string; label: string}
@@ -48,15 +54,9 @@ type VesselRow = {
   mother_vessel: string; lighter_vessel: string; start_date: string; end_date: string | null; state: string;
 };
 
-const SUGGESTIONS = [
-  'How many employees joined this month?',
-  'Cash payments today?',
-  'সাইফুলের ক্যাশ হিসাব দেখাও',
-  'আজকের ক্যাশ ট্রানজেকশন দেখতে চাই',
-];
-
 const AFFIRM = /^(হ্যাঁ|হা|হ|yes|y|ok|okay|sure|যাও|করো|চলো|নে[য়া]?)/i;
 const DENY = /^(না|ন|no|n|cancel|থাক|বাতিল)/i;
+const MOBILE_MINIMISE_HINT = '💡 আমাকে মিনিমাইজ করলে আপনি ডাটাসমূহ দেখতে পাবেন।';
 
 function bengali(value: number, digits = 0): string {
   return new Intl.NumberFormat('bn-BD', {minimumFractionDigits: digits, maximumFractionDigits: digits}).format(value);
@@ -115,12 +115,12 @@ export function FloatingAssistant() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
-  const [remaining, setRemaining] = useState<number | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const launcherRef = useRef<HTMLButtonElement | null>(null);
   const wasVisible = useRef(false);
+  const hintShown = useRef(false);
 
   useEffect(() => {
     if (!visible || messages.length) return;
@@ -161,6 +161,7 @@ export function FloatingAssistant() {
     if (action.kind === 'navigate') {
       push({role: 'assistant', text: `ঠিক আছে — ${action.label} পেইজে নিয়ে যাচ্ছি। প্যানেলটি মিনিমাইজ করা হলো।`});
       router.push(action.url);
+      mobileHint();
       return;
     }
     const payload = JSON.stringify({page: action.page, action: action.action, employee_mobile: action.mobile ?? null});
@@ -168,6 +169,15 @@ export function FloatingAssistant() {
     window.dispatchEvent(new CustomEvent('alrifai:open-sidebar', {detail: {page: action.page, action: action.action, employee_mobile: action.mobile}}));
     push({role: 'assistant', text: `ঠিক আছে — ${action.page} ফর্ম খুলছি। প্যানেলটি মিনিমাইজ করা হলো।`});
     router.push(`/${action.page}`);
+    mobileHint();
+  }
+
+  /** One mobile hint per conversation, only after a navigate/form-open. */
+  function mobileHint() {
+    if (hintShown.current) return;
+    if (typeof window === 'undefined' || !window.matchMedia('(max-width: 520px)').matches) return;
+    hintShown.current = true;
+    push({role: 'assistant', text: MOBILE_MINIMISE_HINT});
   }
 
   async function summary(kind: 'cash' | 'attendance' | 'vessel', mobile: string, range?: {from?: string; to?: string}, name?: string) {
@@ -254,7 +264,7 @@ export function FloatingAssistant() {
     });
   }
 
-  async function execute(call: FunctionCall) {
+  async function execute(call: FunctionCall, suggestions?: string[]) {
     const args = call.arguments ?? {};
     const str = (key: string) => (typeof args[key] === 'string' ? String(args[key]) : undefined);
     try {
@@ -310,7 +320,12 @@ export function FloatingAssistant() {
         const label = page === 'cash' ? 'ক্যাশ' : page === 'cash/transactions' ? 'ক্যাশ লেনদেন'
           : page === 'vessel' ? 'ভেসেল' : page === 'attendance' ? 'উপস্থিতি' : 'কর্মী';
         setPending({kind: 'navigate', url: nav.url, label});
-        push({role: 'assistant', text: `আপনাকে কি ${label} পেইজে নিয়ে যাব? ${nav.description !== label ? `(${nav.description}) ` : ''}(হ্যাঁ / না)`});
+        push({
+          role: 'assistant',
+          text: `আপনাকে কি ${label} পেইজে নিয়ে যাব?${nav.description !== label ? ` (${nav.description})` : ''}`,
+          chips: [{label: 'হ্যাঁ', value: 'হ্যাঁ'}, {label: 'না', value: 'না'}],
+          suggestions,
+        });
         return;
       }
       if (call.name === 'openSidebar') {
@@ -320,9 +335,9 @@ export function FloatingAssistant() {
         setPending({kind: 'sidebar', page, action, mobile});
         push({
           role: 'assistant',
-          text: action === 'add'
-            ? 'নতুন কর্মী যোগ করার ফর্ম খুলব? (হ্যাঁ / না)'
-            : 'কর্মীর বিবরণ খুলব? (হ্যাঁ / না)',
+          text: action === 'add' ? 'নতুন কর্মী যোগ করার ফর্ম খুলব?' : 'কর্মীর বিবরণ খুলব?',
+          chips: [{label: 'হ্যাঁ', value: 'হ্যাঁ'}, {label: 'না', value: 'না'}],
+          suggestions,
         });
         return;
       }
@@ -348,9 +363,16 @@ export function FloatingAssistant() {
         const code = String(body.error ?? `HTTP_${response.status}`);
         throw new Error(ERROR_TEXT[code] ?? code);
       }
-      if (typeof body.remaining === 'number') setRemaining(body.remaining);
-      push({role: 'assistant', text: String(body.answer ?? '')});
-      if (body.function_call) await execute(body.function_call as FunctionCall);
+      const call = body.function_call as FunctionCall | undefined;
+      const suggestions = Array.isArray(body.suggestions)
+        ? (body.suggestions as unknown[]).slice(0, 4).map(String) : undefined;
+      const actions = Array.isArray(body.actions) ? (body.actions as ActionChip[]) : undefined;
+      // A navigate/form confirmation is rendered once by execute() with হ্যাঁ/না
+      // chips — the model's own confirmation sentence is suppressed here.
+      if (!suppressesModelBubble(call)) {
+        push({role: 'assistant', text: String(body.answer ?? ''), suggestions, actions});
+      }
+      if (call) await execute(call, suggestions);
     } catch (cause) {
       const message = cause instanceof Error ? ERROR_TEXT[cause.message] ?? cause.message : 'Something went wrong.';
       push({role: 'assistant', text: `Sorry — ${message}`});
@@ -391,7 +413,7 @@ export function FloatingAssistant() {
   return (
     <>
       <style>{`
-        @keyframes alrifai-pulse {0%{box-shadow:0 0 0 0 rgba(13,148,136,.45)}70%{box-shadow:0 0 0 14px rgba(13,148,136,0)}100%{box-shadow:0 0 0 0 rgba(13,148,136,0)}}
+        @keyframes alrifai-pulse {0%{box-shadow:0 0 0 0 rgba(249,115,22,.45)}70%{box-shadow:0 0 0 14px rgba(249,115,22,0)}100%{box-shadow:0 0 0 0 rgba(249,115,22,0)}}
         @keyframes alrifai-blink {0%,80%,100%{opacity:.25}40%{opacity:1}}
         .alrifai-fab{animation:alrifai-pulse 2.6s infinite}
         .alrifai-fab:hover{transform:translateY(-2px)}
@@ -442,14 +464,7 @@ export function FloatingAssistant() {
           }}
         >
           <header style={{display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: '1px solid var(--line, #e2e8f0)'}}>
-            <span aria-hidden style={{
-              width: 30, height: 30, borderRadius: 9, display: 'grid', placeItems: 'center',
-              background: 'var(--accent, #0f766e)', color: '#fff', fontWeight: 700,
-            }}>AI</span>
-            <div style={{flex: 1, minWidth: 0}}>
-              <div style={{fontWeight: 600, fontSize: 13}}>আল-রিফাঈ সহকারী</div>
-              <div className="muted" style={{fontSize: 11}}>Read-only · employees, cash, vessel, attendance</div>
-            </div>
+            <div style={{flex: 1, minWidth: 0, fontWeight: 600, fontSize: 13}}>Help: Al-Rifa&apos;I</div>
             <div className="alrifai-controls" style={{display: 'flex', gap: 4, flexShrink: 0}}>
               <button type="button" className="alrifai-ctrl" onClick={() => windowAction('minimize')}
                 aria-label="Minimize assistant" title="Minimize (—)">—</button>
@@ -489,6 +504,29 @@ export function FloatingAssistant() {
                     </>
                   ) : null}
                   {message.note ? <div className="alrifai-mobile-note muted">{message.note}</div> : null}
+                  {message.chips?.length || message.actions?.length || message.suggestions?.length ? (
+                    <div style={{display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8}}>
+                      {message.chips?.map((chip) => (
+                        <button key={chip.label} type="button" onClick={() => void send(chip.value)} disabled={busy}
+                          style={{fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, border: '1px solid var(--accent, #0f766e)', background: 'transparent', color: 'inherit', cursor: 'pointer'}}>
+                          {chip.label}
+                        </button>
+                      ))}
+                      {message.actions?.map((action) => (
+                        <button key={action.label} type="button" disabled={busy}
+                          onClick={() => runAction({kind: 'navigate', url: action.href, label: action.label})}
+                          style={{fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 999, border: '1px solid var(--line, #e2e8f0)', background: 'transparent', color: 'inherit', cursor: 'pointer'}}>
+                          {action.label}
+                        </button>
+                      ))}
+                      {message.suggestions?.map((suggestion) => (
+                        <button key={suggestion} type="button" onClick={() => void send(suggestion)} disabled={busy}
+                          style={{fontSize: 11, padding: '4px 10px', borderRadius: 999, border: '1px solid var(--line, #e2e8f0)', background: 'transparent', color: 'inherit', cursor: 'pointer'}}>
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -500,12 +538,19 @@ export function FloatingAssistant() {
               </div>
             ) : null}
             {!messages.length || messages.length === 1 ? (
-              <div style={{display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4}}>
-                {SUGGESTIONS.map((suggestion) => (
-                  <button key={suggestion} type="button" onClick={() => void send(suggestion)} disabled={busy}
-                    style={{fontSize: 11, padding: '5px 8px', borderRadius: 999, border: '1px solid var(--line, #e2e8f0)', background: 'transparent', color: 'inherit', cursor: 'pointer'}}>
-                    {suggestion}
-                  </button>
+              <div style={{display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6}}>
+                {TEMPLATE_GROUPS.map((group) => (
+                  <div key={group.domain}>
+                    <div className="muted" style={{fontSize: 11, fontWeight: 600, marginBottom: 4}}>{group.title}</div>
+                    <div style={{display: 'flex', flexDirection: 'column', gap: 4}}>
+                      {templatesForDomain(group.domain).map((template) => (
+                        <button key={template.id} type="button" onClick={() => void send(template.label)} disabled={busy}
+                          style={{textAlign: 'left', fontSize: 12, padding: '7px 10px', borderRadius: 9, border: '1px solid var(--line, #e2e8f0)', background: 'transparent', color: 'inherit', cursor: 'pointer'}}>
+                          {template.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ))}
               </div>
             ) : null}
@@ -522,10 +567,6 @@ export function FloatingAssistant() {
               Send
             </button>
           </form>
-          <p className="muted" style={{margin: 0, padding: '0 12px 8px', fontSize: 10}}>
-            Read-only · no changes · actions need your confirmation
-            {remaining !== null ? ` · ${remaining} questions left this hour` : ''}
-          </p>
         </section>
       ) : (
         <div style={{
@@ -533,17 +574,14 @@ export function FloatingAssistant() {
           bottom: 'calc(16px + env(safe-area-inset-bottom))', zIndex: 80,
           display: 'flex', alignItems: 'center', gap: 8, maxWidth: 'calc(100vw - 24px)',
         }}>
-          <span className="alrifai-label" style={{
-            background: 'var(--panel, #ffffff)', color: 'var(--ink, #0f172a)', border: '1px solid var(--line, #e2e8f0)',
-            borderRadius: 999, padding: '5px 10px', fontSize: 11, boxShadow: '0 6px 16px rgba(15, 23, 42, .12)',
-          }}>Need help? Ask a question</span>
           <button ref={launcherRef} type="button" className="alrifai-fab" onClick={() => windowAction('open')}
             aria-label="Open Al-Rifa'i assistant" aria-expanded={false} title="Open assistant"
             style={{
-              width: 56, height: 56, borderRadius: 28, border: 0, cursor: 'pointer', flexShrink: 0,
-              background: 'linear-gradient(135deg, #0f766e, #0d9488)', color: '#fff',
-              fontSize: 22, fontWeight: 700, transition: 'transform .15s ease',
-            }}>?</button>
+              padding: '10px 20px', borderRadius: 999, border: 0, cursor: 'pointer', flexShrink: 0,
+              background: '#F97316', color: '#fff', fontWeight: 700, fontSize: 14,
+              letterSpacing: '.02em', transition: 'transform .15s ease',
+              boxShadow: '0 8px 24px rgba(249, 115, 22, .35)',
+            }}>Ask</button>
         </div>
       )}
     </>

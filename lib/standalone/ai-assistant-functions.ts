@@ -136,6 +136,59 @@ export function isBlockedQuestion(question: string): boolean {
   return BLOCKED_TOPIC_PATTERNS.some((entry) => entry.pattern.test(question));
 }
 
+export type SuggestionIntent =
+  | 'employee_search_results'
+  | 'employee_profile'
+  | 'cash_summary'
+  | 'attendance'
+  | 'vessel'
+  | 'mobile_did_you_mean'
+  | 'blocked'
+  | 'unsupported_date_range'
+  | 'free_chat';
+
+const SUGGESTIONS: Record<SuggestionIntent, string[]> = {
+  employee_search_results: ['Open profile', 'Show cash history', 'Show attendance'],
+  employee_profile: ['Add payment', 'Add attendance', 'Vessel history'],
+  cash_summary: ['Last 5 transactions', 'This month only', 'Open ledger'],
+  attendance: ['This month', 'Open attendance', 'Employee profile'],
+  vessel: ['Open program', "Escort's profile", 'Release status'],
+  mobile_did_you_mean: ['Use this number', 'Search by name'],
+  blocked: ['Search an employee…', "Today's cash"],
+  unsupported_date_range: ['This month', 'Open dated ledger'],
+  free_chat: ['Search an employee…', "Today's cash", 'Add Attendance…'],
+};
+
+/** 2–4 follow-up chips for a response; unknown intents fall back to free chat. */
+export function suggestionsForIntent(intent: SuggestionIntent | string | null | undefined): string[] {
+  const list = SUGGESTIONS[(intent ?? 'free_chat') as SuggestionIntent] ?? SUGGESTIONS.free_chat;
+  return list.slice(0, 4);
+}
+
+/** A confirmation is rendered once by the client, never also by the model. */
+export function suppressesModelBubble(
+  call: {name?: string; requires_confirmation?: boolean} | null | undefined,
+): boolean {
+  return Boolean(call && call.requires_confirmation
+    && (call.name === 'navigateToPage' || call.name === 'openSidebar'));
+}
+
+export function intentForCall(call: AssistantFunctionCall | null | undefined): SuggestionIntent {
+  if (!call) return 'free_chat';
+  if (call.name === 'fetchCashSummary') return 'cash_summary';
+  if (call.name === 'fetchAttendanceSummary') return 'attendance';
+  if (call.name === 'fetchVesselSummary') return 'vessel';
+  if (call.name === 'searchEmployee') return 'employee_search_results';
+  if (call.name === 'isBlockedQuestion') return 'blocked';
+  if (call.name === 'navigateToPage') {
+    const page = String(call.arguments?.page ?? '');
+    if (page.startsWith('cash') || page === 'review') return 'cash_summary';
+    if (page === 'vessel') return 'vessel';
+    if (page === 'attendance') return 'attendance';
+  }
+  return 'free_chat';
+}
+
 export const UNSUPPORTED_DATE_RANGE = [
   'দুঃখিত — নির্দিষ্ট তারিখ-রেঞ্জ (যেমন ১৫ আগস্ট – ২৩ সেপ্টেম্বর) এখনো সমর্থিত নয়,',
   'তাই আমি ভুল করে সর্বমোট হিসাব দেব না।',

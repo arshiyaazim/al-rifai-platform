@@ -6,7 +6,9 @@ import {composeReply} from '@/lib/ai/llm';
 import {ASSISTANT_DENIAL, getSystemPrompt} from '@/lib/standalone/ai-assistant-prompt';
 import {
   hasExplicitDateRange, isBlockedQuestion, guideFor, planAssistantCall, UNSUPPORTED_DATE_RANGE,
+  intentForCall, suggestionsForIntent,
 } from '@/lib/standalone/ai-assistant-functions';
+import {matchTemplateByLabel, resolveTemplateActions} from '@/lib/standalone/ai-assistant-templates';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -87,10 +89,25 @@ export async function POST(request: Request) {
 
     const mobile = message.match(/(?:\+?88)?(01[3-9]\d{8})/)?.[1] ?? null;
 
+    // Deterministic templates win over the model: the label already carries the
+    // verified steps, so no LLM call and no drift.
+    const template = matchTemplateByLabel(message);
+    if (template) {
+      return ok({
+        ok: true,
+        answer: template.response,
+        template: {id: template.id, label: template.label},
+        actions: resolveTemplateActions(template),
+        suggestions: template.followUps.slice(0, 4),
+        used: false, model: null, remaining: slot.remaining,
+      });
+    }
+
     // Hard deny list runs before the model, so the refusal never depends on it.
     if (isBlockedQuestion(message)) {
       return ok({
         ok: true, answer: ASSISTANT_DENIAL, blocked: true, used: false, model: null,
+        suggestions: suggestionsForIntent('blocked'),
         remaining: slot.remaining,
       });
     }
@@ -100,7 +117,9 @@ export async function POST(request: Request) {
     if (hasExplicitDateRange(message)) {
       return ok({
         ok: true, answer: UNSUPPORTED_DATE_RANGE, unsupported_range: true,
-        used: false, model: null, remaining: slot.remaining,
+        used: false, model: null,
+        suggestions: suggestionsForIntent('unsupported_date_range'),
+        remaining: slot.remaining,
       });
     }
 
@@ -108,7 +127,11 @@ export async function POST(request: Request) {
     const guide = guideFor(message);
 
     if (!IN_SCOPE.test(message) && !mobile && !call && !guide) {
-      return ok({ok: true, answer: FALLBACK, used: false, model: null, remaining: slot.remaining});
+      return ok({
+        ok: true, answer: FALLBACK, used: false, model: null,
+        suggestions: suggestionsForIntent('free_chat'),
+        remaining: slot.remaining,
+      });
     }
 
     // Tool intents get a short, number-free base so the model cannot drift from
@@ -155,6 +178,7 @@ export async function POST(request: Request) {
       reason: composed.reason,
       remaining: slot.remaining,
       function_call: call,
+      suggestions: suggestionsForIntent(call ? intentForCall(call) : 'free_chat'),
     });
   } catch (error) {
     return errorResponse(error);

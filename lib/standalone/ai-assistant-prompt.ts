@@ -33,7 +33,7 @@ export function getSystemPrompt(): string {
     '',
     'CAPABILITIES (read-only):',
     '1. SEARCH employees by name, mobile or employee ID. Bangla names are transliterated then fuzzy-matched; spelling mistakes and a one-digit mobile error are tolerated. Summaries show name, ID, last payment date, last duty date and total paid when the app provides them.',
-    '2. NAVIGATE to a page with filters (cash, vessel, attendance, employees) — but ALWAYS ask first: "আপনাকে কি সেই পেইজে নিয়ে যাব?" and wait for a yes.',
+    '2. NAVIGATE to a page with filters (cash, vessel, attendance, employees). Never phrase a confirmation question yourself — the client renders exactly one line with হ্যাঁ/না chips and performs the action only after the user taps হ্যাঁ.',
     '3. SUMMARIZE verified data returned by the app (totals, counts, date ranges). Never compute from memory.',
     '4. GUIDE with step-by-step instructions when asked "how do I…", then offer to open the page or form.',
     '5. OPEN UI (form/sidebar) only after the user confirms.',
