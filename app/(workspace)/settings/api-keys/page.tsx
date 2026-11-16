@@ -18,15 +18,14 @@ export default async function ApiKeysPage() {
       <div className="page-head">
         <div>
           <h1>API Keys / এপিআই কী</h1>
-          <p className="muted">Manage Gemini, OpenAI and other AI API keys. Keys are shown masked; the full value is never returned.</p>
+          <p className="muted">Manage keys for any OpenAI-compatible provider (Gemini, OpenAI, OpenRouter, Groq, Mistral, local Ollama, or any custom endpoint). Keys are shown masked; the full value is never returned.</p>
         </div>
       </div>
 
       <section className="card" style={{marginBottom: 14, padding: 14}}>
         <h3 style={{marginTop: 0}}>AI / LLM — Gemini + local Ollama</h3>
         <p className="muted" style={{marginTop: 2, fontSize: 12}}>
-          Paste a Gemini key below with purpose <strong>AI / LLM</strong> to enable live WhatsApp replies.
-          The key is verified against Google, encrypted at rest, and never returned to the browser in full.
+          Paste or select a provider below, paste the key, then <strong>Verify &amp; Load Models</strong>. A key is valid when the provider returns its model list. The key is encrypted at rest and never returned to the browser in full.
         </p>
         <table className="cash-payment-table" style={{maxWidth: 720}}>
           <thead><tr><th>Task</th><th>Provider</th><th>Model</th><th>Status</th></tr></thead>
@@ -63,7 +62,7 @@ export default async function ApiKeysPage() {
         </p>
       </section>
 
-      <ApiKeyForm defaultPurpose="general" />
+      <ApiKeyForm defaultPurpose="platform-llm" />
 
       <ApiKeysTable />
     </div>

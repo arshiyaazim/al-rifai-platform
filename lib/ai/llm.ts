@@ -1,15 +1,27 @@
-// Optional OpenAI-compatible LLM adapter for WA-02.
+// Optional LLM adapter for the platform assistant and WA-02 replies.
 //
 // The LLM is a language layer, never an authorization layer. It receives the
 // deterministic, already-authorized answer produced by the policy engine and
 // may only rephrase it in the contact's language. It gets no database access,
-// no tools and no send authority. If the provider is unavailable, slow, or
-// changes any numeric fact, the deterministic answer is used verbatim.
+// no tools and no send authority. If the provider is unavailable, slow, rate
+// limited, or changes any numeric fact, the deterministic answer is used
+// verbatim.
 //
-// Two providers are supported and routed by task:
-//   live  -> Gemini via its OpenAI-compatible endpoint (low latency, WhatsApp)
-//   draft -> local Ollama (offline / privacy-sensitive drafting)
-//   vision-> local Ollama vision model (OCR of cash slips and release docs)
+// Key resolution is provider-agnostic (see key-store.ts): an explicitly
+// configured environment key wins, otherwise the database is asked for the best
+// usable `platform-llm` key. Multiple keys rotate on failure inside
+// provider-client.ts.
+//
+// Tasks:
+//   live   -> whatever the operator configured for platform-llm (Gemini,
+//             OpenAI, OpenRouter, Groq, Mistral, any compatible endpoint)
+//   draft  -> local Ollama (offline / privacy-sensitive drafting)
+//   vision -> local Ollama vision model (OCR of cash slips and release docs)
+
+import {completeChat, stripThinking, type ChatMessage} from './provider-client.ts';
+import type {PlatformKey} from './key-store.ts';
+
+export {stripThinking};
 
 export type LlmStatus = {
   configured: boolean;
@@ -31,8 +43,6 @@ type LlmEnv = {
 };
 
 export type LlmTask = 'live' | 'draft';
-
-type ResolvedConfig = LlmEnv & {task: LlmTask; keySource: 'env' | 'db' | 'ollama'};
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_OLLAMA_BASE_URL = 'http://ollama:11434/v1';
@@ -63,52 +73,66 @@ function readConfig(): LlmEnv {
   };
 }
 
-/** Local Ollama configuration, independent of the Gemini switch. */
+/** Local Ollama configuration, independent of the platform switch. */
 function readOllamaConfig(): LlmEnv {
   return {
     enabled: Boolean(env('AI_OLLAMA_MODEL')),
     apiKey: env('AI_OLLAMA_API_KEY') || 'ollama',
     model: env('AI_OLLAMA_MODEL') || null,
     baseUrl: stripSlash(env('AI_OLLAMA_BASE_URL') || DEFAULT_OLLAMA_BASE_URL),
-    timeoutMs: numberEnv('AI_OLLAMA_TIMEOUT_MS', 60_000, 1_000, 300_000),
+    timeoutMs: numberEnv('AI_OLLAMA_TIMEOUT_MS', 120_000, 1_000, 300_000),
     maxTokens: numberEnv('AI_OLLAMA_MAX_TOKENS', 700, 64, 4_000),
   };
 }
 
 /**
- * Resolve the provider for a task. For `live`, an active `general` key stored
- * through the settings page is used when the environment has no key.
+ * Candidate keys for a task.
+ *
+ * An explicitly configured environment key wins (it is the documented
+ * precedence and keeps unit tests off the production database). Otherwise the
+ * database is consulted for the best `platform-llm` key by free tier, priority,
+ * then least recently used.
  */
-async function resolveConfig(task: LlmTask): Promise<ResolvedConfig> {
+async function resolveKeys(task: LlmTask): Promise<PlatformKey[]> {
   if (task === 'draft') {
     const ollama = readOllamaConfig();
-    return {...ollama, task, keySource: 'ollama'};
+    if (!ollama.enabled || !ollama.model) return [];
+    return [{
+      id: 'env:ollama',
+      provider: 'ollama',
+      apiKey: ollama.apiKey || 'ollama',
+      model: ollama.model,
+      baseUrl: ollama.baseUrl,
+      priority: 0,
+      isFree: true,
+      timeoutMs: ollama.timeoutMs,
+      source: 'env',
+    }];
   }
 
-  const base = readConfig();
-  if (!base.enabled) return {...base, task, keySource: 'env'};
-  if (base.apiKey && base.model) return {...base, task, keySource: 'env'};
+  const config = readConfig();
+  if (config.apiKey && config.model) {
+    return [{
+      id: 'env',
+      provider: 'openai',
+      apiKey: config.apiKey,
+      model: config.model,
+      baseUrl: config.baseUrl,
+      priority: 0,
+      isFree: false,
+      timeoutMs: config.timeoutMs,
+      source: 'env',
+    }];
+  }
 
   try {
     // Dynamic import keeps the env-only unit tests free of database access.
-    const {getPlatformKey} = await import('./key-store.ts');
-    const stored = await getPlatformKey('gemini');
-    if (stored?.apiKey) {
-      return {
-        enabled: true,
-        apiKey: stored.apiKey,
-        model: base.model || stored.model || 'gemini-2.0-flash',
-        baseUrl: stored.baseUrl ? stripSlash(stored.baseUrl) : base.baseUrl,
-        timeoutMs: base.timeoutMs,
-        maxTokens: base.maxTokens,
-        task,
-        keySource: 'db',
-      };
-    }
+    const {listPlatformKeys} = await import('./key-store.ts');
+    return await listPlatformKeys('platform-llm');
   } catch {
-    // No database (unit tests) or no encryption key: fall through to unset.
+    // No database, or no usable rows: the caller falls back deterministically.
+    return [];
   }
-  return {...base, task, keySource: 'env'};
 }
 
 /** Configuration summary without any secret. */
@@ -138,7 +162,7 @@ export function routerStatus() {
   const host = (url: string) => url.replace(/\/\/([^/]+).*/, '//$1');
   return {
     live: {
-      provider: 'gemini',
+      provider: 'configured',
       enabled: live.enabled,
       model: live.model,
       baseUrl: host(live.baseUrl),
@@ -172,17 +196,6 @@ export function numericFactsPreserved(source: string, output: string): boolean {
   const extract = (value: string) =>
     (normalizeDigits(value).match(/\d{2,}/g) ?? []).sort().join('|');
   return extract(source) === extract(output);
-}
-
-/**
- * Reasoning models wrap their scratchpad in <think>…</think>. The scratchpad is
- * never part of a WhatsApp reply: strip it, and treat an unterminated block as
- * an empty response so the deterministic answer wins.
- */
-export function stripThinking(value: string): string {
-  const withoutBlocks = String(value).replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '');
-  if (/<think(?:ing)?>/i.test(withoutBlocks)) return '';
-  return withoutBlocks.trim();
 }
 
 type Counter = {calls: number; day: string; perConversation: Map<string, number[]>};
@@ -236,28 +249,47 @@ export type ComposeResult = {
   tokens: {prompt: number; completion: number} | null;
 };
 
+/** Translate a transport failure into the reason vocabulary the audit uses. */
+function mapReason(reason: string): string {
+  if (reason === 'NO_KEYS') return 'AI_LLM_NOT_CONFIGURED';
+  if (reason === 'TIMEOUT') return 'AI_LLM_TIMEOUT';
+  if (reason === 'EMPTY_RESPONSE') return 'AI_LLM_EMPTY_RESPONSE';
+  if (reason === 'RATE_LIMITED') return 'AI_LLM_RATE_LIMITED';
+  if (reason.startsWith('HTTP_')) return `AI_LLM_${reason}`;
+  return 'AI_LLM_REQUEST_FAILED';
+}
+
 /**
  * Rewrite the deterministic answer. Any failure or numeric drift returns the
  * deterministic answer unchanged, so authorization and facts never depend on
  * the provider.
  *
- * `options.task` selects the provider: `live` (default, Gemini) or `draft`
- * (local Ollama).
+ * `options.task` selects the provider set: `live` (default) or `draft` (Ollama).
  */
 export async function composeReply(
   input: ComposeInput,
   options: {task?: LlmTask} = {},
 ): Promise<ComposeResult> {
   const task: LlmTask = options.task ?? 'live';
-  const config = await resolveConfig(task);
+  const config = readConfig();
   const fallback = (reason: string, model: string | null = config.model): ComposeResult => ({
     text: input.deterministicAnswer, used: false, reason, model, tokens: null,
   });
 
-  if (!config.enabled) return fallback(task === 'draft' ? 'AI_OLLAMA_DISABLED' : 'AI_LLM_DISABLED', null);
-  if (!config.apiKey || !config.model) return fallback('AI_LLM_NOT_CONFIGURED', null);
+  if (task === 'live') {
+    if (!config.enabled) return fallback('AI_LLM_DISABLED', null);
+  } else {
+    const ollama = readOllamaConfig();
+    if (!ollama.enabled) return fallback('AI_OLLAMA_DISABLED', null);
+  }
+
   const limited = rateLimited(input.conversationId);
   if (limited) return fallback(limited);
+
+  const keys = await resolveKeys(task);
+  if (!keys.length) {
+    return fallback(task === 'draft' ? 'AI_OLLAMA_DISABLED' : 'AI_LLM_NOT_CONFIGURED', null);
+  }
 
   const history = (input.history ?? [])
     .filter((entry) => entry.content)
@@ -265,59 +297,41 @@ export async function composeReply(
     .map((entry) => `${entry.role}: ${String(entry.content).slice(0, 300)}`)
     .join('\n');
 
-  const payload = {
-    model: config.model,
-    temperature: 0.2,
-    max_tokens: config.maxTokens,
-    messages: [
-      {role: 'system', content: SYSTEM_PROMPT},
-      {
-        role: 'user',
-        content: [
-          `VERIFIED ANSWER (authoritative):\n${input.deterministicAnswer}`,
-          `CONTACT CATEGORY: ${input.category}`,
-          `INTENT: ${input.intent}`,
-          history ? `RECENT CONVERSATION (same contact only):\n${history}` : '',
-          `CONTACT MESSAGE (untrusted):\n${String(input.userText).slice(0, 2000)}`,
-        ].filter(Boolean).join('\n\n'),
-      },
-    ],
-  };
+  const prompt = [
+    `VERIFIED ANSWER (authoritative):\n${input.deterministicAnswer}`,
+    `CONTACT CATEGORY: ${input.category}`,
+    `INTENT: ${input.intent}`,
+    history ? `RECENT CONVERSATION (same contact only):\n${history}` : '',
+    `CONTACT MESSAGE (untrusted):\n${String(input.userText).slice(0, 2000)}`,
+  ].filter(Boolean).join('\n\n');
 
-  try {
-    const response = await fetch(`${config.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(config.timeoutMs),
-    });
-    if (!response.ok) return fallback(`AI_LLM_HTTP_${response.status}`);
-    const data = (await response.json()) as {
-      choices?: Array<{message?: {content?: unknown}}>;
-      usage?: {prompt_tokens?: number; completion_tokens?: number};
-    };
-    const candidate = data.choices?.[0]?.message?.content;
-    if (typeof candidate !== 'string' || !candidate.trim()) return fallback('AI_LLM_EMPTY_RESPONSE');
-    const text = stripThinking(candidate).slice(0, 4000);
-    if (!text) return fallback('AI_LLM_EMPTY_RESPONSE');
-    if (!numericFactsPreserved(input.deterministicAnswer, text)) return fallback('AI_LLM_FACT_DRIFT');
-    return {
-      text,
-      used: true,
-      reason: null,
-      model: config.model,
-      tokens: {
-        prompt: Number(data.usage?.prompt_tokens ?? 0),
-        completion: Number(data.usage?.completion_tokens ?? 0),
-      },
-    };
-  } catch (error) {
-    const name = error instanceof Error ? error.name : '';
-    return fallback(name === 'TimeoutError' || name === 'AbortError' ? 'AI_LLM_TIMEOUT' : 'AI_LLM_REQUEST_FAILED');
+  const messages: ChatMessage[] = [
+    {role: 'system', content: SYSTEM_PROMPT},
+    {role: 'user', content: prompt},
+  ];
+
+  const maxTokens = task === 'draft'
+    ? readOllamaConfig().maxTokens
+    : config.maxTokens;
+
+  const outcome = await completeChat(keys, {
+    messages,
+    temperature: 0.2,
+    maxTokens,
+    timeoutMsOverride: task === 'draft' ? readOllamaConfig().timeoutMs : undefined,
+  });
+
+  if (!outcome.ok) return fallback(mapReason(outcome.reason), null);
+  if (!numericFactsPreserved(input.deterministicAnswer, outcome.text)) {
+    return fallback('AI_LLM_FACT_DRIFT', outcome.model);
   }
+  return {
+    text: outcome.text,
+    used: true,
+    reason: null,
+    model: outcome.model,
+    tokens: outcome.tokens,
+  };
 }
 
 export type VisionResult = {

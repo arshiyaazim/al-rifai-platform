@@ -2,7 +2,7 @@ import {actorFor, bodyOf, errorResponse, ok} from '../../../_shared';
 import {assertCapability} from '@/lib/standalone/authz';
 import {getApiKeyForTest, recordKeyTest} from '@/lib/standalone/api-keys';
 import {testApiKey} from '@/lib/ai-provider-test';
-import {baseUrlFromNotes, type AiProvider} from '@/lib/ai-provider';
+import {baseUrlFromNotes, normalizeProvider} from '@/lib/ai-provider';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,10 +17,10 @@ export async function POST(request: Request) {
     if (!key) return ok({error: 'API_KEY_NOT_FOUND'}, 404);
 
     const result = await testApiKey({
-      provider: key.provider as AiProvider,
+      provider: normalizeProvider(key.provider),
       apiKey: key.api_key,
       model: key.model || '',
-      baseUrl: baseUrlFromNotes(key.notes),
+      baseUrl: key.base_url || baseUrlFromNotes(key.notes),
     });
     await recordKeyTest(key.id, {ok: result.ok, error: result.error});
     return ok(result);

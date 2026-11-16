@@ -5,13 +5,15 @@ import {toast} from 'sonner';
 import {Button} from '@/components/ui/button';
 import {ApiKeyForm} from '@/components/standalone/api-key-form';
 import {RowActionsMenu} from '@/components/standalone/row-actions-menu';
+import {providerLabel} from '@/lib/ai-provider';
 
 type KeyRow = {
   id: string; provider: string; key_name: string; masked_key: string; model: string | null;
-  purpose: string; is_active: boolean; usage_count: number; last_used_at: string | null;
-  last_error: string | null; last_error_at: string | null; cooldown_until: string | null;
-  daily_limit: number | null; daily_usage: number; daily_reset_at: string | null;
-  created_at: string; updated_at: string; notes: string | null;
+  purpose: string; purpose_tags: string[]; base_url: string | null; priority: number;
+  is_free: boolean; fail_count: number; is_active: boolean; usage_count: number;
+  last_used_at: string | null; last_error: string | null; last_error_at: string | null;
+  cooldown_until: string | null; daily_limit: number | null; daily_usage: number;
+  daily_reset_at: string | null; created_at: string; updated_at: string; notes: string | null;
 };
 
 async function csrfToken(): Promise<string> {
@@ -25,8 +27,7 @@ const cooldownLeft = (value: string | null) => {
   if (!value) return 0;
   return Math.max(0, Math.ceil((new Date(value).getTime() - Date.now()) / 1000));
 };
-const providerBadge = (provider: string) => provider === 'gemini' ? '✦ Gemini'
-  : provider === 'openai' ? '◎ OpenAI' : provider === 'anthropic' ? '✳ Anthropic' : '◈ Other';
+const providerBadge = (provider: string) => providerLabel(provider);
 
 export function ApiKeysTable() {
   const [keys, setKeys] = useState<KeyRow[]>([]);
@@ -104,12 +105,13 @@ export function ApiKeysTable() {
               <col style={{width: 100}} />
               <col style={{width: 190}} />
               <col style={{width: 220}} />
+              <col style={{width: 70}} />
               <col style={{width: 110}} />
               <col style={{width: 70}} />
             </colgroup>
-            <thead><tr><th>#</th><th>Key Name</th><th>Provider</th><th>Model</th><th>Masked Key</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>#</th><th>Key Name</th><th>Provider</th><th>Model</th><th>Masked Key</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={7} className="muted">Loading keys…</td></tr> : null}
+              {loading ? <tr><td colSpan={8} className="muted">Loading keys…</td></tr> : null}
               {!loading && pageRows.map((row, index) => {
                 const left = cooldownLeft(row.cooldown_until);
                 return (
@@ -119,6 +121,7 @@ export function ApiKeysTable() {
                     <td><span className="pill">{providerBadge(row.provider)}</span></td>
                     <td>{row.model ?? '—'}</td>
                     <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{row.masked_key}</td>
+                    <td>{row.priority}</td>
                     <td>
                       {!row.is_active ? <span className="pill">⚫ Disabled</span>
                         : left > 0 ? <span className="pill warn">🟡 {left}s</span>
@@ -138,7 +141,7 @@ export function ApiKeysTable() {
                   </tr>
                 );
               })}
-              {!loading && !pageRows.length ? <tr><td colSpan={7} className="muted">No API keys yet.</td></tr> : null}
+              {!loading && !pageRows.length ? <tr><td colSpan={8} className="muted">No API keys yet.</td></tr> : null}
             </tbody>
           </table>
         </div>

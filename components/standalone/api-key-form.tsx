@@ -4,7 +4,8 @@ import {useState} from 'react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {
-  baseUrlFromNotes, defaultModel, detectProvider, PROVIDER_LABEL, PROVIDER_MODELS, type AiProvider,
+  baseUrlFromNotes, defaultBaseUrl, KEY_PURPOSES, normalizeProvider,
+  PROVIDER_SPECS, providerLabel, requiresBaseUrl,
 } from '@/lib/ai-provider';
 
 export type EditableKey = {
@@ -14,6 +15,9 @@ export type EditableKey = {
   model: string | null;
   notes: string | null;
   purpose?: string;
+  base_url?: string | null;
+  priority?: number;
+  is_free?: boolean;
 };
 
 async function csrfToken(): Promise<string> {
@@ -23,37 +27,43 @@ async function csrfToken(): Promise<string> {
   return body.csrf;
 }
 
+const initialBaseUrl = (editing?: EditableKey | null) =>
+  editing ? (editing.base_url || baseUrlFromNotes(editing.notes) || defaultBaseUrl(editing.provider)) : defaultBaseUrl('gemini');
+
 export function ApiKeyForm({
-  onCreated, editing, onSaved, onCancel, defaultPurpose = 'recruitment',
+  onCreated, editing, onSaved, onCancel, defaultPurpose = 'platform-llm',
 }: {
   onCreated?: () => void;
   editing?: EditableKey | null;
   onSaved?: () => void;
   onCancel?: () => void;
-  defaultPurpose?: 'recruitment' | 'general';
+  defaultPurpose?: string;
 }) {
   const editingMode = Boolean(editing);
   const [open, setOpen] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [show, setShow] = useState(false);
-  const [provider, setProvider] = useState<AiProvider>((editing?.provider as AiProvider) ?? 'gemini');
-  const [model, setModel] = useState(editing?.model ?? defaultModel((editing?.provider as AiProvider) ?? 'gemini'));
-  const [baseUrl, setBaseUrl] = useState(baseUrlFromNotes(editing?.notes));
-  const [purpose, setPurpose] = useState<'recruitment' | 'general'>(
-    (editing?.purpose as 'recruitment' | 'general') ?? defaultPurpose,
-  );
+  const [provider, setProvider] = useState<string>(normalizeProvider(editing?.provider) || 'gemini');
+  const [model, setModel] = useState(editing?.model ?? '');
+  const [baseUrl, setBaseUrl] = useState(initialBaseUrl(editing));
+  const [purpose, setPurpose] = useState<string>(editing?.purpose ?? defaultPurpose);
+  const [priority, setPriority] = useState<string>(String(editing?.priority ?? 0));
+  const [isFree, setIsFree] = useState<boolean>(editing?.is_free === true);
   const [verifiedModels, setVerifiedModels] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  function onKeyChange(value: string) {
-    setApiKey(value);
-    const detected = detectProvider(value);
-    setProvider(detected);
-    const options = PROVIDER_MODELS[detected];
-    setModel(options.includes(model) ? model : defaultModel(detected));
+  function onProviderChange(next: string) {
+    const value = normalizeProvider(next);
+    setProvider(value);
+    // Base URL follows the provider unless the operator typed their own.
+    setBaseUrl(defaultBaseUrl(value));
+    setVerifiedModels([]);
+    if (!model) setModel('');
   }
+
+  const needsBaseUrl = requiresBaseUrl(provider);
 
   async function test() {
     setBusy(true); setError(''); setNotice('');
@@ -64,7 +74,7 @@ export function ApiKeyForm({
         headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token},
         body: JSON.stringify(editingMode
           ? {id: editing?.id}
-          : {apiKey, model, baseUrl}),
+          : {apiKey, provider, model, baseUrl}),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
@@ -81,7 +91,7 @@ export function ApiKeyForm({
       const response = await fetch('/api/settings/api-keys/models', {
         method: 'POST', credentials: 'same-origin',
         headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token},
-        body: JSON.stringify(editingMode ? {id: editing?.id, baseUrl} : {apiKey, baseUrl}),
+        body: JSON.stringify(editingMode ? {id: editing?.id, baseUrl} : {apiKey, provider, baseUrl}),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
@@ -97,27 +107,28 @@ export function ApiKeyForm({
   async function save() {
     setBusy(true); setError(''); setNotice('');
     try {
-      if (!apiKey.trim() && !editingMode) throw new Error('API key is required');
-      if (provider === 'other' && !baseUrl.trim()) throw new Error('Base URL is required for Other provider');
+      if (!apiKey.trim() && !editingMode && provider !== 'ollama') throw new Error('API key is required');
+      if (needsBaseUrl && !baseUrl.trim()) throw new Error('Base URL is required for this provider');
+      if (!model.trim()) throw new Error('Select or type a model first');
       const token = await csrfToken();
       const response = await fetch('/api/settings/api-keys', {
         method: editingMode ? 'PATCH' : 'POST',
         credentials: 'same-origin',
         headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token},
-        body: JSON.stringify(editingMode
-          ? {id: editing?.id, model, purpose, baseUrl: provider === 'other' ? baseUrl : undefined}
-          : {apiKey, model, purpose, baseUrl: provider === 'other' ? baseUrl : undefined}),
+        body: JSON.stringify({
+          ...(editingMode ? {id: editing?.id} : {apiKey}),
+          provider, model, purpose, baseUrl, priority: Number(priority) || 0, isFree,
+        }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
       setNotice(editingMode ? 'Saved.' : 'Key added.');
       if (editingMode) onSaved?.();
-      else { setApiKey(''); setBaseUrl(''); onCreated?.(); }
+      else { setApiKey(''); setVerifiedModels([]); onCreated?.(); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Save failed'); }
     finally { setBusy(false); }
   }
 
-  const options = verifiedModels.length ? verifiedModels : PROVIDER_MODELS[provider];
   const body = (
     <div className="grid gap-2">
       {editingMode ? (
@@ -127,38 +138,50 @@ export function ApiKeyForm({
       ) : (
         <label className="text-sm">API Key
           <span style={{display: 'flex', gap: 4}}>
-            <Input type={show ? 'text' : 'password'} value={apiKey} onChange={(event) => onKeyChange(event.target.value)} autoComplete="off" placeholder="Paste the key" />
+            <Input type={show ? 'text' : 'password'} value={apiKey} onChange={(event) => setApiKey(event.target.value)} autoComplete="off" placeholder={provider === 'ollama' ? 'Not required for Ollama' : 'Paste the key'} />
             <Button type="button" size="sm" variant="outline" onClick={() => setShow(!show)}>{show ? 'Hide' : 'Show'}</Button>
           </span>
         </label>
       )}
 
-      <div className={`pill ${provider === 'other' ? 'warn' : 'ok'}`} style={{width: 'fit-content'}}>
-        Detected: {PROVIDER_LABEL[provider]}
-      </div>
-
-      <label className="text-sm">Purpose
-        <select className="vessel-select" value={purpose} onChange={(event) => setPurpose(event.target.value as 'recruitment' | 'general')}>
-          <option value="general">AI / LLM — platform assistant (encrypted)</option>
-          <option value="recruitment">Recruitment application</option>
+      <label className="text-sm">Provider
+        <select className="vessel-select" value={provider} onChange={(event) => onProviderChange(event.target.value)}>
+          {PROVIDER_SPECS.map((spec) => <option key={spec.id} value={spec.id}>{spec.label}</option>)}
         </select>
       </label>
 
+      <label className="text-sm">Base URL {needsBaseUrl ? <span style={{color: '#b91c1c'}}>(required)</span> : <span className="muted">(optional — default {defaultBaseUrl(provider) || 'none'})</span>}
+        <Input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder={defaultBaseUrl(provider) || 'https://api.example.com/v1'} />
+      </label>
+
       <label className="text-sm">Model
-        {provider === 'other' ? (
-          <Input value={model} onChange={(event) => setModel(event.target.value)} placeholder="model-name" />
-        ) : (
+        {verifiedModels.length ? (
           <select className="vessel-select" value={model} onChange={(event) => setModel(event.target.value)}>
-            {options.map((value) => <option key={value} value={value}>{value}</option>)}
+            {verifiedModels.map((value) => <option key={value} value={value}>{value}</option>)}
           </select>
+        ) : (
+          <Input value={model} onChange={(event) => setModel(event.target.value)} placeholder="Verify & Load Models, or type a model name" />
         )}
       </label>
 
-      {provider === 'other' ? (
-        <label className="text-sm">Base URL
-          <Input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.example.com/v1" />
+      <label className="text-sm">Purpose
+        <select className="vessel-select" value={purpose} onChange={(event) => setPurpose(event.target.value)}>
+          {KEY_PURPOSES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+        </select>
+      </label>
+
+      <div style={{display: 'flex', gap: 12, alignItems: 'flex-end'}}>
+        <label className="text-sm" style={{width: 130}}>Priority
+          <Input type="number" min={0} value={priority} onChange={(event) => setPriority(event.target.value)} />
         </label>
-      ) : null}
+        <label className="text-sm" style={{display: 'flex', gap: 6, alignItems: 'center', paddingBottom: 6}}>
+          <input type="checkbox" checked={isFree} onChange={(event) => setIsFree(event.target.checked)} />
+          Free-tier model
+        </label>
+      </div>
+      <p className="muted" style={{fontSize: 11, margin: 0}}>
+        Lower priority is tried first. Free-tier keys win ties. Provider: {providerLabel(provider)}.
+      </p>
 
       {error ? <p role="alert" style={{color: '#b91c1c'}}>{error}</p> : null}
       {notice ? <p style={{color: '#15803d'}}>{notice}</p> : null}
@@ -167,10 +190,10 @@ export function ApiKeyForm({
         <Button type="button" size="sm" onClick={() => void save()} disabled={busy}>
           {busy ? 'Working…' : editingMode ? 'Save' : 'Add Key'}
         </Button>
-        <Button type="button" size="sm" variant="outline" onClick={() => void verify()} disabled={busy || (!editingMode && !apiKey)}>
+        <Button type="button" size="sm" variant="outline" onClick={() => void verify()} disabled={busy || (!editingMode && !apiKey && provider !== 'ollama')}>
           Verify &amp; Load Models
         </Button>
-        <Button type="button" size="sm" variant="outline" onClick={() => void test()} disabled={busy || (!editingMode && !apiKey)}>
+        <Button type="button" size="sm" variant="outline" onClick={() => void test()} disabled={busy || (!editingMode && !apiKey && provider !== 'ollama')}>
           Test Key
         </Button>
         {editingMode ? <Button type="button" size="sm" variant="outline" onClick={onCancel} disabled={busy}>Cancel</Button> : null}
@@ -183,7 +206,7 @@ export function ApiKeyForm({
   return (
     <section className="card" style={{marginBottom: 14, padding: 14}}>
       <div className="page-head" style={{marginBottom: 8}}>
-        <div><h3 style={{margin: 0}}>Add New Key</h3><p className="muted" style={{marginTop: 2, fontSize: 12}}>Paste the key, pick a model, add. Provider is detected automatically.</p></div>
+        <div><h3 style={{margin: 0}}>Add New Key</h3><p className="muted" style={{marginTop: 2, fontSize: 12}}>Pick the provider, paste the key, verify, choose a model, add.</p></div>
         <Button type="button" size="sm" variant="outline" onClick={() => setOpen(!open)}>{open ? 'Collapse' : 'Add New Key'}</Button>
       </div>
       {open ? body : null}
