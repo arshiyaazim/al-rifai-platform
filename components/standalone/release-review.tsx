@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import {useRouter} from 'next/navigation';
-import {useMemo, useState} from 'react';
+import {Fragment, useMemo, useState} from 'react';
 import {toast} from 'sonner';
 import {AppToaster} from '@/components/standalone/app-toaster';
 import {Button} from '@/components/ui/button';
@@ -55,6 +55,13 @@ export function ReleaseReview({initial, canRelease}: {initial: ReleaseSlipRow[];
   const [mother, setMother] = useState('');
   const [page, setPage] = useState(1);
   const limit = 20;
+
+  type OcrState = {
+    busy: boolean;
+    error?: string;
+    result?: {ok: boolean; reason?: string | null; model?: string | null; text?: string; fields?: Record<string, string> | null};
+  };
+  const [ocr, setOcr] = useState<Record<string, OcrState>>({});
 
   const mothers = useMemo(
     () => [...new Set(rows.map((row) => row.motherVessel).filter(Boolean) as string[])].sort(),
@@ -122,6 +129,28 @@ export function ReleaseReview({initial, canRelease}: {initial: ReleaseSlipRow[];
     }
   }
 
+  async function runOcr(row: ReleaseSlipRow) {
+    if (!row.imageLink) return;
+    setOcr((current) => ({...current, [row.messageId]: {busy: true}}));
+    try {
+      const token = await csrfToken();
+      const response = await fetch('/api/release/ocr', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token},
+        body: JSON.stringify({account: row.accountId, chat: row.chatJid, message: row.messageId}),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
+      setOcr((current) => ({...current, [row.messageId]: {busy: false, result: body}}));
+    } catch (cause) {
+      setOcr((current) => ({
+        ...current,
+        [row.messageId]: {busy: false, error: cause instanceof Error ? cause.message : 'OCR failed'},
+      }));
+    }
+  }
+
   return (
     <>
       <AppToaster />
@@ -182,8 +211,11 @@ export function ReleaseReview({initial, canRelease}: {initial: ReleaseSlipRow[];
               </tr>
             </thead>
             <tbody>
-              {pageRows.map((row, index) => (
-                <tr key={row.messageId}>
+              {pageRows.map((row, index) => {
+                const ocrState = ocr[row.messageId];
+                return (
+                <Fragment key={row.messageId}>
+                <tr>
                   <td style={{width: 48}}>{(safePage - 1) * limit + index + 1}</td>
                   <td style={{whiteSpace: 'nowrap'}}>
                     {dateDdMmYyyy(row.slipDate)}
@@ -205,9 +237,15 @@ export function ReleaseReview({initial, canRelease}: {initial: ReleaseSlipRow[];
                   <td style={{whiteSpace: 'nowrap'}}>{row.startDate ? dateDdMmYyyy(row.startDate) : '—'}</td>
                   <td style={{whiteSpace: 'nowrap'}}>{row.endDate ? `${dateDdMmYyyy(row.endDate)}${row.endShift ? ` (${row.endShift})` : ''}` : '—'}</td>
                   <td>
-                    {row.imageLink
-                      ? <a href={row.imageLink} target="_blank" rel="noreferrer">Image</a>
-                      : <span className="muted">—</span>}
+                    {row.imageLink ? (
+                      <span style={{display: 'inline-flex', gap: 6, alignItems: 'center'}}>
+                        <a href={row.imageLink} target="_blank" rel="noreferrer">Image</a>
+                        {canRelease ? (
+                          <Button type="button" size="sm" variant="outline" disabled={ocrState?.busy}
+                            onClick={() => void runOcr(row)}>{ocrState?.busy ? 'Reading…' : 'OCR'}</Button>
+                        ) : null}
+                      </span>
+                    ) : <span className="muted">—</span>}
                   </td>
                   <td><Link href={`/messages?q=${encodeURIComponent(row.messageId)}`}>Messages</Link></td>
                   <td>
@@ -230,7 +268,48 @@ export function ReleaseReview({initial, canRelease}: {initial: ReleaseSlipRow[];
                     </div>
                   </td>
                 </tr>
-              ))}
+                {ocrState ? (
+                  <tr>
+                    <td colSpan={12} style={{background: '#f8fafc'}}>
+                      <div style={{padding: '8px 10px'}}>
+                        <strong style={{fontSize: 12}}>
+                          OCR draft — verify every field against the slip before approving. Nothing is saved.
+                        </strong>
+                        {ocrState.busy ? <p className="muted" style={{fontSize: 12, margin: '4px 0 0'}}>Reading the image…</p> : null}
+                        {ocrState.error ? <p role="alert" style={{fontSize: 12, color: '#b91c1c', margin: '4px 0 0'}}>{ocrState.error}</p> : null}
+                        {ocrState.result && !ocrState.result.ok ? (
+                          <p className="muted" style={{fontSize: 12, margin: '4px 0 0'}}>
+                            OCR unavailable ({ocrState.result.reason ?? 'UNKNOWN'}). The slip is unchanged; use the image link.
+                          </p>
+                        ) : null}
+                        {ocrState.result?.ok ? (
+                          <div style={{marginTop: 6}}>
+                            <div className="muted" style={{fontSize: 11}}>Model: {ocrState.result.model ?? '—'}</div>
+                            {ocrState.result.fields ? (
+                              <table className="cash-payment-table" style={{maxWidth: 720, marginTop: 4}}>
+                                <tbody>
+                                  {Object.entries(ocrState.result.fields).map(([key, value]) => (
+                                    <tr key={key}>
+                                      <td style={{width: 160, textTransform: 'capitalize'}}>{key.replace(/_/g, ' ')}</td>
+                                      <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 12}}>{value}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            ) : null}
+                            <details style={{marginTop: 6}}>
+                              <summary className="muted" style={{fontSize: 11, cursor: 'pointer'}}>Raw model output</summary>
+                              <pre style={{whiteSpace: 'pre-wrap', fontSize: 11, margin: '4px 0 0', maxHeight: 220, overflow: 'auto'}}>{ocrState.result.text}</pre>
+                            </details>
+                          </div>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ) : null}
+                </Fragment>
+                );
+              })}
               {!pageRows.length ? <tr><td colSpan={12} className="muted">No release slips match these filters.</td></tr> : null}
             </tbody>
           </table>

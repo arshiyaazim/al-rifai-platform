@@ -379,25 +379,39 @@ export type VisionResult = {
 const visionModel = () => env('AI_OLLAMA_VISION_MODEL') || 'qwen3-vl:2b';
 
 /**
- * OCR keys: operator-managed `ocr` rows first (any provider with vision), then
- * the local Ollama vision model. On-demand only — nothing calls this on a timer.
+ * Models that can accept an image. Used only to decide which `platform-llm`
+ * keys are worth trying as an OCR fallback; the provider remains the judge.
+ */
+export function looksLikeVisionModel(model: string | null | undefined): boolean {
+  return /(vision|\bvl\b|llava|moondream|omni|gpt-4o|gpt-4\.1|claude-(3|4)|gemini-\d+(?:\.\d+)?-(?:pro|flash))/i
+    .test(String(model ?? ''));
+}
+
+/**
+ * OCR keys, on-demand only and cheapest first:
+ *   1. local Ollama vision model (free, private)
+ *   2. operator-managed `ocr` purpose keys
+ *   3. `platform-llm` keys whose model can read images
  */
 async function visionKeys(): Promise<PlatformKey[]> {
-  const stored = await databaseKeys('ocr');
-  if (stored?.length) return stored;
   const ollama = readOllamaConfig();
-  return [{
+  const keys: PlatformKey[] = [{
     id: 'env:vision',
     provider: 'ollama',
     apiKey: ollama.apiKey || 'ollama',
     model: visionModel(),
     baseUrl: ollama.baseUrl,
-    priority: 0,
+    priority: -1,
     isFree: true,
     failCount: 0,
     timeoutMs: numberEnv('AI_OLLAMA_VISION_TIMEOUT_MS', 120_000, 5_000, 300_000),
     source: 'env',
   }];
+  const ocr = await databaseKeys('ocr');
+  if (ocr?.length) keys.push(...ocr);
+  const platform = await databaseKeys('platform-llm');
+  if (platform?.length) keys.push(...platform.filter((key) => looksLikeVisionModel(key.model)));
+  return keys;
 }
 
 function mapVisionReason(reason: string): string {
@@ -425,7 +439,7 @@ export async function composeVision(input: {
   if (!input.imageBase64) return fallback('AI_VISION_NO_IMAGE');
 
   const mimeType = input.mimeType || 'image/jpeg';
-  const timeoutMs = input.timeoutMs ?? numberEnv('AI_OLLAMA_VISION_TIMEOUT_MS', 120_000, 5_000, 300_000);
+  const override = input.timeoutMs;
 
   const keys = await visionKeys();
   if (!keys.length) return fallback('AI_VISION_NOT_CONFIGURED');
@@ -439,7 +453,7 @@ export async function composeVision(input: {
     messages: [{role: 'user', content}],
     temperature: 0.1,
     maxTokens: 1_200,
-    timeoutMsOverride: timeoutMs,
+    ...(override ? {timeoutMsOverride: override} : {}),
   });
   if (!outcome.ok) return fallback(mapVisionReason(outcome.reason));
 

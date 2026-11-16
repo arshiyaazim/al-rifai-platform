@@ -40,6 +40,9 @@ export type ReleaseSlipRow = {
   destination: string | null;
   structured: boolean;
   imageLink: string | null;
+  /** Media coordinates, used by the on-demand OCR button. */
+  accountId: string;
+  chatJid: string;
   status: ReleaseStatus;
   cashVerified: boolean;
   cashAmountMinor: string | null;
@@ -237,6 +240,8 @@ export async function listReleaseSlips(): Promise<ReleaseSlipRow[]> {
       slipDate: item.slipDate,
       escortMobile: item.escortMobile,
       escortName: item.escortName,
+      accountId: item.accountId,
+      chatJid: item.chatJid,
       lighterVessel: item.lighterVessel ?? program?.lighter_vessel ?? null,
       lighterMaster: item.lighterMaster ?? program?.master_mobile ?? null,
       motherVessel: item.motherVessel ?? program?.mother_vessel ?? null,
