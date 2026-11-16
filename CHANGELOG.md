@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.3.11-employees — Employee workspace + file uploads (2026-11-16)
+
+- Employee detail card on /employees: name, ID, secondary and family mobile,
+  joining date, NID, current/permanent address, designation, salary, 80x80
+  photo and document list; a collapsible "More details" block keeps birth
+  certificate, passport, duty type, state, aliases and notes.
+- Add/Edit employee form now carries exactly the same fields in the same order,
+  with salary override (blank = derived ৳400/day) plus profile photo and
+  multi-file document uploads.
+- Employee sub-tables (attendance, cash, vessel) under the detail card, one
+  date range drives all three, 20 rows per page.
+- Employees page search box simplified: label removed, magnifier icon, 320px
+  compact input matching the cash search.
+- New /api/employees/upload, /api/employees/file and document DELETE endpoints
+  (<=10MB, MIME whitelisted, path-traversal guarded); uploads persist through
+  the ./uploads/employees bind mount.
+- DB migration 028: employees.salary_amount, employees.photo_url and the
+  employee_documents table with its employee index.
+- API keys edit dialog now scrolls (max 85vh) with sticky Save/Cancel, and the
+  inactive-key audit report was added.
+
 ## v3.3.10-ui-cleanup — UI cleanup + AI key repurpose (2026-11-16)
 
 - API keys table: fixed column overlap (fixed layout, ellipsis cells, inline
