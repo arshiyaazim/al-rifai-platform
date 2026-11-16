@@ -22,7 +22,7 @@ export async function POST(request: Request) {
       model: key.model || '',
       baseUrl: key.base_url || baseUrlFromNotes(key.notes),
     });
-    await recordKeyTest(key.id, {ok: result.ok, error: result.error});
+    await recordKeyTest(key.id, {ok: result.ok, error: result.error, status: result.status});
     return ok(result);
   } catch (error) { return errorResponse(error); }
 }

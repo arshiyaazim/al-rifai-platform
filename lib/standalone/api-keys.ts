@@ -154,6 +154,19 @@ export async function updateApiKey(actor: Actor, input: {
     const purpose = input.purpose === undefined ? String(existing.purpose) : String(input.purpose).toLowerCase();
     if (!PURPOSES.has(purpose)) throw new DomainError('INVALID_PURPOSE', 400);
 
+    // Moving a key across the encryption boundary rewrites it, because the
+    // recruitment worker reads plaintext while every platform purpose is sealed.
+    let storedKey = String(existing.api_key ?? '');
+    let reencrypted = false;
+    if (purpose !== String(existing.purpose)) {
+      const plain = safeDecryptSecret(storedKey);
+      if (plain) {
+        const next = isEncryptedPurpose(purpose) ? encryptSecret(plain) : plain;
+        reencrypted = next !== storedKey;
+        storedKey = next;
+      }
+    }
+
     const provider = input.provider === undefined ? String(existing.provider) : normalizeProvider(input.provider);
     if (!provider || provider.length > 60) throw new DomainError('INVALID_PROVIDER', 400);
 
@@ -175,17 +188,18 @@ export async function updateApiKey(actor: Actor, input: {
     const updated = await client.query<Record<string, unknown>>(
       `UPDATE api_keys
           SET provider = $2, key_name = $3, model = $4, purpose = $5, base_url = $6,
-              priority = $7, is_free = $8, daily_limit = $9, is_active = $10, notes = $11
+              priority = $7, is_free = $8, daily_limit = $9, is_active = $10, notes = $11,
+              api_key = $12
         WHERE id = $1 RETURNING *`,
       [id, provider,
         input.keyName === undefined ? existing.key_name : text(input.keyName, 'keyName', {max: 120}),
         input.model === undefined ? existing.model : optionalText(input.model, 'model', 120),
         purpose, baseUrl, priority, isFree, limit,
         input.isActive === undefined ? existing.is_active : Boolean(input.isActive),
-        notesForPurpose(purpose, notesText, baseUrl)],
+        notesForPurpose(purpose, notesText, baseUrl), storedKey],
     );
     await recordAudit({actor, action: 'API_KEY_UPDATED', entity: 'api_key', entityId: id,
-      detail: {updated: Object.keys(input)}}, client);
+      detail: {updated: Object.keys(input), reencrypted}}, client);
     return publicRow(updated.rows[0]);
   });
 }
@@ -212,15 +226,104 @@ export async function getApiKeyForTest(id: string) {
   return {...data, api_key: decryptSecret(data.api_key)};
 }
 
-export async function recordKeyTest(id: string, result: {ok: boolean; error?: string}) {
+export async function recordKeyTest(id: string, result: {ok: boolean; error?: string; status?: number}) {
+  const status = Number(result.status ?? 0);
+  const rateLimited = !result.ok && status === 429;
+  // A manual test never disables a key: a human may pasted it wrong once. Only
+  // live traffic (provider-client.completeChat) deactivates on 401/403.
   await row(
     `UPDATE api_keys
         SET last_used_at = CASE WHEN $2 THEN now() ELSE last_used_at END,
             last_error = $3,
             last_error_at = CASE WHEN $2 THEN last_error_at ELSE now() END,
-            cooldown_until = CASE WHEN $2 THEN NULL ELSE now() + interval '60 seconds' END,
+            cooldown_until = CASE WHEN $2 THEN NULL
+                                  WHEN $4 THEN now() + interval '60 seconds'
+                                  ELSE cooldown_until END,
             fail_count = CASE WHEN $2 THEN 0 ELSE fail_count + 1 END
       WHERE id = $1`,
-    [id, result.ok, result.ok ? null : String(result.error ?? 'TEST_FAILED').slice(0, 500)],
+    [id, result.ok, result.ok ? null : String(result.error ?? 'TEST_FAILED').slice(0, 500), rateLimited],
   );
+}
+
+export type PurposeOverview = {
+  purpose: string;
+  total: number;
+  active: number;
+  cooldown: number;
+  failed: number;
+  provider: string | null;
+  model: string | null;
+  is_free: boolean | null;
+  priority: number | null;
+};
+
+/**
+ * Per-purpose summary for the settings dashboard: how many keys exist, how many
+ * are usable right now, and which provider/model would be tried first.
+ *
+ * A key counts for every purpose in `purpose` plus `purpose_tags`, matching the
+ * lookup used by lib/ai/key-store.ts.
+ */
+export async function apiKeyOverview(): Promise<PurposeOverview[]> {
+  const counts = await rows<{
+    purpose: string; total: number; active: number; cooldown: number; failed: number;
+  }>(
+    `WITH expanded AS (
+       SELECT id, purpose, is_active, cooldown_until, last_error
+         FROM api_keys
+       UNION ALL
+       SELECT id, unnest(purpose_tags), is_active, cooldown_until, last_error
+         FROM api_keys
+        WHERE coalesce(array_length(purpose_tags, 1), 0) > 0
+     )
+     SELECT purpose,
+            count(DISTINCT id)::int AS total,
+            count(DISTINCT id) FILTER (WHERE is_active)::int AS active,
+            count(DISTINCT id) FILTER (WHERE is_active AND cooldown_until > now())::int AS cooldown,
+            count(DISTINCT id) FILTER (
+              WHERE is_active AND (cooldown_until IS NULL OR cooldown_until <= now())
+                AND last_error IS NOT NULL)::int AS failed
+       FROM expanded
+      GROUP BY purpose`,
+  );
+
+  const best = await rows<{
+    purpose: string; provider: string; model: string | null; is_free: boolean; priority: number;
+  }>(
+    `WITH expanded AS (
+       SELECT id, purpose, provider, model, is_free, priority, fail_count, last_used_at
+         FROM api_keys
+        WHERE is_active = true
+          AND (cooldown_until IS NULL OR cooldown_until <= now())
+       UNION ALL
+       SELECT id, unnest(purpose_tags), provider, model, is_free, priority, fail_count, last_used_at
+         FROM api_keys
+        WHERE is_active = true
+          AND (cooldown_until IS NULL OR cooldown_until <= now())
+          AND coalesce(array_length(purpose_tags, 1), 0) > 0
+     )
+     SELECT DISTINCT ON (purpose) purpose, provider, model, is_free, priority
+       FROM expanded
+      ORDER BY purpose,
+               is_free DESC,
+               coalesce(priority, 0) ASC,
+               coalesce(fail_count, 0) ASC,
+               coalesce(last_used_at, 'epoch'::timestamptz) ASC`,
+  );
+
+  const bestByPurpose = new Map(best.map((entry) => [entry.purpose, entry]));
+  return counts.map((entry) => {
+    const winner = bestByPurpose.get(entry.purpose);
+    return {
+      purpose: entry.purpose,
+      total: Number(entry.total),
+      active: Number(entry.active),
+      cooldown: Number(entry.cooldown),
+      failed: Number(entry.failed),
+      provider: winner?.provider ?? null,
+      model: winner?.model ?? null,
+      is_free: winner ? winner.is_free === true : null,
+      priority: winner ? Number(winner.priority ?? 0) : null,
+    };
+  });
 }

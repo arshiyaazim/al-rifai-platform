@@ -56,6 +56,7 @@ export function ApiKeysTable() {
     active: keys.filter((key) => key.is_active).length,
     today: keys.reduce((sum, key) => sum + key.daily_usage, 0),
     cooldown: keys.filter((key) => cooldownLeft(key.cooldown_until) > 0).length,
+    failed: keys.filter((key) => key.is_active && cooldownLeft(key.cooldown_until) === 0 && key.last_error).length,
   }), [keys]);
 
   const pages = Math.max(1, Math.ceil(keys.length / limit));
@@ -89,7 +90,8 @@ export function ApiKeysTable() {
         <div className="stat"><div className="label">Total Keys</div><div className="value">{stats.total}</div></div>
         <div className="stat"><div className="label">Active</div><div className="value">{stats.active}</div></div>
         <div className="stat"><div className="label">Today&apos;s Usage</div><div className="value">{stats.today}</div></div>
-        <div className="stat"><div className="label">Cooldown</div><div className="value">{stats.cooldown}</div></div>
+        <div className="stat"><div className="label">⏳ Rate-limited</div><div className="value">{stats.cooldown}</div></div>
+        <div className="stat"><div className="label">❌ Failed</div><div className="value">{stats.failed}</div></div>
       </div>
 
       <ApiKeyForm onCreated={() => void load()} />
@@ -97,36 +99,49 @@ export function ApiKeysTable() {
       {error ? <p role="alert" style={{color: '#b91c1c'}}>{error}</p> : null}
 
       <section className="card">
+        <p className="muted" style={{margin: '0 0 8px', fontSize: 12}}>
+          Status: <span className="pill ok">✅ Active</span>{' '}
+          <span className="pill warn">⏳ Rate-limited</span>{' '}
+          <span className="pill bad">❌ Failed</span>{' '}
+          <span className="pill">🔘 Inactive</span>
+        </p>
         <div className="table-wrap" style={{overflowX: 'auto'}}>
-          <table className="cash-payment-table" style={{minWidth: 900}}>
+          <table className="cash-payment-table" style={{minWidth: 1040}}>
             <colgroup>
               <col style={{width: 12}} />
-              <col style={{width: 160}} />
+              <col style={{width: 150}} />
+              <col style={{width: 140}} />
               <col style={{width: 100}} />
-              <col style={{width: 190}} />
-              <col style={{width: 220}} />
+              <col style={{width: 180}} />
+              <col style={{width: 200}} />
               <col style={{width: 70}} />
-              <col style={{width: 110}} />
+              <col style={{width: 120}} />
               <col style={{width: 70}} />
             </colgroup>
-            <thead><tr><th>#</th><th>Key Name</th><th>Provider</th><th>Model</th><th>Masked Key</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>#</th><th>Key Name</th><th>Purpose</th><th>Provider</th><th>Model</th><th>Masked Key</th><th>Priority</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
-              {loading ? <tr><td colSpan={8} className="muted">Loading keys…</td></tr> : null}
+              {loading ? <tr><td colSpan={9} className="muted">Loading keys…</td></tr> : null}
               {!loading && pageRows.map((row, index) => {
                 const left = cooldownLeft(row.cooldown_until);
                 return (
                   <tr key={row.id}>
                     <td style={{width: 12, padding: '2px 0', fontSize: 10, textAlign: 'center'}}>{(safePage - 1) * limit + index + 1}</td>
                     <td>{row.key_name}</td>
+                    <td>
+                      <span className="pill">{row.purpose}</span>
+                      {(row.purpose_tags ?? []).filter((tag) => tag !== row.purpose).map((tag) => (
+                        <span key={tag} className="pill" style={{marginLeft: 4}}>+{tag}</span>
+                      ))}
+                    </td>
                     <td><span className="pill">{providerBadge(row.provider)}</span></td>
                     <td>{row.model ?? '—'}</td>
                     <td style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{row.masked_key}</td>
-                    <td>{row.priority}</td>
+                    <td>{row.priority}{row.is_free ? <span className="pill ok" style={{marginLeft: 4}}>free</span> : null}</td>
                     <td>
-                      {!row.is_active ? <span className="pill">⚫ Disabled</span>
-                        : left > 0 ? <span className="pill warn">🟡 {left}s</span>
-                          : row.last_error ? <span className="pill bad" title={row.last_error}>🔴 Error</span>
-                            : <span className="pill ok">🟢 OK</span>}
+                      {!row.is_active ? <span className="pill" title={row.last_error ?? 'disabled'}>🔘 Inactive</span>
+                        : left > 0 ? <span className="pill warn">⏳ {left}s</span>
+                          : row.last_error ? <span className="pill bad" title={row.last_error}>❌ Error</span>
+                            : <span className="pill ok">✅ Active</span>}
                     </td>
                     <td>
                       <RowActionsMenu items={[
@@ -141,7 +156,7 @@ export function ApiKeysTable() {
                   </tr>
                 );
               })}
-              {!loading && !pageRows.length ? <tr><td colSpan={8} className="muted">No API keys yet.</td></tr> : null}
+              {!loading && !pageRows.length ? <tr><td colSpan={9} className="muted">No API keys yet.</td></tr> : null}
             </tbody>
           </table>
         </div>

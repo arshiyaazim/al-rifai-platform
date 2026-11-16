@@ -50,6 +50,7 @@ export function ApiKeyForm({
   const [priority, setPriority] = useState<string>(String(editing?.priority ?? 0));
   const [isFree, setIsFree] = useState<boolean>(editing?.is_free === true);
   const [verifiedModels, setVerifiedModels] = useState<string[]>([]);
+  const [customEndpoint, setCustomEndpoint] = useState(requiresBaseUrl(normalizeProvider(editing?.provider) || 'gemini'));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -59,6 +60,7 @@ export function ApiKeyForm({
     setProvider(value);
     // Base URL follows the provider unless the operator typed their own.
     setBaseUrl(defaultBaseUrl(value));
+    setCustomEndpoint(requiresBaseUrl(value));
     setVerifiedModels([]);
     if (!model) setModel('');
   }
@@ -150,9 +152,18 @@ export function ApiKeyForm({
         </select>
       </label>
 
-      <label className="text-sm">Base URL {needsBaseUrl ? <span style={{color: '#b91c1c'}}>(required)</span> : <span className="muted">(optional — default {defaultBaseUrl(provider) || 'none'})</span>}
-        <Input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder={defaultBaseUrl(provider) || 'https://api.example.com/v1'} />
-      </label>
+      {needsBaseUrl || customEndpoint ? (
+        <label className="text-sm">Base URL {needsBaseUrl ? <span style={{color: '#b91c1c'}}>(required)</span> : <span className="muted">(optional — default {defaultBaseUrl(provider) || 'none'})</span>}
+          <Input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder={defaultBaseUrl(provider) || 'https://api.example.com/v1'} />
+        </label>
+      ) : (
+        <div className="text-sm">Base URL
+          <div style={{display: 'flex', gap: 8, alignItems: 'center', marginTop: 4}}>
+            <span className="muted" style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{baseUrl || 'none'}</span>
+            <Button type="button" size="sm" variant="outline" onClick={() => setCustomEndpoint(true)}>Custom endpoint</Button>
+          </div>
+        </div>
+      )}
 
       <label className="text-sm">Model
         {verifiedModels.length ? (
