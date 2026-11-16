@@ -20,6 +20,9 @@ export async function GET(request: Request) {
         to: url.searchParams.get('date_to') ?? undefined,
         month: url.searchParams.get('month') ?? undefined,
         clientName: url.searchParams.get('client_name') ?? undefined,
+        // Additive: existing callers omit these and keep the 200-row default.
+        limit: Number(url.searchParams.get('limit') ?? 200),
+        offset: Number(url.searchParams.get('offset') ?? 0),
       }),
     });
   } catch (error) {

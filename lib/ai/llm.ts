@@ -276,6 +276,8 @@ export type ComposeInput = {
   intent: string;
   history?: Array<{role: string; content: string | null}>;
   conversationId: string;
+  /** Optional system prompt override (e.g. the platform assistant prompt). */
+  systemPrompt?: string;
 };
 
 export type ComposeResult = {
@@ -344,7 +346,7 @@ export async function composeReply(
   ].filter(Boolean).join('\n\n');
 
   const messages: ChatMessage[] = [
-    {role: 'system', content: SYSTEM_PROMPT},
+    {role: 'system', content: input.systemPrompt ?? SYSTEM_PROMPT},
     {role: 'user', content: prompt},
   ];
 

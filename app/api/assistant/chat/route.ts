@@ -3,6 +3,10 @@ import {dashboardCounts, dashboardToday} from '@/lib/standalone/dashboard';
 import {searchEmployees} from '@/lib/standalone/employees';
 import {assistantEnabled} from '@/lib/standalone/assistant-settings';
 import {composeReply} from '@/lib/ai/llm';
+import {ASSISTANT_DENIAL, getSystemPrompt} from '@/lib/standalone/ai-assistant-prompt';
+import {
+  hasExplicitDateRange, isBlockedQuestion, guideFor, planAssistantCall, UNSUPPORTED_DATE_RANGE,
+} from '@/lib/standalone/ai-assistant-functions';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -82,12 +86,41 @@ export async function POST(request: Request) {
     if (!slot.allowed) return ok({ok: false, error: 'RATE_LIMITED'}, 429);
 
     const mobile = message.match(/(?:\+?88)?(01[3-9]\d{8})/)?.[1] ?? null;
-    if (!IN_SCOPE.test(message) && !mobile) {
+
+    // Hard deny list runs before the model, so the refusal never depends on it.
+    if (isBlockedQuestion(message)) {
+      return ok({
+        ok: true, answer: ASSISTANT_DENIAL, blocked: true, used: false, model: null,
+        remaining: slot.remaining,
+      });
+    }
+
+    // Explicit calendar dates cannot become filters yet. Refuse instead of
+    // returning an all-time total that would misrepresent the finance data.
+    if (hasExplicitDateRange(message)) {
+      return ok({
+        ok: true, answer: UNSUPPORTED_DATE_RANGE, unsupported_range: true,
+        used: false, model: null, remaining: slot.remaining,
+      });
+    }
+
+    const call = planAssistantCall(message);
+    const guide = guideFor(message);
+
+    if (!IN_SCOPE.test(message) && !mobile && !call && !guide) {
       return ok({ok: true, answer: FALLBACK, used: false, model: null, remaining: slot.remaining});
     }
 
-    const counts = await dashboardCounts();
-    let context = digest(counts, page);
+    // Tool intents get a short, number-free base so the model cannot drift from
+    // a dashboard digest it does not need. General questions keep the digest.
+    let context: string;
+    if (guide) {
+      context = guide;
+    } else if (call) {
+      context = 'নিচে অনুরোধকৃত তথ্য দেখানো হচ্ছে।';
+    } else {
+      context = digest(await dashboardCounts(), page);
+    }
 
     if (mobile) {
       const matches = await searchEmployees(mobile, 3);
@@ -111,6 +144,7 @@ export async function POST(request: Request) {
       intent: 'DASHBOARD_QUERY',
       conversationId: `assistant:${actor.id}`,
       history: [],
+      systemPrompt: getSystemPrompt(),
     }, {purpose: 'platform-assistant'});
 
     return ok({
@@ -120,6 +154,7 @@ export async function POST(request: Request) {
       model: composed.model,
       reason: composed.reason,
       remaining: slot.remaining,
+      function_call: call,
     });
   } catch (error) {
     return errorResponse(error);

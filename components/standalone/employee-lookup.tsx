@@ -1,6 +1,7 @@
 'use client';
 
 import {displayMobile} from '@/lib/display-mobile';
+import {isConfidentMatch} from '@/lib/standalone/ai-assistant-functions';
 import {Search} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 
@@ -10,6 +11,15 @@ export type EmployeeSuggestion = {
   name_aliases: string[];
   designation: string | null;
   state: string;
+};
+
+/** Row shape returned by /api/employees/search (pg_trgm ranked results). */
+export type RankedResult = {
+  employee_mobile: string;
+  preferred_name: string;
+  designation: string | null;
+  similarity_score: number;
+  match_type: string;
 };
 
 type Props = {
@@ -34,6 +44,8 @@ type Props = {
  */
 export function EmployeeLookup({id, label, placeholder, value, onChange, onSelect, required, hideLabel = false, showIcon = false, inputClassName = ''}: Props) {
   const [suggestions, setSuggestions] = useState<EmployeeSuggestion[]>([]);
+  const [ranked, setRanked] = useState<RankedResult[] | null>(null);
+  const [didYouMean, setDidYouMean] = useState<{mobile: string; name: string} | null>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [loading, setLoading] = useState(false);
@@ -76,6 +88,9 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
 
   function update(next: string) {
     onChange(next);
+    // A new keystroke invalidates the ranked Enter-search list and its hint.
+    setRanked(null);
+    setDidYouMean(null);
     if (timer.current) clearTimeout(timer.current);
     const query = next.trim();
     if (!query) {
@@ -94,6 +109,39 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
     setOpen(false);
     setActive(-1);
     setSuggestions([]);
+    setRanked(null);
+    setDidYouMean(null);
+  }
+
+  /** Enter-to-search: ranked results with similarity scores (pg_trgm). */
+  async function runRanked() {
+    const query = value.trim();
+    if (query.length < 2) return;
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/employees/search?q=${encodeURIComponent(query)}`,
+        {credentials: 'same-origin', cache: 'no-store'});
+      if (!response.ok) { setRanked([]); setOpen(true); return; }
+      const list = (await response.json()) as RankedResult[];
+      const typed = query.replace(/\D/g, '');
+      const best = list[0];
+      setDidYouMean(typed.length >= 10 && best && best.match_type === 'mobile_fuzzy'
+        ? {mobile: best.employee_mobile, name: best.preferred_name} : null);
+      // One confident hit (or an exact mobile) still fills the paired field, so
+      // forms keep their fast path; anything weaker shows the ranked list.
+      if (best && isConfidentMatch(best, list.length)) {
+        select({...best, name_aliases: [], state: 'ACTIVE'});
+        return;
+      }
+      setRanked(list);
+      setSuggestions([]);
+      setOpen(true);
+      setActive(-1);
+    } catch {
+      setRanked([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -101,13 +149,14 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
       setOpen(false);
       return;
     }
+    const items = ranked ?? suggestions;
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       if (!open) {
-        if (suggestions.length) setOpen(true);
+        if (items.length) setOpen(true);
         return;
       }
-      setActive((index) => Math.min(index + 1, suggestions.length - 1));
+      setActive((index) => Math.min(index + 1, items.length - 1));
       return;
     }
     if (event.key === 'ArrowUp') {
@@ -116,19 +165,16 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
       return;
     }
     if (event.key === 'Enter') {
-      if (open && suggestions.length) {
+      if (open && active >= 0 && items.length) {
         event.preventDefault();
-        select(suggestions[active >= 0 ? active : 0]);
+        const picked = items[active];
+        select('match_type' in picked ? {...picked, name_aliases: [], state: 'ACTIVE'} : picked);
         return;
       }
-      // Enter without an open list: look the typed value up and take the first
-      // match so the paired ID/name field fills immediately.
-      const query = value.trim();
-      if (query.length >= 2) {
+      // Empty/short input keeps the browser default so forms still submit.
+      if (value.trim().length >= 2) {
         event.preventDefault();
-        void load(query).then((list) => {
-          if (list[0]) select(list[0]);
-        });
+        void runRanked();
       }
     }
   }
@@ -146,7 +192,7 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
         value={value}
         onChange={(event) => update(event.target.value)}
         onKeyDown={onKeyDown}
-        onFocus={() => { if (suggestions.length) setOpen(true); }}
+        onFocus={() => { if (suggestions.length || ranked?.length) setOpen(true); }}
         onBlur={(event) => {
           if (!wrapperRef.current?.contains(event.relatedTarget as Node | null)) setOpen(false);
         }}
@@ -164,26 +210,58 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
           <div className="cash-lookup__head" aria-hidden="true">
             <span>Name</span><span>Mobile / Employee ID</span>
           </div>
-          {suggestions.map((employee, index) => (
-            <button
-              type="button"
-              key={employee.employee_mobile}
-              id={`${listId}-${index}`}
-              role="option"
-              aria-selected={index === active}
-              className="cash-lookup__option"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => select(employee)}
-              onMouseEnter={() => setActive(index)}
-            >
-              <span className="cash-lookup__name">
-                {employee.preferred_name}
-                {employee.designation ? <small>{employee.designation}</small> : null}
-              </span>
-              <span className="cash-lookup__mobile">{displayMobile(employee.employee_mobile)}</span>
-            </button>
-          ))}
-          {!suggestions.length ? (
+          {didYouMean ? (
+            <div className="cash-lookup__empty">
+              Did you mean {displayMobile(didYouMean.mobile)} ({didYouMean.name})?
+            </div>
+          ) : null}
+          {ranked
+            ? ranked.map((employee, index) => (
+                <button
+                  type="button"
+                  key={employee.employee_mobile}
+                  id={`${listId}-${index}`}
+                  role="option"
+                  aria-selected={index === active}
+                  className="cash-lookup__option"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => select({...employee, name_aliases: [], state: 'ACTIVE'})}
+                  onMouseEnter={() => setActive(index)}
+                >
+                  <span className="cash-lookup__name">
+                    {employee.preferred_name}
+                    {employee.designation ? <small>{employee.designation}</small> : null}
+                  </span>
+                  <span className="cash-lookup__mobile">
+                    {displayMobile(employee.employee_mobile)}{' '}
+                    <small>
+                      {employee.match_type === 'mobile_exact'
+                        ? 'Exact match'
+                        : `${Number(employee.similarity_score) >= 0.95 ? '★' : '~'}${Math.round(Number(employee.similarity_score) * 100)}%`}
+                    </small>
+                  </span>
+                </button>
+              ))
+            : suggestions.map((employee, index) => (
+                <button
+                  type="button"
+                  key={employee.employee_mobile}
+                  id={`${listId}-${index}`}
+                  role="option"
+                  aria-selected={index === active}
+                  className="cash-lookup__option"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => select(employee)}
+                  onMouseEnter={() => setActive(index)}
+                >
+                  <span className="cash-lookup__name">
+                    {employee.preferred_name}
+                    {employee.designation ? <small>{employee.designation}</small> : null}
+                  </span>
+                  <span className="cash-lookup__mobile">{displayMobile(employee.employee_mobile)}</span>
+                </button>
+              ))}
+          {!suggestions.length && !ranked?.length ? (
             <div className="cash-lookup__empty">{loading ? 'Searching…' : 'No matching employee.'}</div>
           ) : null}
         </div>
@@ -228,6 +306,7 @@ export function EmployeeLookupDual({
   const [name, setName] = useState(initialName);
   const [mobile, setMobile] = useState(initialMobile);
   const [suggestions, setSuggestions] = useState<DualSuggestion[]>([]);
+  const [ranked, setRanked] = useState<RankedResult[] | null>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [query, setQuery] = useState('');
@@ -255,6 +334,7 @@ export function EmployeeLookupDual({
   function search(nextField: 'name' | 'mobile', value: string) {
     setField(nextField);
     setQuery(value);
+    setRanked(null);
     if (timer.current) clearTimeout(timer.current);
     const minimum = nextField === 'name' ? 2 : 3;
     if (value.trim().length < minimum) { setSuggestions([]); setOpen(false); return; }
@@ -271,6 +351,7 @@ export function EmployeeLookupDual({
     setMobile(item.mobile);
     setOpen(false);
     setSuggestions([]);
+    setRanked(null);
     onEmployeeSelect(item.mobile, item.name);
     onChange?.(item.mobile, item.name);
   }
@@ -278,23 +359,40 @@ export function EmployeeLookupDual({
   function keyDown(event: React.KeyboardEvent) {
     if (event.key === 'Escape') { setOpen(false); return; }
     if (!open) return;
-    if (event.key === 'ArrowDown') { event.preventDefault(); setActive((index) => Math.min(index + 1, suggestions.length - 1)); }
+    const items = ranked ?? suggestions;
+    if (event.key === 'ArrowDown') { event.preventDefault(); setActive((index) => Math.min(index + 1, items.length - 1)); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); setActive((index) => Math.max(index - 1, 0)); }
-    else if (event.key === 'Enter' && suggestions.length) {
+    else if (event.key === 'Enter' && items.length) {
       event.preventDefault();
-      choose(suggestions[active] ?? suggestions[0]);
+      const picked = items[active] ?? items[0];
+      choose('match_type' in picked
+        ? {mobile: picked.employee_mobile, name: picked.preferred_name, designation: picked.designation}
+        : picked);
     }
   }
 
-  /** Enter on a typed value with no open list: look up and take the first hit. */
-  function enterToFill(event: React.KeyboardEvent, nextField: 'name' | 'mobile', value: string) {
+  /** Enter on a typed value with no open list: ranked search, first hit wins. */
+  function enterToFill(event: React.KeyboardEvent, value: string) {
     if (event.key !== 'Enter' || open) return;
-    const minimum = nextField === 'name' ? 2 : 3;
-    if (value.trim().length < minimum) return;
+    if (value.trim().length < 2) return;
     event.preventDefault();
-    void fetchSuggestions(nextField, value).then((items) => {
-      if (items[0]) choose(items[0]);
-    });
+    void (async () => {
+      try {
+        const response = await fetch(`/api/employees/search?q=${encodeURIComponent(value.trim())}`, {cache: 'no-store'});
+        if (!response.ok) return;
+        const list = (await response.json()) as RankedResult[];
+        const best = list[0];
+        if (best && (best.match_type === 'mobile_exact'
+          || (list.length === 1 && Number(best.similarity_score) >= 0.95))) {
+          choose({mobile: best.employee_mobile, name: best.preferred_name, designation: best.designation});
+          return;
+        }
+        setRanked(list);
+        setSuggestions([]);
+        setOpen(list.length > 0);
+        setActive(0);
+      } catch { /* keep the typed value */ }
+    })();
   }
 
   return (
@@ -305,7 +403,7 @@ export function EmployeeLookupDual({
           value={name} disabled={disabled} autoComplete="off"
           onChange={(event) => { const next = event.target.value; setName(next); onChange?.(mobile, next); search('name', next); }}
           onFocus={() => { if (suggestions.length) setOpen(true); }}
-          onKeyDown={(event) => { enterToFill(event, 'name', name); keyDown(event); }}
+          onKeyDown={(event) => { enterToFill(event, name); keyDown(event); }}
           placeholder="Type 2+ characters"
           className={inputClassName}
           style={{width: '100%'}}
@@ -317,27 +415,43 @@ export function EmployeeLookupDual({
           value={mobile} disabled={disabled} autoComplete="off" inputMode="tel"
           onChange={(event) => { const next = event.target.value; setMobile(next); onChange?.(next, name); search('mobile', next); }}
           onFocus={() => { if (suggestions.length) setOpen(true); }}
-          onKeyDown={(event) => { enterToFill(event, 'mobile', mobile); keyDown(event); }}
+          onKeyDown={(event) => { enterToFill(event, mobile); keyDown(event); }}
           placeholder="Type 3+ digits"
           className={inputClassName}
           style={{width: '100%'}}
         />
       </label>
-      {open && suggestions.length ? (
+      {open && (ranked?.length || suggestions.length) ? (
         <div style={{position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: '#fff', border: '1px solid #d1d5db', borderRadius: 6, boxShadow: '0 8px 24px rgba(15,23,42,.15)', maxHeight: 240, overflowY: 'auto', marginTop: 4}}>
-          {suggestions.map((item, index) => (
-            <button
-              key={item.mobile} type="button"
-              onMouseEnter={() => setActive(index)}
-              onClick={() => choose(item)}
-              style={{display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: index === active ? '#dbeafe' : 'transparent', border: 0, cursor: 'pointer', fontSize: 13}}
-            >
-              {field === 'mobile'
-                ? <><Highlight text={item.mobile} query={query} /> <span className="muted">({item.name})</span></>
-                : <><Highlight text={item.name} query={query} /> <span className="muted">({item.mobile})</span></>}
-              {item.designation ? <span className="pill" style={{marginLeft: 6, fontSize: 10}}>{item.designation}</span> : null}
-            </button>
-          ))}
+          {ranked
+            ? ranked.map((item, index) => (
+                <button
+                  key={item.employee_mobile} type="button"
+                  onMouseEnter={() => setActive(index)}
+                  onClick={() => choose({mobile: item.employee_mobile, name: item.preferred_name, designation: item.designation})}
+                  style={{display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: index === active ? '#dbeafe' : 'transparent', border: 0, cursor: 'pointer', fontSize: 13}}
+                >
+                  {item.preferred_name} <span className="muted">({item.employee_mobile})</span>
+                  <span className="pill" style={{marginLeft: 6, fontSize: 10}}>
+                    {item.match_type === 'mobile_exact'
+                      ? 'Exact match'
+                      : `${Number(item.similarity_score) >= 0.95 ? '★' : '~'}${Math.round(Number(item.similarity_score) * 100)}%`}
+                  </span>
+                </button>
+              ))
+            : suggestions.map((item, index) => (
+                <button
+                  key={item.mobile} type="button"
+                  onMouseEnter={() => setActive(index)}
+                  onClick={() => choose(item)}
+                  style={{display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', background: index === active ? '#dbeafe' : 'transparent', border: 0, cursor: 'pointer', fontSize: 13}}
+                >
+                  {field === 'mobile'
+                    ? <><Highlight text={item.mobile} query={query} /> <span className="muted">({item.name})</span></>
+                    : <><Highlight text={item.name} query={query} /> <span className="muted">({item.mobile})</span></>}
+                  {item.designation ? <span className="pill" style={{marginLeft: 6, fontSize: 10}}>{item.designation}</span> : null}
+                </button>
+              ))}
         </div>
       ) : null}
     </div>

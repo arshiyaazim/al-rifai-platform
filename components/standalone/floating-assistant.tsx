@@ -1,22 +1,91 @@
 'use client';
 
+import {displayMobile} from '@/lib/display-mobile';
+import {ASSISTANT_DENIAL} from '@/lib/standalone/ai-assistant-prompt';
+import {buildNavigation, isBlockedQuestion, isConfidentMatch} from '@/lib/standalone/ai-assistant-functions';
+import {transliterate} from '@/lib/standalone/transliterate';
 import {useEffect, useRef, useState} from 'react';
-import {usePathname} from 'next/navigation';
+import {usePathname, useRouter} from 'next/navigation';
 
 /**
- * Floating, read-only dashboard helper. Available to every authenticated user.
+ * Floating, read-only assistant.
  *
- * It never drafts, approves, deletes or sends anything: the API answers from the
- * same totals the dashboard cards use. The admin kill-switch lives in Settings.
+ * The model never executes anything. The server returns a deterministic
+ * `function_call`; this component runs it against the existing authenticated,
+ * read-only APIs (employees, cash, attendance, vessel) and renders the result.
+ * Navigation and sidebar actions wait for an explicit "হ্যাঁ"/"yes".
  */
-type Message = {role: 'user' | 'assistant'; text: string};
+type TableData = {columns: string[]; rows: string[][]};
+type Message = {role: 'user' | 'assistant'; text: string; table?: TableData; more?: number; note?: string};
+
+type Pending =
+  | {kind: 'navigate'; url: string; label: string}
+  | {kind: 'sidebar'; page: string; action: string; mobile?: string};
+
+type FunctionCall = {
+  name: string;
+  arguments?: Record<string, unknown>;
+  requires_confirmation?: boolean;
+  follow_up?: 'cash' | 'attendance' | 'vessel';
+  range?: {from?: string; to?: string};
+};
+
+type LookupRow = {
+  employee_mobile: string; preferred_name: string; designation: string | null;
+  similarity_score: number | string; match_type: string;
+};
+type CashRow = {
+  date?: string; eventAt?: string; createdAt?: string; amount?: string; amountMinor?: string;
+  method?: string | null; state?: string;
+};
+type AttendanceRow = {
+  attendance_date: string; shift: string; client_name: string | null; location: string | null;
+};
+type VesselRow = {
+  mother_vessel: string; lighter_vessel: string; start_date: string; end_date: string | null; state: string;
+};
 
 const SUGGESTIONS = [
   'How many employees joined this month?',
   'Cash payments today?',
-  'Attendance today?',
-  'Vessel programmes this month?',
+  'সাইফুলের ক্যাশ হিসাব দেখাও',
+  'আজকের ক্যাশ ট্রানজেকশন দেখতে চাই',
 ];
+
+const AFFIRM = /^(হ্যাঁ|হা|হ|yes|y|ok|okay|sure|যাও|করো|চলো|নে[য়া]?)/i;
+const DENY = /^(না|ন|no|n|cancel|থাক|বাতিল)/i;
+
+function bengali(value: number, digits = 0): string {
+  return new Intl.NumberFormat('bn-BD', {minimumFractionDigits: digits, maximumFractionDigits: digits}).format(value);
+}
+
+function money(minor: number): string {
+  return `৳${bengali(minor / 100, 2)}`;
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return '—';
+  const day = value.slice(0, 10);
+  const date = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return day;
+  return new Intl.DateTimeFormat('en-GB', {day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'}).format(date);
+}
+
+async function apiJson<T>(url: string): Promise<T | null> {
+  const response = await fetch(url, {credentials: 'same-origin', cache: 'no-store'});
+  if (!response.ok) return null;
+  return response.json() as Promise<T>;
+}
+
+function slice<T>(rows: T[]): {rows: T[]; more: number} {
+  return {rows: rows.slice(0, 5), more: Math.max(0, rows.length - 5)};
+}
+
+function badge(row: LookupRow): string {
+  if (row.match_type === 'mobile_exact') return 'Exact';
+  const score = Number(row.similarity_score);
+  return `${score >= 0.95 ? '★' : '~'}${Math.round(score * 100)}%`;
+}
 
 async function csrfToken(): Promise<string> {
   const response = await fetch('/api/auth/session', {credentials: 'same-origin', cache: 'no-store'});
@@ -31,20 +100,24 @@ const ERROR_TEXT: Record<string, string> = {
   SESSION_EXPIRED: 'Your session expired. Reload the page and sign in again.',
 };
 
+const MOBILE_HINT = 'আমাকে মিনিমাইজ করলে আপনি ডাটাসমূহ দেখতে পাবেন';
+
 export function FloatingAssistant() {
   const pathname = usePathname();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
+  const [pending, setPending] = useState<Pending | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open || messages.length) return;
     setMessages([{
       role: 'assistant',
-      text: 'Hello. I can look up dashboard totals for employees, attendance, vessel programmes and cash. What would you like to know?',
+      text: 'আসসালামু আলাইকুম। আমি আল-রিফাঈ সহকারী। কর্মী খোঁজা, ক্যাশ/উপস্থিতি/ভেসেলের সারসংক্ষেপ বা পেইজে নিয়ে যাওয়া — কী করতে চান?',
     }]);
   }, [open, messages.length]);
 
@@ -52,12 +125,188 @@ export function FloatingAssistant() {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [messages, busy, open]);
 
-  async function send(question: string) {
-    const text = question.trim();
-    if (!text || busy) return;
-    setMessages((current) => [...current, {role: 'user', text}]);
-    setInput('');
-    setBusy(true);
+  function push(message: Message) {
+    setMessages((current) => [...current, message]);
+  }
+
+  function runAction(action: Pending) {
+    if (action.kind === 'navigate') {
+      push({role: 'assistant', text: `ঠিক আছে — ${action.label} পেইজে নিয়ে যাচ্ছি।`});
+      router.push(action.url);
+      return;
+    }
+    const payload = JSON.stringify({page: action.page, action: action.action, employee_mobile: action.mobile ?? null});
+    try { sessionStorage.setItem('alrifai:open-sidebar', payload); } catch { /* private mode */ }
+    window.dispatchEvent(new CustomEvent('alrifai:open-sidebar', {detail: {page: action.page, action: action.action, employee_mobile: action.mobile}}));
+    push({role: 'assistant', text: `ঠিক আছে — ${action.page} ফর্ম খুলছি।`});
+    router.push(`/${action.page}`);
+  }
+
+  async function summary(kind: 'cash' | 'attendance' | 'vessel', mobile: string, range?: {from?: string; to?: string}, name?: string) {
+    const who = name || displayMobile(mobile);
+    if (kind === 'cash') {
+      const params = new URLSearchParams({employee_mobile: mobile, limit: '10000'});
+      if (range?.from) params.set('from', range.from);
+      if (range?.to) params.set('to', range.to);
+      const body = await apiJson<{transactions?: CashRow[]; total?: number}>(`/api/cash/transactions?${params}`);
+      const raw = body?.transactions ?? [];
+      const list = raw.filter((row) => row.state !== 'REVERSED');
+      if (!list.length) { push({role: 'assistant', text: `${who} এর কোনো ক্যাশ লেনদেন পাওয়া যায়নি।`}); return; }
+      // `total` is the server count for the same filters. Never call the sum of
+      // a partial page the employee's total.
+      const truncated = typeof body?.total === 'number' && body.total > raw.length;
+      const total = list.reduce((sum, row) => sum + Number(row.amountMinor ?? row.amount ?? 0), 0);
+      const dates = list.map((row) => String(row.eventAt ?? row.date ?? row.createdAt ?? '').slice(0, 10)).filter(Boolean).sort();
+      const shown = slice(list);
+      const text = truncated
+        ? `${who} এর দেখানো ${bengali(raw.length)} টি ট্রানজেকশনের পরিমাণ ${money(total)} — মোট ${bengali(body?.total ?? 0)} টি থাকায় এটি সর্বমোট নয়।`
+        : `${who} মোট ${money(total)} পেয়েছেন (${bengali(list.length)} টি ট্রানজেকশন, ${formatDate(dates[0])} থেকে ${formatDate(dates[dates.length - 1])})।`;
+      push({
+        role: 'assistant',
+        text,
+        table: {
+          columns: ['তারিখ', 'পরিমাণ', 'মাধ্যম', 'স্টেট'],
+          rows: shown.rows.map((row) => [
+            formatDate(row.eventAt ?? row.date ?? row.createdAt),
+            money(Number(row.amountMinor ?? row.amount ?? 0)),
+            String(row.method ?? '—'),
+            String(row.state ?? '—'),
+          ]),
+        },
+        more: shown.more,
+        note: MOBILE_HINT,
+      });
+      return;
+    }
+    if (kind === 'attendance') {
+      const params = new URLSearchParams({employee_mobile: mobile, limit: '10000'});
+      if (range?.from) params.set('date_from', range.from);
+      if (range?.to) params.set('date_to', range.to);
+      const body = await apiJson<{rows?: AttendanceRow[]}>(`/api/attendance?${params}`);
+      const list = body?.rows ?? [];
+      if (!list.length) { push({role: 'assistant', text: `${who} এর কোনো উপস্থিতি পাওয়া যায়নি।`}); return; }
+      const days = new Set(list.map((row) => row.attendance_date));
+      const dates = [...days].sort();
+      const shown = slice(list);
+      const truncated = list.length >= 10000;
+      push({
+        role: 'assistant',
+        text: truncated
+          ? `${who} এর সর্বশেষ ${bengali(list.length)} টি উপস্থিতি রেকর্ড দেখানো হচ্ছে — মোট দিন নিশ্চিত নই।`
+          : `${who} ${bengali(days.size)} দিন উপস্থিত (${formatDate(dates[0])} থেকে ${formatDate(dates[dates.length - 1])})।`,
+        table: {
+          columns: ['তারিখ', 'শিফট', 'ক্লায়েন্ট'],
+          rows: shown.rows.map((row) => [formatDate(row.attendance_date), row.shift, row.client_name ?? row.location ?? '—']),
+        },
+        more: shown.more,
+        note: MOBILE_HINT,
+      });
+      return;
+    }
+    const params = new URLSearchParams({limit: '10000'});
+    params.set('escort_mobile', mobile);
+    if (range?.from) params.set('from', range.from);
+    if (range?.to) params.set('to', range.to);
+    const body = await apiJson<{rows?: VesselRow[]; total?: number}>(`/api/vessel?${params}`);
+    const list = body?.rows ?? [];
+    if (!list.length) { push({role: 'assistant', text: `${who} এর কোনো ভেসেল প্রোগ্রাম পাওয়া যায়নি।`}); return; }
+    const shown = slice(list);
+    const truncated = typeof body?.total === 'number' && body.total > list.length;
+    push({
+      role: 'assistant',
+      text: truncated
+        ? `${who} এর ${bengali(list.length)} টি প্রোগ্রাম দেখানো হচ্ছে (মোট ${bengali(body?.total ?? 0)}) — এটি সম্পূর্ণ তালিকা নয়।`
+        : `${who} এর ${bengali(list.length)} টি ভেসেল প্রোগ্রাম আছে।`,
+      table: {
+        columns: ['মাদার ভেসেল', 'লাইটার', 'শুরু', 'শেষ', 'স্টেট'],
+        rows: shown.rows.map((row) => [row.mother_vessel, row.lighter_vessel, formatDate(row.start_date), formatDate(row.end_date), row.state]),
+      },
+      more: shown.more,
+      note: MOBILE_HINT,
+    });
+  }
+
+  async function execute(call: FunctionCall) {
+    const args = call.arguments ?? {};
+    const str = (key: string) => (typeof args[key] === 'string' ? String(args[key]) : undefined);
+    try {
+      if (call.name === 'searchEmployee') {
+        const query = str('query') ?? '';
+        if (!query) return;
+        const rows = await apiJson<LookupRow[]>(`/api/employees/search?q=${encodeURIComponent(query)}`);
+        const list = Array.isArray(rows) ? rows : [];
+        if (!list.length) {
+          push({role: 'assistant', text: `"${query}" এর জন্য কোনো কর্মী পাওয়া যায়নি।`});
+          return;
+        }
+        const shown = slice(list);
+        push({
+          role: 'assistant',
+          text: `${bengali(list.length)} জন কর্মী পাওয়া গেছে।`,
+          table: {
+            columns: ['নাম', 'মোবাইল', 'মিল'],
+            rows: shown.rows.map((row) => [row.preferred_name, displayMobile(row.employee_mobile), badge(row)]),
+          },
+          more: shown.more,
+          note: MOBILE_HINT,
+        });
+        const top = list[0];
+        if (call.follow_up && isConfidentMatch(top, list.length)) {
+          await summary(call.follow_up, top.employee_mobile, call.range, top.preferred_name);
+        } else if (call.follow_up) {
+          push({role: 'assistant', text: 'একাধিক কর্মী মিলেছে — কোনজনের হিসাব দেখাব? মোবাইল নম্বরটি বলুন।'});
+        }
+        return;
+      }
+      if (call.name === 'fetchCashSummary' || call.name === 'fetchAttendanceSummary' || call.name === 'fetchVesselSummary') {
+        const mobile = str('employee_mobile');
+        const kind = call.name === 'fetchCashSummary' ? 'cash'
+          : call.name === 'fetchAttendanceSummary' ? 'attendance' : 'vessel';
+        if (kind === 'vessel' && !mobile) { push({role: 'assistant', text: 'কোন কর্মীর নাম বা মোবাইল বললে ভেসেল প্রোগ্রাম দেখাতে পারি।'}); return; }
+        if (!mobile) { push({role: 'assistant', text: 'কর্মীর মোবাইল নম্বরটি বলুন।'}); return; }
+        const range = {
+          from: call.range?.from ?? str('from'),
+          to: call.range?.to ?? str('to'),
+        };
+        await summary(kind, mobile, range);
+        return;
+      }
+      if (call.name === 'navigateToPage') {
+        const page = str('page') ?? '';
+        const filters = (args.filters ?? {}) as Record<string, string>;
+        // The vessel page searches stored Latin escort/vessel names; a Bangla
+        // query must be transliterated before it becomes a URL filter.
+        if (page === 'vessel' && filters.q) filters.q = transliterate(filters.q);
+        const nav = buildNavigation(page, filters);
+        if (!nav) { push({role: 'assistant', text: 'এই পেইজটি এখনো সমর্থিত নয়।'}); return; }
+        const label = page === 'cash' ? 'ক্যাশ' : page === 'cash/transactions' ? 'ক্যাশ লেনদেন'
+          : page === 'vessel' ? 'ভেসেল' : page === 'attendance' ? 'উপস্থিতি' : 'কর্মী';
+        setPending({kind: 'navigate', url: nav.url, label});
+        push({role: 'assistant', text: `আপনাকে কি ${label} পেইজে নিয়ে যাব? ${nav.description !== label ? `(${nav.description}) ` : ''}(হ্যাঁ / না)`});
+        return;
+      }
+      if (call.name === 'openSidebar') {
+        const page = str('page') ?? 'employees';
+        const action = str('action') ?? 'add';
+        const mobile = str('employee_mobile');
+        setPending({kind: 'sidebar', page, action, mobile});
+        push({
+          role: 'assistant',
+          text: action === 'add'
+            ? 'নতুন কর্মী যোগ করার ফর্ম খুলব? (হ্যাঁ / না)'
+            : 'কর্মীর বিবরণ খুলব? (হ্যাঁ / না)',
+        });
+        return;
+      }
+      if (call.name === 'isBlockedQuestion') {
+        push({role: 'assistant', text: ASSISTANT_DENIAL});
+      }
+    } catch {
+      push({role: 'assistant', text: 'ডেটা আনতে সমস্যা হয়েছে। আবার চেষ্টা করুন।'});
+    }
+  }
+
+  async function ask(text: string) {
     try {
       const token = await csrfToken();
       const response = await fetch('/api/assistant/chat', {
@@ -72,10 +321,40 @@ export function FloatingAssistant() {
         throw new Error(ERROR_TEXT[code] ?? code);
       }
       if (typeof body.remaining === 'number') setRemaining(body.remaining);
-      setMessages((current) => [...current, {role: 'assistant', text: String(body.answer ?? '')}]);
+      push({role: 'assistant', text: String(body.answer ?? '')});
+      if (body.function_call) await execute(body.function_call as FunctionCall);
     } catch (cause) {
       const message = cause instanceof Error ? ERROR_TEXT[cause.message] ?? cause.message : 'Something went wrong.';
-      setMessages((current) => [...current, {role: 'assistant', text: `Sorry — ${message}`}]);
+      push({role: 'assistant', text: `Sorry — ${message}`});
+    }
+  }
+
+  async function send(question: string) {
+    const text = question.trim();
+    if (!text || busy) return;
+    push({role: 'user', text});
+    setInput('');
+    setBusy(true);
+    try {
+      if (pending) {
+        const action = pending;
+        if (AFFIRM.test(text)) {
+          setPending(null);
+          runAction(action);
+          return;
+        }
+        if (DENY.test(text)) {
+          setPending(null);
+          push({role: 'assistant', text: 'ঠিক আছে, বাতিল করা হলো।'});
+          return;
+        }
+        setPending(null);
+      }
+      if (isBlockedQuestion(text)) {
+        push({role: 'assistant', text: ASSISTANT_DENIAL});
+        return;
+      }
+      await ask(text);
     } finally {
       setBusy(false);
     }
@@ -89,16 +368,20 @@ export function FloatingAssistant() {
         .alrifai-fab{animation:alrifai-pulse 2.6s infinite}
         .alrifai-fab:hover{transform:translateY(-2px)}
         .alrifai-dot{animation:alrifai-blink 1.2s infinite}
+        .alrifai-table{width:100%;border-collapse:collapse;margin-top:6px;font-size:11px}
+        .alrifai-table th,.alrifai-table td{border-bottom:1px solid var(--line,#e2e8f0);padding:3px 4px;text-align:left}
+        .alrifai-mobile-note{display:none}
         @media (max-width: 520px){
           .alrifai-panel{left:8px !important;right:8px !important;bottom:8px !important;width:auto !important;height:min(76vh,560px) !important}
           .alrifai-label{display:none !important}
+          .alrifai-mobile-note{display:block;font-size:10px;margin-top:4px}
         }
       `}</style>
 
       {open ? (
         <section
           role="dialog"
-          aria-label="Dashboard assistant"
+          aria-label="Al-Rifa'i assistant"
           className="alrifai-panel"
           style={{
             position: 'fixed', right: 20, bottom: 20, zIndex: 80,
@@ -115,8 +398,8 @@ export function FloatingAssistant() {
               background: 'var(--accent, #0f766e)', color: '#fff', fontWeight: 700,
             }}>AI</span>
             <div style={{flex: 1, minWidth: 0}}>
-              <div style={{fontWeight: 600, fontSize: 13}}>AL-RIFA&apos;I Assistant</div>
-              <div className="muted" style={{fontSize: 11}}>Read-only dashboard help</div>
+              <div style={{fontWeight: 600, fontSize: 13}}>আল-রিফাঈ সহকারী</div>
+              <div className="muted" style={{fontSize: 11}}>Read-only · employees, cash, vessel, attendance</div>
             </div>
             <button type="button" onClick={() => setOpen(false)} aria-label="Minimize assistant"
               style={{border: '1px solid var(--line, #e2e8f0)', background: 'transparent', color: 'inherit', borderRadius: 8, width: 28, height: 28, cursor: 'pointer'}}>–</button>
@@ -126,13 +409,29 @@ export function FloatingAssistant() {
             {messages.map((message, index) => (
               <div key={index} style={{display: 'flex', justifyContent: message.role === 'user' ? 'flex-end' : 'flex-start'}}>
                 <div style={{
-                  maxWidth: '86%', padding: '8px 10px', borderRadius: 12, fontSize: 13, lineHeight: 1.45,
+                  maxWidth: '92%', padding: '8px 10px', borderRadius: 12, fontSize: 13, lineHeight: 1.45,
                   whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                   background: message.role === 'user' ? 'var(--accent, #0f766e)' : 'var(--dash-soft, #f1f5f9)',
                   color: message.role === 'user' ? '#fff' : 'inherit',
                   borderBottomRightRadius: message.role === 'user' ? 4 : 12,
                   borderBottomLeftRadius: message.role === 'user' ? 12 : 4,
-                }}>{message.text}</div>
+                }}>
+                  {message.text}
+                  {message.table ? (
+                    <>
+                      <table className="alrifai-table">
+                        <thead><tr>{message.table.columns.map((column) => <th key={column}>{column}</th>)}</tr></thead>
+                        <tbody>
+                          {message.table.rows.map((row, rowIndex) => (
+                            <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell}</td>)}</tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {message.more ? <div className="muted" style={{fontSize: 10, marginTop: 2}}>আরও {bengali(message.more)} টি আছে</div> : null}
+                    </>
+                  ) : null}
+                  {message.note ? <div className="alrifai-mobile-note muted">{message.note}</div> : null}
+                </div>
               </div>
             ))}
             {busy ? (
@@ -157,7 +456,7 @@ export function FloatingAssistant() {
           <form onSubmit={(event) => { event.preventDefault(); void send(input); }}
             style={{display: 'flex', gap: 8, padding: 10, borderTop: '1px solid var(--line, #e2e8f0)'}}>
             <input value={input} onChange={(event) => setInput(event.target.value)} maxLength={500}
-              placeholder="Ask about your dashboard…" aria-label="Your question"
+              placeholder="কর্মী, ক্যাশ বা পেইজ সম্পর্কে জিজ্ঞাসা করুন…" aria-label="Your question"
               style={{flex: 1, minWidth: 0, padding: '8px 10px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'transparent', color: 'inherit', fontSize: 13}} />
             <button type="submit" disabled={busy || !input.trim()}
               style={{padding: '8px 12px', borderRadius: 10, border: 0, background: 'var(--accent, #0f766e)', color: '#fff', fontWeight: 600, cursor: busy || !input.trim() ? 'default' : 'pointer', opacity: busy || !input.trim() ? 0.6 : 1}}>
@@ -165,7 +464,7 @@ export function FloatingAssistant() {
             </button>
           </form>
           <p className="muted" style={{margin: 0, padding: '0 12px 8px', fontSize: 10}}>
-            Read-only · dashboard totals only · no drafts or changes
+            Read-only · no changes · actions need your confirmation
             {remaining !== null ? ` · ${remaining} questions left this hour` : ''}
           </p>
         </section>

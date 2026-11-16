@@ -71,6 +71,29 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
   const [toDate, setToDate] = useState('');
   const limit = 20;
 
+  // The floating assistant asks the browser to open the Add form. It writes a
+  // one-shot session flag so the request survives the navigation, and also
+  // fires an event for the case where we are already on /employees.
+  useEffect(() => {
+    const apply = (detail: {action?: string; employee_mobile?: string | null} | null) => {
+      if (!detail) return;
+      if (detail.action === 'add' && canManage) setCreateOpen(true);
+      if ((detail.action === 'view' || detail.action === 'edit') && detail.employee_mobile) {
+        setSelected(detail.employee_mobile);
+      }
+    };
+    try {
+      const raw = sessionStorage.getItem('alrifai:open-sidebar');
+      if (raw) { sessionStorage.removeItem('alrifai:open-sidebar'); apply(JSON.parse(raw)); }
+    } catch { /* private mode */ }
+    const listener = (event: Event) => {
+      apply((event as CustomEvent).detail);
+      try { sessionStorage.removeItem('alrifai:open-sidebar'); } catch { /* private mode */ }
+    };
+    window.addEventListener('alrifai:open-sidebar', listener);
+    return () => window.removeEventListener('alrifai:open-sidebar', listener);
+  }, [canManage]);
+
   async function load() {
     setLoading(true);
     setError('');
