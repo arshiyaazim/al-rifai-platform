@@ -14,10 +14,6 @@ export default async function ReleasePage() {
       <div className="page-head">
         <div>
           <h1>Escort Release</h1>
-          <p className="muted">
-            Release slips parsed from the Escort Release Slip group. Approving applies the release to the matching
-            vessel program; declining records a decision without changing any program.
-          </p>
         </div>
       </div>
       <ReleaseReview initial={slips} canRelease={canRelease} />

@@ -38,7 +38,7 @@ export default async function VesselPage({searchParams}: {searchParams: Promise<
   return (
     <div className="vessel-workspace">
       <div className="page-head">
-        <div><h1>Vessel Register</h1><p className="muted">Orders, escorts, duty dates and release.</p></div>
+        <div><h1>Vessel Register</h1></div>
       </div>
 
       <VesselRegisterClient

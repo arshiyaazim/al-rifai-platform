@@ -184,16 +184,26 @@ export function AttendanceView({canManage = false}: {canManage?: boolean}) {
       </div>
 
       <section className="card" style={{marginBottom: 14, padding: 14}}>
-        <div className="ui-filter-row" style={{marginBottom: 0}}>
-          <label style={{flex: '1 1 260px'}}>Employee search
+        <div style={{display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap'}}>
+          <div style={{flex: '1 1 320px', minWidth: 240}}>
             <EmployeeLookupDual
               key={employeeMobile || 'all'}
               initialMobile={employeeMobile}
               initialName={employeeName}
               layout="horizontal"
+              inputClassName="lookup-input"
+              onChange={(mobile, name) => { setEmployeeMobile(mobile); setEmployeeName(name); }}
               onEmployeeSelect={(mobile, name) => { setEmployeeMobile(mobile); setEmployeeName(name); }}
             />
-          </label>
+          </div>
+          {employeeMobile ? (
+            <Button type="button" size="sm" variant="outline" onClick={() => { setEmployeeMobile(''); setEmployeeName(''); }}>All employees</Button>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="card" style={{marginBottom: 14, padding: 14}}>
+        <div className="ui-filter-row" style={{marginBottom: 0}}>
           <label>From
             <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} aria-label="Attendance from" />
           </label>
@@ -204,9 +214,6 @@ export function AttendanceView({canManage = false}: {canManage?: boolean}) {
             onClick={() => { setFrom(thisMonth.from); setTo(thisMonth.to); }}>
             This month
           </Button>
-          {employeeMobile ? (
-            <Button type="button" size="sm" variant="outline" onClick={() => { setEmployeeMobile(''); setEmployeeName(''); }}>All employees</Button>
-          ) : null}
           <Button type="button" size="sm" onClick={() => { setEditing(null); setFormOpen(true); }}>
             <Plus className="size-4" /> Add New Attendance
           </Button>

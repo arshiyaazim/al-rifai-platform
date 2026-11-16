@@ -22,10 +22,6 @@ export default async function AuditPage() {
       <div className="page-head">
         <div>
           <h1>Audit Trail</h1>
-          <p className="muted">
-            Unified, append-only view of <code>audit_events</code> and vessel <code>program_events</code>.
-            Every mutation keeps its actor, target, payload and source message.
-          </p>
         </div>
         <RealtimeRefresher domain="ANY" label="Live audit" />
       </div>

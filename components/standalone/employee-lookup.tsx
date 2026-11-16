@@ -41,7 +41,7 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
     };
   }, []);
 
-  async function load(query: string) {
+  async function load(query: string): Promise<EmployeeSuggestion[]> {
     const ticket = ++request.current;
     setLoading(true);
     try {
@@ -51,15 +51,18 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
       );
       if (!response.ok) {
         if (ticket === request.current) setSuggestions([]);
-        return;
+        return [];
       }
       const body = (await response.json()) as {suggestions?: EmployeeSuggestion[]};
-      if (ticket !== request.current) return;
-      setSuggestions((body.suggestions ?? []).slice(0, 10));
+      if (ticket !== request.current) return [];
+      const items = (body.suggestions ?? []).slice(0, 10);
+      setSuggestions(items);
       setOpen(true);
       setActive(-1);
+      return items;
     } catch {
       if (ticket === request.current) setSuggestions([]);
+      return [];
     } finally {
       if (ticket === request.current) setLoading(false);
     }
@@ -106,9 +109,21 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
       setActive((index) => Math.max(index - 1, 0));
       return;
     }
-    if (event.key === 'Enter' && open && active >= 0 && suggestions[active]) {
-      event.preventDefault();
-      select(suggestions[active]);
+    if (event.key === 'Enter') {
+      if (open && suggestions.length) {
+        event.preventDefault();
+        select(suggestions[active >= 0 ? active : 0]);
+        return;
+      }
+      // Enter without an open list: look the typed value up and take the first
+      // match so the paired ID/name field fills immediately.
+      const query = value.trim();
+      if (query.length >= 2) {
+        event.preventDefault();
+        void load(query).then((list) => {
+          if (list[0]) select(list[0]);
+        });
+      }
     }
   }
 
@@ -191,9 +206,12 @@ function Highlight({text, query}: {text: string; query: string}) {
  * column; selecting a row fills both fields and notifies the caller.
  */
 export function EmployeeLookupDual({
-  onEmployeeSelect, initialMobile = '', initialName = '', disabled = false, layout = 'vertical',
+  onEmployeeSelect, onChange, initialMobile = '', initialName = '', disabled = false,
+  layout = 'vertical', inputClassName = '',
 }: {
   onEmployeeSelect: (mobile: string, name: string) => void;
+  onChange?: (mobile: string, name: string) => void;
+  inputClassName?: string;
   initialMobile?: string;
   initialName?: string;
   disabled?: boolean;
@@ -217,6 +235,15 @@ export function EmployeeLookupDual({
     return () => document.removeEventListener('mousedown', close);
   }, []);
 
+  async function fetchSuggestions(nextField: 'name' | 'mobile', value: string): Promise<DualSuggestion[]> {
+    try {
+      const response = await fetch(`/api/employees/lookup?q=${encodeURIComponent(value)}&field=${nextField}`, {cache: 'no-store'});
+      if (!response.ok) return [];
+      const body = await response.json() as {rows?: DualSuggestion[]};
+      return body.rows ?? [];
+    } catch { return []; }
+  }
+
   function search(nextField: 'name' | 'mobile', value: string) {
     setField(nextField);
     setQuery(value);
@@ -224,14 +251,10 @@ export function EmployeeLookupDual({
     const minimum = nextField === 'name' ? 2 : 3;
     if (value.trim().length < minimum) { setSuggestions([]); setOpen(false); return; }
     timer.current = setTimeout(async () => {
-      try {
-        const response = await fetch(`/api/employees/lookup?q=${encodeURIComponent(value)}&field=${nextField}`, {cache: 'no-store'});
-        if (!response.ok) return;
-        const body = await response.json() as {rows?: DualSuggestion[]};
-        setSuggestions(body.rows ?? []);
-        setOpen(Boolean(body.rows?.length));
-        setActive(0);
-      } catch { /* keep the field usable when lookup is offline */ }
+      const items = await fetchSuggestions(nextField, value);
+      setSuggestions(items);
+      setOpen(Boolean(items.length));
+      setActive(0);
     }, 300);
   }
 
@@ -241,14 +264,29 @@ export function EmployeeLookupDual({
     setOpen(false);
     setSuggestions([]);
     onEmployeeSelect(item.mobile, item.name);
+    onChange?.(item.mobile, item.name);
   }
 
   function keyDown(event: React.KeyboardEvent) {
+    if (event.key === 'Escape') { setOpen(false); return; }
     if (!open) return;
     if (event.key === 'ArrowDown') { event.preventDefault(); setActive((index) => Math.min(index + 1, suggestions.length - 1)); }
     else if (event.key === 'ArrowUp') { event.preventDefault(); setActive((index) => Math.max(index - 1, 0)); }
-    else if (event.key === 'Enter' && suggestions[active]) { event.preventDefault(); choose(suggestions[active]); }
-    else if (event.key === 'Escape') setOpen(false);
+    else if (event.key === 'Enter' && suggestions.length) {
+      event.preventDefault();
+      choose(suggestions[active] ?? suggestions[0]);
+    }
+  }
+
+  /** Enter on a typed value with no open list: look up and take the first hit. */
+  function enterToFill(event: React.KeyboardEvent, nextField: 'name' | 'mobile', value: string) {
+    if (event.key !== 'Enter' || open) return;
+    const minimum = nextField === 'name' ? 2 : 3;
+    if (value.trim().length < minimum) return;
+    event.preventDefault();
+    void fetchSuggestions(nextField, value).then((items) => {
+      if (items[0]) choose(items[0]);
+    });
   }
 
   return (
@@ -257,10 +295,11 @@ export function EmployeeLookupDual({
         Employee Name
         <input
           value={name} disabled={disabled} autoComplete="off"
-          onChange={(event) => { setName(event.target.value); search('name', event.target.value); }}
+          onChange={(event) => { const next = event.target.value; setName(next); onChange?.(mobile, next); search('name', next); }}
           onFocus={() => { if (suggestions.length) setOpen(true); }}
-          onKeyDown={keyDown}
+          onKeyDown={(event) => { enterToFill(event, 'name', name); keyDown(event); }}
           placeholder="Type 2+ characters"
+          className={inputClassName}
           style={{width: '100%'}}
         />
       </label>
@@ -268,10 +307,11 @@ export function EmployeeLookupDual({
         Employee Mobile
         <input
           value={mobile} disabled={disabled} autoComplete="off" inputMode="tel"
-          onChange={(event) => { setMobile(event.target.value); search('mobile', event.target.value); }}
+          onChange={(event) => { const next = event.target.value; setMobile(next); onChange?.(next, name); search('mobile', next); }}
           onFocus={() => { if (suggestions.length) setOpen(true); }}
-          onKeyDown={keyDown}
+          onKeyDown={(event) => { enterToFill(event, 'mobile', mobile); keyDown(event); }}
           placeholder="Type 3+ digits"
+          className={inputClassName}
           style={{width: '100%'}}
         />
       </label>

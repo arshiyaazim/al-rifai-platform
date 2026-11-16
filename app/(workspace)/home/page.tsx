@@ -169,7 +169,7 @@ export default async function HomePage({searchParams}: {searchParams: SearchPara
   return (
     <>
       <div className="page-head">
-        <div><h1>Home</h1><p className="muted">Business overview, domain lists and pending work.</p></div>
+        <div><h1>Home</h1></div>
         <RealtimeRefresher domain="ANY" label="Live dashboard" />
       </div>
 

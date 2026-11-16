@@ -18,7 +18,7 @@ export default async function ReportsPage() {
   return (
     <>
       <div className="page-head">
-        <div><h1>Reports &amp; Archive</h1><p className="muted">CSV exports and the immutable audit trail.</p></div>
+        <div><h1>Reports &amp; Archive</h1></div>
       </div>
 
       <section className="card">

@@ -17,7 +17,7 @@ export default async function PayrollPage({searchParams}: {searchParams: Promise
   return (
     <>
       <div className="page-head">
-        <div><h1>Payroll</h1><p className="muted">Duty-based pay from approved shift rates. Derived, auditable, never invented.</p></div>
+        <div><h1>Payroll</h1></div>
         <form method="get" className="row-actions">
           <input type="month" name="month" defaultValue={target} />
           <button type="submit" className="ghost">Show month</button>

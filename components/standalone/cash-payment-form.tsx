@@ -2,7 +2,7 @@
 
 import {useRouter} from 'next/navigation';
 import {useState} from 'react';
-import {EmployeeLookup, type EmployeeSuggestion} from '@/components/standalone/employee-lookup';
+import {EmployeeLookupDual} from '@/components/standalone/employee-lookup';
 
 type AccountOption = {
   id: string;
@@ -36,12 +36,6 @@ export function CashPaymentForm({accounts, defaults = {}}: Props) {
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? '');
   const [purpose, setPurpose] = useState('');
   const [state, setState] = useState<{busy: boolean; error?: string; ok?: string}>({busy: false});
-
-  function chooseEmployee(employee: EmployeeSuggestion) {
-    setEmployeeName(employee.preferred_name);
-    setEmployeeMobile(employee.employee_mobile);
-    setPayoutMobile((current) => current || employee.employee_mobile);
-  }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -81,25 +75,20 @@ export function CashPaymentForm({accounts, defaults = {}}: Props) {
   return (
     <form className="card form" onSubmit={submit}>
       <div className="grid">
-        <EmployeeLookup
-          id="employeeName"
-          label="Employee / payee name"
-          placeholder="Name, alias or mobile"
-          value={employeeName}
-          onChange={setEmployeeName}
-          onSelect={chooseEmployee}
-          required
+        <EmployeeLookupDual
+          initialName={employeeName}
+          initialMobile={employeeMobile}
+          onChange={(mobile, name) => {
+            setEmployeeMobile(mobile);
+            setEmployeeName(name);
+            setPayoutMobile((current) => current || mobile);
+          }}
+          onEmployeeSelect={(mobile, name) => {
+            setEmployeeMobile(mobile);
+            setEmployeeName(name);
+            setPayoutMobile((current) => current || mobile);
+          }}
         />
-        <label>
-          <span>Employee ID / mobile</span>
-          <input
-            name="employeeMobile"
-            value={employeeMobile}
-            onChange={(event) => setEmployeeMobile(event.target.value)}
-            placeholder="01712345678"
-            autoComplete="off"
-          />
-        </label>
         <label>
           <span>Payout number</span>
           <input

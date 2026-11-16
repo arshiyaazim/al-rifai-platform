@@ -1,11 +1,13 @@
 'use client';
 
 import Link from 'next/link';
+import {useRouter} from 'next/navigation';
 import {useEffect, useMemo, useState} from 'react';
 import {Eye, Plus} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {EmployeeDetailSidebar} from '@/components/standalone/employee-detail-sidebar';
+import {EmployeeLookup} from '@/components/standalone/employee-lookup';
 import {displayMobile} from '@/lib/display-mobile';
 
 type SummaryRow = {
@@ -55,6 +57,7 @@ function MetricCard({label, value, href, missing}: {label: string; value: string
 }
 
 export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
+  const router = useRouter();
   const [rows, setRows] = useState<SummaryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -161,7 +164,17 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
 
       <div className="ui-filter-row">
         <label style={{flex: '1 1 240px'}}>Employee search
-          <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name or mobile" aria-label="Employee search" />
+          <EmployeeLookup
+            id="employees-search"
+            label="Search by name or mobile"
+            placeholder="Type a name, alias or mobile"
+            value={query}
+            onChange={setQuery}
+            onSelect={(employee) => {
+              setQuery(employee.preferred_name);
+              router.push(`/employees/${encodeURIComponent(`+88${employee.employee_mobile}`)}`);
+            }}
+          />
         </label>
         <label>Join date from
           <Input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} aria-label="Join date from" />

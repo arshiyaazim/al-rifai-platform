@@ -10,7 +10,7 @@ export default async function ConversationsPage({searchParams}: {searchParams: P
   const chats = await listChats(params.account, params.kind);
   return (
     <>
-      <div className="page-head"><div><h1>Conversations</h1><p className="muted">WhatsApp chats with message counts and last activity.</p></div><div className="row-actions"><Link href="/message-mirror">Message mirror →</Link></div></div>
+      <div className="page-head"><div><h1>Conversations</h1></div><div className="row-actions"><Link href="/message-mirror">Message mirror →</Link></div></div>
       <form method="get" className="card form compact" style={{marginBottom: 18}}><div className="grid">
         <label><span>Account</span><select name="account" defaultValue={params.account ?? ''}><option value="">All</option><option value="wa-01">WA-01</option><option value="wa-02">WA-02</option></select></label>
         <label><span>Kind</span><select name="kind" defaultValue={params.kind ?? ''}><option value="">All</option><option value="DIRECT">Direct</option><option value="GROUP">Group</option></select></label>

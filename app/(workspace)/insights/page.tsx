@@ -22,7 +22,7 @@ export default async function InsightsPage() {
   ]);
   return (
     <>
-      <div className="page-head"><div><h1>Operational Insights</h1><p className="muted">Read-only operational totals from the authoritative Phase 3 database.</p></div><div className="row-actions"><Link href="/reports">Reports →</Link></div></div>
+      <div className="page-head"><div><h1>Operational Insights</h1></div><div className="row-actions"><Link href="/reports">Reports →</Link></div></div>
       <div className="grid-cards">
         <div className="stat"><div className="label">Employees</div><div className="value">{people[0]?.employees ?? 0}</div><div className="muted">{people[0]?.active ?? 0} active</div></div>
         <div className="stat"><div className="label">Programs</div><div className="value">{programStates.reduce((sum, row) => sum + row.n, 0)}</div><div className="muted">{programStates.map((row) => `${row.state} ${row.n}`).join(' · ')}</div></div>

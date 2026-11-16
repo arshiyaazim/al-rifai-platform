@@ -24,7 +24,7 @@ export default async function SourcesReviewPage({searchParams}: {searchParams: P
   return (
     <>
       <div className="page-head">
-        <div><h1>Sources &amp; Review</h1><p className="muted">Router review items and Cash candidates with source evidence and role-checked decisions.</p></div>
+        <div><h1>Sources &amp; Review</h1></div>
         <div className="row-actions">
           <span className="pill warn">{counts.pending} review</span>
           <span className="pill warn">{counts.cashPending} cash</span>

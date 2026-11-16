@@ -250,9 +250,6 @@ export function CashTransactionsTable({
         <div className="page-head" style={{marginBottom: 8}}>
           <div>
             <h3>Cash Transactions ({data.total.toLocaleString()})</h3>
-            <p className="muted" style={{marginTop: 0}}>
-              Parsed from the Accountant ↔ Admin direct WhatsApp conversation. Admin OUTGOING payments are auto-POSTED; manual instructions still follow the approval workflow.
-            </p>
           </div>
           <span className="row-actions" style={{alignItems: 'center'}}>
             {canManage ? (
@@ -271,35 +268,35 @@ export function CashTransactionsTable({
         </div>
 
         <div className="table-toolbar print-hidden">
-          <form method="get" className="form compact" onSubmit={submitSearch} style={{margin: 0, flex: 1}}>
-            <div className="row" style={{gap: 10, flexWrap: 'wrap'}}>
-              <Input
-                name="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search Employee ID or Name"
-                aria-label="Search Employee ID or Name"
-                style={{minWidth: 240, maxWidth: 360}}
-              />
-              <select
-                value={stateFilter}
-                onChange={(event) => changeState(event.target.value)}
-                aria-label="Cash state filter"
-                className="h-8 rounded-md border bg-background px-2 text-sm"
-              >
-                {STATES.map(([value, label]) => <option key={value || 'all'} value={value}>{label}</option>)}
-              </select>
-              <Button type="submit" size="sm">Search</Button>
-              {activeFilters ? (
-                <Button type="button" size="sm" variant="outline" onClick={clearFilters}>
-                  Clear filters{activeFilters ? ` (${activeFilters})` : ''}
-                </Button>
-              ) : null}
-              {canSubmit ? (
-                <Button type="button" size="sm" onClick={() => setPaymentOpen(true)}>Add New Payment</Button>
-              ) : null}
-            </div>
+          <form method="get" className="form compact" onSubmit={submitSearch} style={{margin: 0, display: 'flex', gap: 8}}>
+            <Input
+              name="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search Employee ID or Name"
+              aria-label="Search Employee ID or Name"
+              style={{minWidth: 240, maxWidth: 360}}
+            />
+            <Button type="submit" size="sm">Search</Button>
           </form>
+          <div className="row" style={{gap: 8, flexWrap: 'wrap'}}>
+            <select
+              value={stateFilter}
+              onChange={(event) => changeState(event.target.value)}
+              aria-label="Cash state filter"
+              className="h-8 rounded-md border bg-background px-2 text-sm"
+            >
+              {STATES.map(([value, label]) => <option key={value || 'all'} value={value}>{label}</option>)}
+            </select>
+            {activeFilters ? (
+              <Button type="button" size="sm" variant="outline" onClick={clearFilters}>
+                Clear filters{activeFilters ? ` (${activeFilters})` : ''}
+              </Button>
+            ) : null}
+            {canSubmit ? (
+              <Button type="button" size="sm" onClick={() => setPaymentOpen(true)}>Add New Payment</Button>
+            ) : null}
+          </div>
           <TableExportControls
             title="Cash Transactions"
             filenamePrefix="cash_transactions"

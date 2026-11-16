@@ -48,9 +48,6 @@ export default async function ReviewQueuePage({searchParams}: {searchParams: Sea
       <div className="page-head">
         <div>
           <h1>Review Queue</h1>
-          <p className="muted">
-            Domain-separated pending work. Open a row, edit fields in the same sidebar as the domain page, then Save, Approve or Decline.
-          </p>
         </div>
         <div className="row-actions">
           <span className="pill warn">{filteredVesselRows.length} vessel</span>

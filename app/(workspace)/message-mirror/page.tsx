@@ -10,7 +10,7 @@ export default async function MessageMirrorPage({searchParams}: {searchParams: P
   const listing = await listMessages({account: params.account, direction: params.direction, q: params.q, limit: 100});
   return (
     <>
-      <div className="page-head"><div><h1>Message Mirror</h1><p className="muted">Read-only ingested WhatsApp messages with sender and chat identity.</p></div><div className="row-actions"><Link href="/messages">Inbox →</Link><Link href="/conversations">Conversations →</Link></div></div>
+      <div className="page-head"><div><h1>Message Mirror</h1></div><div className="row-actions"><Link href="/messages">Inbox →</Link><Link href="/conversations">Conversations →</Link></div></div>
       <form method="get" className="card form compact" style={{marginBottom: 18}}><div className="grid">
         <label><span>Search</span><input name="q" defaultValue={params.q ?? ''} placeholder="Text, sender, chat or message ID" /></label>
         <label><span>Account</span><select name="account" defaultValue={params.account ?? ''}><option value="">All</option><option value="wa-01">WA-01</option><option value="wa-02">WA-02</option></select></label>

@@ -43,7 +43,7 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
   const today = new Date().toISOString().slice(0, 10);
   const filters = await searchParams;
   const state = filters.state ?? '';
-  const txSearch = (filters.search ?? '').trim();
+  const txSearch = (filters.search ?? filters.q ?? '').trim();
   const employeeName = (filters.employeeName ?? '').trim();
   const employeeMobile = (filters.employeeMobile ?? '').trim();
   const payoutMobile = (filters.payoutMobile ?? '').trim();
@@ -65,7 +65,7 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
   return (
     <>
       <div className="page-head">
-        <div><h1>Cash &amp; Accounts</h1><p className="muted">Instructions, postings and the ledger.</p></div>
+        <div><h1>Cash &amp; Accounts</h1></div>
         <div className="row-actions">
           <Link href="/review?domain=CASH">Open Cash review queue →</Link>
           {paidBasis ? <Link href="/cash/transactions">Financial POSTED →</Link> : <Link href="/cash/paid">Business Paid →</Link>}

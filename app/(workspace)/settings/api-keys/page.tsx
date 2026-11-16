@@ -8,6 +8,12 @@ import {KEY_PURPOSES, providerLabel} from '@/lib/ai-provider';
 
 export const dynamic = 'force-dynamic';
 
+const ELLIPSIS = {overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'} as const;
+const shortModel = (value: string | null) => {
+  const text = String(value ?? '—');
+  return text.length > 28 ? `${text.slice(0, 27)}…` : text;
+};
+
 const PURPOSE_ORDER = ['platform-llm', 'platform-assistant', 'ocr', 'general', 'recruitment', 'vessel-ai'];
 const RANK = new Map(PURPOSE_ORDER.map((id, index) => [id, index]));
 
@@ -41,7 +47,6 @@ export default async function ApiKeysPage() {
       <div className="page-head">
         <div>
           <h1>API Keys / এপিআই কী</h1>
-          <p className="muted">Manage keys for any OpenAI-compatible provider (Gemini, OpenAI, OpenRouter, Groq, Mistral, Anthropic, local Ollama, or a custom endpoint). Keys are shown masked; the full value is never returned.</p>
         </div>
       </div>
 
@@ -55,35 +60,39 @@ export default async function ApiKeysPage() {
 
       <section className="card" style={{marginBottom: 14, padding: 14}}>
         <h3 style={{marginTop: 0}}>Key coverage per purpose</h3>
-        <p className="muted" style={{marginTop: 2, fontSize: 12}}>
-          The first usable key for each purpose, in failover order (free-tier first, then lower priority, then fewer failures).
-        </p>
-        <table className="cash-payment-table" style={{maxWidth: 980}}>
-          <thead>
-            <tr>
-              <th>Purpose</th><th>First key</th><th>Mode</th><th>Priority</th>
-              <th>Total</th><th>Active</th><th>⏳</th><th>❌</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length ? rows.map((entry) => (
-              <tr key={entry.purpose}>
-                <td>{label(entry.purpose)}{entry.purpose === 'general' ? <span className="muted"> (legacy)</span> : null}</td>
-                <td>
-                  {entry.provider
-                    ? <>{providerLabel(entry.provider)} · <span style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{entry.model ?? '—'}</span></>
-                    : <span className="muted">no usable key</span>}
-                </td>
-                <td>{entry.is_free === null ? '—' : entry.is_free ? <span className="pill ok">free</span> : <span className="pill">paid</span>}</td>
-                <td>{entry.priority ?? '—'}</td>
-                <td>{entry.total}</td>
-                <td>{entry.active}</td>
-                <td>{entry.cooldown}</td>
-                <td>{entry.failed}</td>
+        <div style={{overflowX: 'auto', maxWidth: '100%'}}>
+          <table className="cash-payment-table" style={{minWidth: 860, width: '100%', tableLayout: 'fixed'}}>
+            <colgroup>
+              <col style={{width: 160}} /><col style={{width: 260}} /><col style={{width: 90}} />
+              <col style={{width: 80}} /><col style={{width: 70}} /><col style={{width: 70}} />
+              <col style={{width: 65}} /><col style={{width: 65}} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Purpose</th><th>First key</th><th>Mode</th><th>Priority</th>
+                <th>Total</th><th>Active</th><th>⏳</th><th>❌</th>
               </tr>
-            )) : <tr><td colSpan={8} className="muted">No API keys stored yet.</td></tr>}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.length ? rows.map((entry) => (
+                <tr key={entry.purpose}>
+                  <td style={ELLIPSIS} title={entry.purpose}>{label(entry.purpose)}{entry.purpose === 'general' ? <span className="muted"> (legacy)</span> : null}</td>
+                  <td style={ELLIPSIS} title={entry.provider ? `${entry.provider} · ${entry.model ?? '—'}` : 'no usable key'}>
+                    {entry.provider
+                      ? <>{providerLabel(entry.provider)} · <span style={{fontFamily: 'ui-monospace, monospace', fontSize: 11}}>{shortModel(entry.model)}</span></>
+                      : <span className="muted">no usable key</span>}
+                  </td>
+                  <td style={ELLIPSIS} title={entry.is_free === null ? '—' : entry.is_free ? 'free tier' : 'paid'}>{entry.is_free === null ? '—' : entry.is_free ? <span className="pill ok">free</span> : <span className="pill">paid</span>}</td>
+                  <td style={ELLIPSIS}>{entry.priority ?? '—'}</td>
+                  <td style={ELLIPSIS}>{entry.total}</td>
+                  <td style={ELLIPSIS}>{entry.active}</td>
+                  <td style={ELLIPSIS}>{entry.cooldown}</td>
+                  <td style={ELLIPSIS}>{entry.failed}</td>
+                </tr>
+              )) : <tr><td colSpan={8} className="muted">No API keys stored yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="card" style={{marginBottom: 14, padding: 14}}>

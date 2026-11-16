@@ -1378,3 +1378,55 @@ a.ui-card:hover { border-color: #93c5fd; }
 @media (max-width: 640px) {
   .dashboard-cards-grid, .dashboard-quick-grid { grid-template-columns: 1fr; }
 }
+
+/* ---- A5/A6: responsive stat cards + unified palette ---------------------- */
+:root:not([data-theme="dark"]) {
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --ink: #111827;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --accent: #f97316;
+  --danger: #ef4444;
+  --info: #3b82f6;
+  --success: #22c55e;
+  --background: #ffffff;
+  --foreground: #111827;
+  --dash-soft: #f9fafb;
+}
+[data-theme="dark"] {
+  --accent: #f97316;
+  --danger: #ef4444;
+  --info: #3b82f6;
+  --success: #22c55e;
+}
+body { background: #f9fafb; color: #111827; }
+a { color: #3b82f6; }
+.row-actions, .table-toolbar .row { gap: 8px; }
+.wx-workspace__content { overflow-x: clip; }
+.table-wrap { max-width: 100%; }
+@media (max-width: 768px) {
+  .grid-cards, .ui-cards, .cash-dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px;
+  }
+  .wx-workspace button, .login-card button, .form button { min-height: 44px; }
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .wx-workspace__content { max-width: 100%; }
+  form .grid, .form .grid { grid-template-columns: 1fr !important; }
+}
+
+/* Shared employee lookup input (attendance / employees search). */
+.lookup-input {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 6px;
+  background: var(--panel, #fff);
+  color: var(--ink, #111827);
+  font-size: 14px;
+  width: 100%;
+}
+@media (max-width: 768px) {
+  .lookup-input { height: 44px; }
+}

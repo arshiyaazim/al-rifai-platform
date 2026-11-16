@@ -74,9 +74,6 @@ export default async function VesselDraftsPage() {
       <div className="page-head">
         <div>
           <h1>Vessel Order Drafts</h1>
-          <p className="muted">
-            Authorized WA-01 order → extracted fields → Owner draft → Admin assignment → confirmation → Vessel Program.
-          </p>
         </div>
         <div className="row-actions">
           <RealtimeRefresher domain="VESSEL" label="Live drafts" />

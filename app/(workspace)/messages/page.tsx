@@ -109,10 +109,6 @@ export default async function MessagesPage({searchParams}: {searchParams: Search
       <div className="page-head">
         <div>
           <h1>WhatsApp Message Intelligence</h1>
-          <p className="muted">
-            Every message captured from both bridge stores, with original event time, identity, contact,
-            conversation, media, call trace and business classification. Read-only; nothing here authorizes a business action.
-          </p>
         </div>
         <div className="row-actions">
           <RealtimeRefresher domain="MESSAGE" label="Live messages" />

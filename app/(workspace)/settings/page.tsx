@@ -22,7 +22,7 @@ export default async function SettingsPage() {
   return (
     <>
       <div className="page-head">
-        <div><h1>Settings / Integrations</h1><p className="muted">Accounts, WhatsApp relay, and your own credentials.</p></div>
+        <div><h1>Settings / Integrations</h1></div>
       </div>
 
       <div className="split">

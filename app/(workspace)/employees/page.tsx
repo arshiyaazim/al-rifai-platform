@@ -12,10 +12,7 @@ export default async function EmployeesPage() {
       <div className="page-head">
         <div>
           <h1>Employees</h1>
-          <p className="muted">
-            Employee and escort profiles, attendance days, salary at ৳400/day, cash paid and due.
-            Employee ID is the mobile number; one mobile is one person across cash and vessel.
-          </p>
+          <p className="muted">Employee ID is the mobile number.</p>
         </div>
       </div>
       <section className="card">

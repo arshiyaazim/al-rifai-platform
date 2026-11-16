@@ -14,7 +14,7 @@ export default async function IncomeExpenditurePage({searchParams}: {searchParam
   const breakdown = (report as unknown as {breakdown: Array<{direction: string; category: string; source: string; total_minor: string}>}).breakdown ?? [];
   return (
     <>
-      <div className="page-head"><div><h1>Income &amp; Expenditure</h1><p className="muted">Posted ledger totals for the selected range. Instructions are not postings.</p></div><div className="row-actions"><Link href="/transactions">Transactions →</Link></div></div>
+      <div className="page-head"><div><h1>Income &amp; Expenditure</h1></div><div className="row-actions"><Link href="/transactions">Transactions →</Link></div></div>
       <form method="get" className="card form compact" style={{marginBottom: 18}}>
         <div className="grid"><label><span>From</span><input name="from" type="date" defaultValue={from} /></label><label><span>To</span><input name="to" type="date" defaultValue={to} /></label></div>
         <button type="submit">Apply range</button>

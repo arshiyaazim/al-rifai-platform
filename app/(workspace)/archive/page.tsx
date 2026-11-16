@@ -10,7 +10,7 @@ export default async function ArchivePage() {
   const [audit, ledger] = await Promise.all([listAudit({limit: 200}), listLedger({limit: 100})]);
   return (
     <>
-      <div className="page-head"><div><h1>Archive</h1><p className="muted">Immutable audit history, ledger entries and CSV exports.</p></div><div className="row-actions"><Link href="/reports">Reports &amp; exports →</Link><Link href="/cash/archive">Cash archive →</Link></div></div>
+      <div className="page-head"><div><h1>Archive</h1></div><div className="row-actions"><Link href="/reports">Reports &amp; exports →</Link><Link href="/cash/archive">Cash archive →</Link></div></div>
       <section className="card"><h3>Audit trail ({audit.length})</h3><table><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Entity</th><th>Source</th></tr></thead><tbody>
         {audit.map((entry) => <tr key={entry.id}><td>{when(entry.at)}</td><td>{entry.actor.slice(0, 12)}</td><td>{entry.action}</td><td>{entry.entity}{entry.entity_id ? ` · ${entry.entity_id.slice(0, 20)}` : ''}</td><td>{entry.source}</td></tr>)}
         {!audit.length ? <tr><td colSpan={5} className="muted">No audit records.</td></tr> : null}
