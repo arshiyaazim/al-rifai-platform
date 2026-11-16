@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.3.13-ai-assistant — Phase E2 fuzzy search + assistant intelligence (2026-11-16)
+
+- Fuzzy employee search with PostgreSQL pg_trgm: exact mobile, exact/alias name,
+  word-level trigram ranking and a visible similarity badge in the lookup.
+- Bengali-to-English character transliteration for employee, vessel and cash
+  searches (NFC normalisation; decomposed rra/rhha/yya handled).
+- AI Assistant intelligence: deterministic read-only planner for search,
+  navigation, cash/attendance/vessel summaries, step-by-step guides and the
+  Add Employee sidebar. Navigation and form opening always ask first.
+- Security: blocked-topic denial (IP, ports, credentials, API keys, database,
+  source, deployment) before any model call; no write tools; all data still
+  flows through authenticated, capability-checked, read-only APIs.
+- Chat window controls: minimize, maximize/restore, close, Escape-to-minimize,
+  focus handling and reduced-motion support.
+- Mobile-responsive chat at 375px with safe-area insets, scrollable messages
+  and an always-reachable launcher; panels auto-minimize when a form opens.
+- URL Registry for assistant navigation using the verified page params
+  (/cash ignores from/to; dated cash requests target /cash/transactions).
+- Unsupported explicit date ranges now return a clear message instead of an
+  all-time total; one-digit-off mobiles stay suggestions only.
+- Migration 029 registers pg_trgm and the two GIN indexes in the ledger
+  (idempotent; live objects already existed).
+
 ## v3.3.12-hotfix — Employee workspace 500s + settings cleanup (2026-11-16)
 
 - Fixed the employee detail card 500s: migration 028's employee_documents table
