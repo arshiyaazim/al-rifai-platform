@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.3.10-ui-cleanup — UI cleanup + AI key repurpose (2026-11-16)
+
+- API keys table: fixed column overlap (fixed layout, ellipsis cells, inline
+  Edit/Test/On-Off/Delete actions), key-coverage summary table, key replacement
+  in the edit modal, person/provider guards for recruitment keys.
+- Global palette: orange primary (#F97316), white/off-white surfaces, #111827
+  headings, #6B7280 secondary text, red danger, blue links, green success.
+  Buttons share h-9/px-4/rounded-md and 44px touch targets on mobile.
+- Employee lookup: bi-directional name ↔ ID fill with Enter-to-select in Cash,
+  Vessel and Attendance forms; shared dropdowns show name + mobile + designation.
+- Employees page: search box added (name/mobile/alias, dropdown navigation to the
+  profile); Attendance search moved out of the filter row and restyled.
+- Dashboard stat cards: 2-column grid below 768px across all dashboards.
+- Removed verbose page subtitles (21 pages) and added a session-expired redirect
+  to /login while keeping operational hints.
+- DB: repurposed the legacy encrypted key to platform-llm (+ platform-assistant,
+  ocr tags, gemini-2.5-flash); disabled the 404-looping Gemini row; synced
+  app_settings recruitment.mode to LIVE.
+
 ## v3.3.0-escort-release — Escort Release parser + review UI (Batch 10)
 
 - Structured release-slip parser now handles multiple escort numbers on one
