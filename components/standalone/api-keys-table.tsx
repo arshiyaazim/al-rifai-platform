@@ -215,8 +215,8 @@ export function ApiKeysTable() {
       </section>
 
       {editing ? (
-        <div role="dialog" aria-modal="true" style={{position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16}}>
-          <div className="card" style={{width: 'min(560px, 100%)', background: 'var(--background, #fff)'}}>
+        <div role="dialog" aria-modal="true" style={{position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflowY: 'auto'}}>
+          <div className="card" style={{width: 'min(560px, 100%)', maxHeight: '85vh', overflowY: 'auto', margin: 'auto', background: 'var(--background, #fff)'}}>
             <h3>Edit {editing.key_name}</h3>
             <ApiKeyForm
               editing={editing}

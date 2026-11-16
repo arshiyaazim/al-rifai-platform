@@ -238,7 +238,7 @@ export function ApiKeyForm({
       {error ? <p role="alert" style={{color: '#b91c1c'}}>{error}</p> : null}
       {notice ? <p style={{color: '#15803d'}}>{notice}</p> : null}
 
-      <div className="row-actions">
+      <div className="row-actions" style={{position: 'sticky', bottom: 0, zIndex: 1, background: 'var(--background, #fff)', paddingTop: 8, paddingBottom: 4}}>
         <Button type="button" size="sm" onClick={() => void save()} disabled={busy}>
           {busy ? 'Working…' : editingMode ? 'Save' : 'Add Key'}
         </Button>

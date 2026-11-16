@@ -1427,6 +1427,17 @@ a { color: #3b82f6; }
   font-size: 14px;
   width: 100%;
 }
+.lookup-input--icon { padding-left: 32px; }
+.cash-lookup__icon {
+  position: absolute;
+  left: 10px;
+  top: 9px;
+  width: 16px;
+  height: 16px;
+  color: var(--muted, #6b7280);
+  pointer-events: none;
+}
 @media (max-width: 768px) {
   .lookup-input { height: 44px; }
+  .cash-lookup__icon { top: 13px; }
 }

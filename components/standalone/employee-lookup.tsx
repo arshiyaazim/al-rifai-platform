@@ -1,6 +1,7 @@
 'use client';
 
 import {displayMobile} from '@/lib/display-mobile';
+import {Search} from 'lucide-react';
 import {useEffect, useRef, useState} from 'react';
 
 export type EmployeeSuggestion = {
@@ -19,6 +20,11 @@ type Props = {
   onChange: (value: string) => void;
   onSelect: (employee: EmployeeSuggestion) => void;
   required?: boolean;
+  /** Hide the visible label but keep it for screen readers. */
+  hideLabel?: boolean;
+  /** Draw a magnifying glass inside the input (compact search bar). */
+  showIcon?: boolean;
+  inputClassName?: string;
 };
 
 /**
@@ -26,7 +32,7 @@ type Props = {
  * suggestions; this component only projects those results and never invents an
  * identifier. The verified identifier is `employees.employee_mobile`.
  */
-export function EmployeeLookup({id, label, placeholder, value, onChange, onSelect, required}: Props) {
+export function EmployeeLookup({id, label, placeholder, value, onChange, onSelect, required, hideLabel = false, showIcon = false, inputClassName = ''}: Props) {
   const [suggestions, setSuggestions] = useState<EmployeeSuggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
@@ -130,11 +136,13 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
   const listId = `${id}-suggestions`;
 
   return (
-    <div className="cash-lookup" ref={wrapperRef}>
-      <label htmlFor={id} className="cash-lookup__label">{label}</label>
+    <div className={showIcon ? 'cash-lookup cash-lookup--icon' : 'cash-lookup'} ref={wrapperRef}>
+      <label htmlFor={id} className={hideLabel ? 'sr-only' : 'cash-lookup__label'}>{label}</label>
+      {showIcon ? <Search className="cash-lookup__icon" aria-hidden="true" /> : null}
       <input
         id={id}
         name={id}
+        className={inputClassName}
         value={value}
         onChange={(event) => update(event.target.value)}
         onKeyDown={onKeyDown}

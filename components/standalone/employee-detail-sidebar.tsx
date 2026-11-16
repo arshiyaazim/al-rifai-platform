@@ -5,6 +5,8 @@ import {useEffect, useState} from 'react';
 import Link from 'next/link';
 import {toast} from 'sonner';
 import {DetailSidebar} from '@/components/standalone/detail-sidebar';
+import {EmployeeFileFields, uploadEmployeeFile, type EmployeeDoc} from '@/components/standalone/employee-file-fields';
+import {formatJoinDate, formatSalary} from '@/components/standalone/employee-detail-card';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
@@ -14,13 +16,16 @@ type Detail = {
     employee_mobile: string; preferred_name: string; duty_type: string | null;
     designation: string | null; state: string; joined_on: string | null;
     date_of_join: string | null; alt_mobile: string | null; home_phone: string | null;
+    name_aliases: string[];
     present_address: string | null; permanent_address: string | null;
     reference_name: string | null; reference_mobile: string | null;
     nid_number: string | null; birth_cert_number: string | null;
     passport_number: string | null; notes: string | null; created_at: string;
+    salary_amount?: string | number | null; photo_url?: string | null;
   };
   programs: Array<{id: string; mother_vessel: string; lighter_vessel: string; start_date: string; end_date: string | null; state: string; total_minor: string | null}>;
   attendance: Array<{duty_date: string; shift: string; state: string; hours: string | null}>;
+  documents?: EmployeeDoc[];
 };
 
 type Form = {
@@ -28,7 +33,7 @@ type Form = {
   state: string; dateOfJoin: string; altMobile: string; homePhone: string;
   presentAddress: string; permanentAddress: string; referenceName: string;
   referenceMobile: string; nidNumber: string; birthCertNumber: string;
-  passportNumber: string; notes: string;
+  passportNumber: string; notes: string; salaryAmount: string;
 };
 
 type AttendanceMini = {
@@ -47,6 +52,7 @@ const EMPTY: Form = {
   state: 'ACTIVE', dateOfJoin: '', altMobile: '', homePhone: '',
   presentAddress: '', permanentAddress: '', referenceName: '',
   referenceMobile: '', nidNumber: '', birthCertNumber: '', passportNumber: '', notes: '',
+  salaryAmount: '',
 };
 
 const DESIGNATIONS = ['escort', 'crew', 'security', 'tally_man', 'scale_man', 'office', 'client', 'bondhu', 'bhai', 'accountant', 'other'];
@@ -80,6 +86,8 @@ function fromDetail(employee: Detail['employee']): Form {
     birthCertNumber: employee.birth_cert_number ?? '',
     passportNumber: employee.passport_number ?? '',
     notes: employee.notes ?? '',
+    salaryAmount: employee.salary_amount === null || employee.salary_amount === undefined
+      ? '' : String(employee.salary_amount),
   };
 }
 
@@ -102,6 +110,8 @@ export function EmployeeDetailSidebar({
   const [attMonth, setAttMonth] = useState(new Date().toISOString().slice(0, 7));
   const [attRows, setAttRows] = useState<AttendanceMini[]>([]);
   const [attSummary, setAttSummary] = useState<AttendanceSummary>({vesselDays: 0, nonVesselDays: 0, totalDays: 0, salaryMinor: 0});
+  const [reloadKey, setReloadKey] = useState(0);
+  const [pendingFiles, setPendingFiles] = useState<{photo: File | null; documents: File[]}>({photo: null, documents: []});
 
   useEffect(() => {
     if (creating || !mobile) return;
@@ -115,7 +125,7 @@ export function EmployeeDetailSidebar({
       })
       .catch(() => { if (!controller.signal.aborted) toast.error('Employee could not be loaded.', {duration: Infinity}); });
     return () => controller.abort();
-  }, [mobile, creating]);
+  }, [mobile, creating, reloadKey]);
 
   /* eslint-disable react-hooks/set-state-in-effect -- create mode resets the form; no external store to sync with. */
   useEffect(() => {
@@ -166,6 +176,7 @@ export function EmployeeDetailSidebar({
         birthCertNumber: form.birthCertNumber.trim() || null,
         passportNumber: form.passportNumber.trim() || null,
         notes: form.notes.trim() || null,
+        salaryAmount: form.salaryAmount.trim() === '' ? null : Number(form.salaryAmount),
       };
       const response = await fetch('/api/employees', {
         method: creating ? 'POST' : 'PATCH',
@@ -176,6 +187,19 @@ export function EmployeeDetailSidebar({
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error ?? `HTTP_${response.status}`);
       toast.success(creating ? 'Employee created.' : 'Employee updated.');
+      if (creating) {
+        // Files were queued before the row existed; upload them now that the
+        // employee ID (mobile) is real.
+        const queue: Array<{file: File; kind: 'photo' | 'document'}> = [
+          ...(pendingFiles.photo ? [{file: pendingFiles.photo, kind: 'photo' as const}] : []),
+          ...pendingFiles.documents.map((file) => ({file, kind: 'document' as const})),
+        ];
+        for (const entry of queue) {
+          await uploadEmployeeFile(body.employeeMobile, entry.file, entry.kind, token)
+            .catch((cause) => toast.error(cause instanceof Error ? cause.message : 'Upload failed.', {duration: Infinity}));
+        }
+        setPendingFiles({photo: null, documents: []});
+      }
       onUpdated?.();
       if (creating) onClose();
       else { setEditing(false); if (mobile) {
@@ -254,9 +278,10 @@ export function EmployeeDetailSidebar({
             <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 8}}>
               <label className="text-sm">Employee Name *<Input value={form.preferredName} onChange={(e) => setForm({...form, preferredName: e.target.value})} /></label>
               <label className="text-sm">Employee ID / Mobile *<Input value={form.employeeMobile} disabled={!creating} onChange={(e) => setForm({...form, employeeMobile: e.target.value})} inputMode="tel" /></label>
-              <label className="text-sm">Alt Mobile<Input value={form.altMobile} onChange={(e) => setForm({...form, altMobile: e.target.value})} inputMode="tel" /></label>
-              <label className="text-sm">Home Phone<Input value={form.homePhone} onChange={(e) => setForm({...form, homePhone: e.target.value})} /></label>
-              <label className="text-sm">Date of Join<Input type="date" value={form.dateOfJoin} onChange={(e) => setForm({...form, dateOfJoin: e.target.value})} /></label>
+              <label className="text-sm">Secondary Mobile<Input value={form.altMobile} onChange={(e) => setForm({...form, altMobile: e.target.value})} inputMode="tel" /></label>
+              <label className="text-sm">Family Member Mobile<Input value={form.referenceMobile} onChange={(e) => setForm({...form, referenceMobile: e.target.value})} inputMode="tel" /></label>
+              <label className="text-sm">Date of Joining<Input type="date" value={form.dateOfJoin} onChange={(e) => setForm({...form, dateOfJoin: e.target.value})} /></label>
+              <label className="text-sm">National ID<Input value={form.nidNumber} onChange={(e) => setForm({...form, nidNumber: e.target.value})} /></label>
               <label className="text-sm">Designation
                 <select className="vessel-select" value={form.designation} onChange={(e) => setForm({...form, designation: e.target.value})}>
                   {DESIGNATIONS.map((value) => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}
@@ -268,34 +293,50 @@ export function EmployeeDetailSidebar({
                   <option value="office">Office</option><option value="other">Other</option>
                 </select>
               </label>
-              <label className="text-sm">Status
+              <label className="text-sm">State
                 <select className="vessel-select" value={form.state} onChange={(e) => setForm({...form, state: e.target.value})}>
                   <option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option><option value="SUSPENDED">Suspended</option>
                 </select>
               </label>
+              <label className="text-sm">Home Phone<Input value={form.homePhone} onChange={(e) => setForm({...form, homePhone: e.target.value})} /></label>
             </div>
           </section>
 
           <section>
             <h4 className="mb-2 text-sm font-semibold">Address</h4>
-            <label className="text-sm">Present Address<Textarea rows={2} value={form.presentAddress} onChange={(e) => setForm({...form, presentAddress: e.target.value})} /></label>
+            <label className="text-sm">Current Address<Textarea rows={2} value={form.presentAddress} onChange={(e) => setForm({...form, presentAddress: e.target.value})} /></label>
             <label className="text-sm">Permanent Address<Textarea rows={2} value={form.permanentAddress} onChange={(e) => setForm({...form, permanentAddress: e.target.value})} /></label>
           </section>
 
           <section>
-            <h4 className="mb-2 text-sm font-semibold">Reference</h4>
-            <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 8}}>
-              <label className="text-sm">Reference Name<Input value={form.referenceName} onChange={(e) => setForm({...form, referenceName: e.target.value})} /></label>
-              <label className="text-sm">Reference Mobile<Input value={form.referenceMobile} onChange={(e) => setForm({...form, referenceMobile: e.target.value})} inputMode="tel" /></label>
-            </div>
+            <h4 className="mb-2 text-sm font-semibold">Family Member</h4>
+            <label className="text-sm">Family Member Name<Input value={form.referenceName} onChange={(e) => setForm({...form, referenceName: e.target.value})} /></label>
           </section>
 
           <section>
             <h4 className="mb-2 text-sm font-semibold">Identity Documents</h4>
             <div style={{display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 8}}>
-              <label className="text-sm">NID Number<Input value={form.nidNumber} onChange={(e) => setForm({...form, nidNumber: e.target.value})} /></label>
               <label className="text-sm">Birth Certificate No.<Input value={form.birthCertNumber} onChange={(e) => setForm({...form, birthCertNumber: e.target.value})} /></label>
               <label className="text-sm">Passport Number<Input value={form.passportNumber} onChange={(e) => setForm({...form, passportNumber: e.target.value})} /></label>
+            </div>
+          </section>
+
+          <section>
+            <h4 className="mb-2 text-sm font-semibold">Salary &amp; Files</h4>
+            <label className="text-sm">Salary (৳)
+              <Input type="number" min={0} value={form.salaryAmount} placeholder="400 (default)"
+                onChange={(e) => setForm({...form, salaryAmount: e.target.value})} />
+            </label>
+            <p className="muted" style={{fontSize: 11, marginTop: 2}}>Leave blank to derive ৳400/day from approved attendance.</p>
+            <div style={{marginTop: 10}}>
+              <EmployeeFileFields
+                mobile={creating ? null : (employee?.employee_mobile ?? mobile)}
+                photoUrl={detail?.employee.photo_url ?? null}
+                documents={detail?.documents ?? []}
+                editable
+                onChanged={() => setReloadKey((key) => key + 1)}
+                onPending={setPendingFiles}
+              />
             </div>
           </section>
 
@@ -309,22 +350,43 @@ export function EmployeeDetailSidebar({
           <section>
             <h4 className="mb-2 text-sm font-semibold">Profile</h4>
             <dl className="grid grid-cols-[150px_1fr] gap-x-3 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Mobile</dt><dd>{displayMobile(employee.employee_mobile)}</dd>
-              <dt className="text-muted-foreground">Alt mobile</dt><dd>{dash(displayMobile(employee.alt_mobile))}</dd>
-              <dt className="text-muted-foreground">Home phone</dt><dd>{dash(displayMobile(employee.home_phone))}</dd>
-              <dt className="text-muted-foreground">Date of join</dt><dd>{dash(employee.date_of_join ?? employee.joined_on)}</dd>
+              <dt className="text-muted-foreground">Employee Name</dt><dd>{employee.preferred_name}</dd>
+              <dt className="text-muted-foreground">Employee ID</dt><dd>{displayMobile(employee.employee_mobile)}</dd>
+              <dt className="text-muted-foreground">Secondary Mobile</dt><dd>{dash(employee.alt_mobile ? displayMobile(employee.alt_mobile) : null)}</dd>
+              <dt className="text-muted-foreground">Family Member Mobile</dt>
+              <dd>{employee.reference_mobile ? displayMobile(employee.reference_mobile) : '—'}{employee.reference_name ? ` · ${employee.reference_name}` : ''}</dd>
+              <dt className="text-muted-foreground">Date of Joining</dt><dd>{formatJoinDate(employee.date_of_join ?? employee.joined_on)}</dd>
+              <dt className="text-muted-foreground">National ID</dt><dd>{dash(employee.nid_number)}</dd>
+              <dt className="text-muted-foreground">Current Address</dt><dd>{dash(employee.present_address)}</dd>
+              <dt className="text-muted-foreground">Permanent Address</dt><dd>{dash(employee.permanent_address)}</dd>
               <dt className="text-muted-foreground">Designation</dt><dd>{dash(employee.designation)}</dd>
+              <dt className="text-muted-foreground">Salary</dt><dd>{formatSalary(employee.salary_amount)}</dd>
+              <dt className="text-muted-foreground">Home phone</dt><dd>{dash(employee.home_phone ? displayMobile(employee.home_phone) : null)}</dd>
               <dt className="text-muted-foreground">Duty type</dt><dd>{dash(employee.duty_type)}</dd>
               <dt className="text-muted-foreground">State</dt><dd>{employee.state}</dd>
-              <dt className="text-muted-foreground">Present address</dt><dd>{dash(employee.present_address)}</dd>
-              <dt className="text-muted-foreground">Permanent address</dt><dd>{dash(employee.permanent_address)}</dd>
-              <dt className="text-muted-foreground">Reference</dt><dd>{dash(employee.reference_name)} {employee.reference_mobile ? `· ${employee.reference_mobile}` : ''}</dd>
-              <dt className="text-muted-foreground">NID</dt><dd>{dash(employee.nid_number)}</dd>
-              <dt className="text-muted-foreground">Birth certificate</dt><dd>{dash(employee.birth_cert_number)}</dd>
-              <dt className="text-muted-foreground">Passport</dt><dd>{dash(employee.passport_number)}</dd>
-              <dt className="text-muted-foreground">Notes</dt><dd>{dash(employee.notes)}</dd>
             </dl>
           </section>
+
+          <section>
+            <h4 className="mb-2 text-sm font-semibold">Photo &amp; Documents</h4>
+            <EmployeeFileFields
+              mobile={employee.employee_mobile}
+              photoUrl={employee.photo_url ?? null}
+              documents={detail?.documents ?? []}
+              editable={editing || canManage}
+              onChanged={() => setReloadKey((key) => key + 1)}
+            />
+          </section>
+
+          <details>
+            <summary style={{cursor: 'pointer', fontSize: 13, fontWeight: 600}}>More details</summary>
+            <dl className="grid grid-cols-[150px_1fr] gap-x-3 gap-y-2 text-sm" style={{marginTop: 8}}>
+              <dt className="text-muted-foreground">Birth certificate</dt><dd>{dash(employee.birth_cert_number)}</dd>
+              <dt className="text-muted-foreground">Passport</dt><dd>{dash(employee.passport_number)}</dd>
+              <dt className="text-muted-foreground">Name aliases</dt><dd>{employee.name_aliases.length ? employee.name_aliases.join(', ') : '—'}</dd>
+              <dt className="text-muted-foreground">Notes</dt><dd>{dash(employee.notes)}</dd>
+            </dl>
+          </details>
           <section>
             <h4 className="mb-2 text-sm font-semibold">Programs ({detail?.programs.length ?? 0})</h4>
             <table style={{fontSize: 12}}>

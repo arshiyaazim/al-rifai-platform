@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import {useRouter} from 'next/navigation';
 import {useEffect, useMemo, useState} from 'react';
 import {Eye, Plus} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {EmployeeDetailSidebar} from '@/components/standalone/employee-detail-sidebar';
+import {EmployeeDetailCard} from '@/components/standalone/employee-detail-card';
+import {EmployeeSubTables} from '@/components/standalone/employee-sub-tables';
 import {EmployeeLookup} from '@/components/standalone/employee-lookup';
 import {displayMobile} from '@/lib/display-mobile';
 
@@ -57,8 +58,8 @@ function MetricCard({label, value, href, missing}: {label: string; value: string
 }
 
 export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
-  const router = useRouter();
   const [rows, setRows] = useState<SummaryRow[]>([]);
+  const [selectedMobile, setSelectedMobile] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
@@ -163,19 +164,22 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
       </div>
 
       <div className="ui-filter-row">
-        <label style={{flex: '1 1 240px'}}>Employee search
+        <div style={{flex: '0 1 320px', width: 320, maxWidth: '100%'}}>
           <EmployeeLookup
             id="employees-search"
-            label="Search by name or mobile"
-            placeholder="Type a name, alias or mobile"
+            label="Search employees"
+            hideLabel
+            showIcon
+            placeholder="Search name or mobile..."
             value={query}
             onChange={setQuery}
+            inputClassName="lookup-input lookup-input--icon"
             onSelect={(employee) => {
               setQuery(employee.preferred_name);
-              router.push(`/employees/${encodeURIComponent(`+88${employee.employee_mobile}`)}`);
+              setSelectedMobile(employee.employee_mobile);
             }}
           />
-        </label>
+        </div>
         <label>Join date from
           <Input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} aria-label="Join date from" />
         </label>
@@ -186,6 +190,13 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
           <Button type="button" size="sm" onClick={() => setCreateOpen(true)}><Plus className="size-4" />Add New Employee</Button>
         ) : null}
       </div>
+
+      {selectedMobile ? (
+        <div style={{display: 'grid', gap: 12, marginBottom: 12}}>
+          <EmployeeDetailCard mobile={selectedMobile} onClose={() => setSelectedMobile('')} />
+          <EmployeeSubTables mobile={selectedMobile} from={fromDate} to={toDate} />
+        </div>
+      ) : null}
 
       <div className="page-head" style={{marginBottom: 8}}>
         <div><h3 style={{margin: 0}}>Directory ({filtered.length})</h3></div>

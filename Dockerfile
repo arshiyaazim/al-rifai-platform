@@ -40,6 +40,10 @@ COPY --from=build --chown=10001:10001 /app/lib/whatsapp-identity.mjs ./lib/whats
 COPY --from=build --chown=10001:10001 /app/lib/password-hash.ts ./lib/password-hash.ts
 COPY --from=build --chown=10001:10001 /app/lib/password-policy.ts ./lib/password-policy.ts
 
+# Writable tree for employee photos and documents. Mount a volume here in
+# production so uploads survive a rebuild; see EMPLOYEE_UPLOAD_DIR.
+RUN mkdir -p /app/uploads/employees && chown -R 10001:10001 /app/uploads
+
 USER 10001:10001
 EXPOSE 3000 3443
 CMD ["node", "deploy/tls-entry.mjs"]

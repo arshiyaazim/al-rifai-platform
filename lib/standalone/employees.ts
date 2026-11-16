@@ -25,6 +25,38 @@ export type EmployeeRow = {
   revision: number;
   created_at: string;
   updated_at: string;
+  /** Migration 028. NULL = derive ৳400/day. Read defensively via to_jsonb. */
+  salary_amount?: number | string | null;
+  photo_url?: string | null;
+};
+
+/** Migration 028 adds two columns and one table; detect them once per process. */
+type ProfileExtensions = {salary: boolean; photo: boolean; documents: boolean};
+let profileExtensionCache: ProfileExtensions | null = null;
+
+export async function employeeProfileExtensions(): Promise<ProfileExtensions> {
+  if (profileExtensionCache) return profileExtensionCache;
+  const found = await row<ProfileExtensions>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_schema = 'public' AND table_name = 'employees' AND column_name = 'salary_amount') AS salary,
+            EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_schema = 'public' AND table_name = 'employees' AND column_name = 'photo_url') AS photo,
+            to_regclass('public.employee_documents') IS NOT NULL AS documents`,
+  );
+  profileExtensionCache = found ?? {salary: false, photo: false, documents: false};
+  return profileExtensionCache;
+}
+
+export type EmployeeDocument = {
+  id: string;
+  employee_mobile: string;
+  file_name: string;
+  file_path: string;
+  file_type: string;
+  mime_type: string | null;
+  file_size_bytes: number | null;
+  uploaded_by: string | null;
+  created_at: string;
 };
 
 export type EmployeeSuggestion = Pick<
@@ -93,12 +125,14 @@ export async function listEmployees(filters: {q?: string; state?: string; limit?
 export async function getEmployee(employeeMobile: string) {
   const key = mobile(employeeMobile, 'employeeMobile');
   const employee = await row<EmployeeRow>(
-    `SELECT employee_mobile, preferred_name, name_aliases, duty_type, designation, state,
-            joined_on::text AS joined_on, date_of_join::text AS date_of_join,
-            alt_mobile, home_phone, present_address, permanent_address, reference_name,
-            reference_mobile, nid_number, birth_cert_number, passport_number,
-            notes, revision, created_at, updated_at
-       FROM employees WHERE employee_mobile = $1`, [key]);
+    `SELECT e.employee_mobile, e.preferred_name, e.name_aliases, e.duty_type, e.designation, e.state,
+            e.joined_on::text AS joined_on, e.date_of_join::text AS date_of_join,
+            e.alt_mobile, e.home_phone, e.present_address, e.permanent_address, e.reference_name,
+            e.reference_mobile, e.nid_number, e.birth_cert_number, e.passport_number,
+            e.notes, e.revision, e.created_at, e.updated_at,
+            to_jsonb(e)->>'salary_amount' AS salary_amount,
+            to_jsonb(e)->>'photo_url' AS photo_url
+       FROM employees e WHERE e.employee_mobile = $1`, [key]);
   if (!employee) throw new DomainError('EMPLOYEE_NOT_FOUND', 404);
   const programs = await rows(
     `SELECT p.id, p.mother_vessel, p.lighter_vessel, p.start_date::text AS start_date, p.start_shift, p.end_date::text AS end_date, p.state,
@@ -112,7 +146,13 @@ export async function getEmployee(employeeMobile: string) {
       ORDER BY duty_date DESC, shift DESC LIMIT 30`,
     [key],
   );
-  return {employee, programs, attendance};
+  const extensions = await employeeProfileExtensions();
+  const documents = extensions.documents
+    ? await rows<EmployeeDocument>(
+        `SELECT * FROM employee_documents WHERE employee_mobile = $1 ORDER BY created_at DESC`, [key],
+      )
+    : [];
+  return {employee, programs, attendance, documents};
 }
 
 export type EmployeeInput = {
@@ -132,6 +172,9 @@ export type EmployeeInput = {
   birthCertNumber?: string | null;
   passportNumber?: string | null;
   notes?: string | null;
+  /** Migration 028 — null means "derive ৳400/day". */
+  salaryAmount?: number | string | null;
+  photoUrl?: string | null;
 };
 
 const optionalMobileText = (value: unknown, field: string): string | null => {
@@ -201,6 +244,13 @@ async function createEmployeeOn(client: Pick<PoolClient, 'query'>, actor: Actor,
     actor, action: 'EMPLOYEE_CREATED', entity: 'employee', entityId: employeeMobile,
     detail: {preferredName, dutyType},
   }, client);
+  // Migration 028 fields are applied separately so a not-yet-migrated database
+  // still creates the core profile instead of failing the whole INSERT.
+  const extensions = await employeeProfileExtensions();
+  const salary = salaryAmount(input.salaryAmount);
+  if (extensions.salary && salary !== null) {
+    await client.query('UPDATE employees SET salary_amount = $2 WHERE employee_mobile = $1', [employeeMobile, salary]);
+  }
   return {created: true, employeeMobile};
 }
 
@@ -227,6 +277,20 @@ export type EmployeePatch = {
   birthCertNumber?: string | null;
   passportNumber?: string | null;
   notes?: string | null;
+  /** Migration 028 — null means "derive ৳400/day". */
+  salaryAmount?: number | string | null;
+  /** Migration 028 — relative path under /uploads/employees/. */
+  photoUrl?: string | null;
+};
+
+/** Salary is whole taka. NULL stays NULL so the ৳400/day rate is derived. */
+const salaryAmount = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') return null;
+  const amount = Number(value);
+  if (!Number.isInteger(amount) || amount < 0 || amount > 10_000_000) {
+    throw new DomainError('INVALID_SALARY_AMOUNT');
+  }
+  return amount;
 };
 
 async function updateEmployeeOn(
@@ -276,6 +340,15 @@ async function updateEmployeeOn(
     values,
   );
   await recordAudit({actor, action: 'EMPLOYEE_UPDATED', entity: 'employee', entityId: key, detail: {patch}}, client);
+  const extensions = await employeeProfileExtensions();
+  if (extensions.salary && patch.salaryAmount !== undefined) {
+    await client.query('UPDATE employees SET salary_amount = $2 WHERE employee_mobile = $1',
+      [key, salaryAmount(patch.salaryAmount)]);
+  }
+  if (extensions.photo && patch.photoUrl !== undefined) {
+    await client.query('UPDATE employees SET photo_url = $2 WHERE employee_mobile = $1',
+      [key, optionalText(patch.photoUrl, 'photoUrl', 500)]);
+  }
   return updated.rows[0];
 }
 
@@ -288,4 +361,73 @@ export async function updateEmployee(
   assertCapability(actor, 'employee.manage');
   if (client) return updateEmployeeOn(client, actor, employeeMobile, patch);
   return tx((txClient) => updateEmployeeOn(txClient, actor, employeeMobile, patch));
+}
+
+// ── Migration 028: profile photo + documents ────────────────────────────────
+
+export async function listEmployeeDocuments(employeeMobile: string): Promise<EmployeeDocument[]> {
+  const key = mobile(employeeMobile, 'employeeMobile');
+  const extensions = await employeeProfileExtensions();
+  if (!extensions.documents) return [];
+  return rows<EmployeeDocument>(
+    'SELECT * FROM employee_documents WHERE employee_mobile = $1 ORDER BY created_at DESC', [key],
+  );
+}
+
+export type EmployeeDocumentInput = {
+  employeeMobile: string;
+  fileName: string;
+  filePath: string;
+  fileType: 'image' | 'pdf' | 'document';
+  mimeType?: string | null;
+  fileSizeBytes?: number | null;
+  uploadedBy?: string | null;
+};
+
+export async function addEmployeeDocument(actor: Actor, input: EmployeeDocumentInput) {
+  assertCapability(actor, 'employee.manage');
+  const key = mobile(input.employeeMobile, 'employeeMobile');
+  const extensions = await employeeProfileExtensions();
+  if (!extensions.documents) throw new DomainError('EMPLOYEE_DOCUMENTS_NOT_MIGRATED', 409);
+  const document = await row<EmployeeDocument>(
+    `INSERT INTO employee_documents
+       (employee_mobile, file_name, file_path, file_type, mime_type, file_size_bytes, uploaded_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [key, text(input.fileName, 'fileName', {max: 255}), text(input.filePath, 'filePath', {max: 500}),
+      input.fileType, optionalText(input.mimeType, 'mimeType', 120), input.fileSizeBytes ?? null,
+      input.uploadedBy ?? actor.id],
+  );
+  await recordAudit({
+    actor, action: 'EMPLOYEE_DOCUMENT_ADDED', entity: 'employee', entityId: key,
+    detail: {fileName: input.fileName, fileType: input.fileType},
+  });
+  return document;
+}
+
+export async function deleteEmployeeDocument(actor: Actor, id: string) {
+  assertCapability(actor, 'employee.manage');
+  const extensions = await employeeProfileExtensions();
+  if (!extensions.documents) throw new DomainError('EMPLOYEE_DOCUMENTS_NOT_MIGRATED', 409);
+  const deleted = await row<EmployeeDocument>(
+    'DELETE FROM employee_documents WHERE id = $1::uuid RETURNING *', [text(id, 'id', {max: 64})],
+  );
+  if (!deleted) throw new DomainError('EMPLOYEE_DOCUMENT_NOT_FOUND', 404);
+  await recordAudit({
+    actor, action: 'EMPLOYEE_DOCUMENT_REMOVED', entity: 'employee',
+    entityId: deleted.employee_mobile, detail: {fileName: deleted.file_name},
+  });
+  return deleted;
+}
+
+export async function setEmployeePhoto(actor: Actor, employeeMobile: string, photoUrl: string | null) {
+  assertCapability(actor, 'employee.manage');
+  const key = mobile(employeeMobile, 'employeeMobile');
+  const extensions = await employeeProfileExtensions();
+  if (!extensions.photo) throw new DomainError('EMPLOYEE_PHOTO_NOT_MIGRATED', 409);
+  await row(
+    'UPDATE employees SET photo_url = $2, revision = revision + 1 WHERE employee_mobile = $1',
+    [key, optionalText(photoUrl, 'photoUrl', 500)],
+  );
+  await recordAudit({actor, action: 'EMPLOYEE_PHOTO_UPDATED', entity: 'employee', entityId: key});
+  return {employee_mobile: key, photo_url: photoUrl};
 }

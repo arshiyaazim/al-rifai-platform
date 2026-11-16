@@ -50,6 +50,11 @@ services:
         source: /etc/vps/apps/al-rifai/auth/wa-01-send.token
         target: /etc/alrifai/wa-01-send.token
         read_only: true
+      # Employee photos and documents. The app root filesystem is read-only, so
+      # this bind mount is the only writable place for /app/uploads/employees.
+      - type: bind
+        source: ./uploads/employees
+        target: /app/uploads/employees
     networks: [backend]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
