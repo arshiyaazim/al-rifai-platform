@@ -4,8 +4,11 @@ import {displayMobile} from '@/lib/display-mobile';
 import {ASSISTANT_DENIAL} from '@/lib/standalone/ai-assistant-prompt';
 import {buildNavigation, isBlockedQuestion, isConfidentMatch} from '@/lib/standalone/ai-assistant-functions';
 import {transliterate} from '@/lib/standalone/transliterate';
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useReducer, useRef, useState} from 'react';
 import {usePathname, useRouter} from 'next/navigation';
+import {
+  isPanelVisible, reduceWindowState, type AssistantWindowAction, type AssistantWindowState,
+} from '@/lib/standalone/ai-assistant-window-state';
 
 /**
  * Floating, read-only assistant.
@@ -105,40 +108,65 @@ const MOBILE_HINT = 'আমাকে মিনিমাইজ করলে আ�
 export function FloatingAssistant() {
   const pathname = usePathname();
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [windowState, dispatchWindow] = useReducer(reduceWindowState, 'closed' as AssistantWindowState);
+  const windowAction = (action: AssistantWindowAction) => dispatchWindow(action);
+  const visible = isPanelVisible(windowState);
+  const maximized = windowState === 'maximized';
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const launcherRef = useRef<HTMLButtonElement | null>(null);
+  const wasVisible = useRef(false);
 
   useEffect(() => {
-    if (!open || messages.length) return;
+    if (!visible || messages.length) return;
     setMessages([{
       role: 'assistant',
       text: 'আসসালামু আলাইকুম। আমি আল-রিফাঈ সহকারী। কর্মী খোঁজা, ক্যাশ/উপস্থিতি/ভেসেলের সারসংক্ষেপ বা পেইজে নিয়ে যাওয়া — কী করতে চান?',
     }]);
-  }, [open, messages.length]);
+  }, [visible, messages.length]);
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [messages, busy, open]);
+  }, [messages, busy, visible]);
+
+  useEffect(() => {
+    if (visible) {
+      inputRef.current?.focus();
+      wasVisible.current = true;
+    } else if (wasVisible.current) {
+      launcherRef.current?.focus();
+      wasVisible.current = false;
+    }
+  }, [visible]);
+
+  function closePanel() {
+    windowAction('close');
+    setMessages([]);
+    setPending(null);
+    setInput('');
+  }
 
   function push(message: Message) {
     setMessages((current) => [...current, message]);
   }
 
   function runAction(action: Pending) {
+    // Collapse the panel so the opened page/form is never left covered.
+    windowAction('minimize');
     if (action.kind === 'navigate') {
-      push({role: 'assistant', text: `ঠিক আছে — ${action.label} পেইজে নিয়ে যাচ্ছি।`});
+      push({role: 'assistant', text: `ঠিক আছে — ${action.label} পেইজে নিয়ে যাচ্ছি। প্যানেলটি মিনিমাইজ করা হলো।`});
       router.push(action.url);
       return;
     }
     const payload = JSON.stringify({page: action.page, action: action.action, employee_mobile: action.mobile ?? null});
     try { sessionStorage.setItem('alrifai:open-sidebar', payload); } catch { /* private mode */ }
     window.dispatchEvent(new CustomEvent('alrifai:open-sidebar', {detail: {page: action.page, action: action.action, employee_mobile: action.mobile}}));
-    push({role: 'assistant', text: `ঠিক আছে — ${action.page} ফর্ম খুলছি।`});
+    push({role: 'assistant', text: `ঠিক আছে — ${action.page} ফর্ম খুলছি। প্যানেলটি মিনিমাইজ করা হলো।`});
     router.push(`/${action.page}`);
   }
 
@@ -371,21 +399,42 @@ export function FloatingAssistant() {
         .alrifai-table{width:100%;border-collapse:collapse;margin-top:6px;font-size:11px}
         .alrifai-table th,.alrifai-table td{border-bottom:1px solid var(--line,#e2e8f0);padding:3px 4px;text-align:left}
         .alrifai-mobile-note{display:none}
+        .alrifai-panel{transition:width .18s ease,height .18s ease,inset .18s ease}
+        .alrifai-ctrl{border:1px solid var(--line,#e2e8f0);background:transparent;color:inherit;border-radius:8px;width:28px;height:28px;cursor:pointer;display:grid;place-items:center;font-size:15px;line-height:1}
+        .alrifai-ctrl:focus-visible,.alrifai-fab:focus-visible,.alrifai-input:focus-visible{outline:2px solid var(--accent,#0f766e);outline-offset:2px}
         @media (max-width: 520px){
-          .alrifai-panel{left:8px !important;right:8px !important;bottom:8px !important;width:auto !important;height:min(76vh,560px) !important}
+          .alrifai-panel:not(.alrifai-max){left:calc(8px + env(safe-area-inset-left)) !important;right:calc(8px + env(safe-area-inset-right)) !important;bottom:calc(8px + env(safe-area-inset-bottom)) !important;width:auto !important;height:min(76dvh,560px) !important}
           .alrifai-label{display:none !important}
           .alrifai-mobile-note{display:block;font-size:10px;margin-top:4px}
+          .alrifai-ctrl{width:36px;height:36px;font-size:17px}
+          .alrifai-input{font-size:16px !important}
+        }
+        @media (prefers-reduced-motion: reduce){
+          .alrifai-fab,.alrifai-dot{animation:none !important}
+          .alrifai-panel{transition:none !important}
         }
       `}</style>
 
-      {open ? (
+      {visible ? (
         <section
           role="dialog"
           aria-label="Al-Rifa'i assistant"
-          className="alrifai-panel"
-          style={{
-            position: 'fixed', right: 20, bottom: 20, zIndex: 80,
-            width: 'min(380px, calc(100vw - 24px))', height: 'min(560px, calc(100vh - 96px))',
+          aria-modal={maximized ? true : undefined}
+          className={maximized ? 'alrifai-panel alrifai-max' : 'alrifai-panel'}
+          onKeyDown={(event) => { if (event.key === 'Escape') windowAction('minimize'); }}
+          style={maximized ? {
+            position: 'fixed', zIndex: 80,
+            top: 'calc(12px + env(safe-area-inset-top))', right: 'calc(12px + env(safe-area-inset-right))',
+            bottom: 'calc(12px + env(safe-area-inset-bottom))', left: 'calc(12px + env(safe-area-inset-left))',
+            display: 'flex', flexDirection: 'column', overflow: 'hidden',
+            background: 'var(--panel, #ffffff)', color: 'var(--ink, #0f172a)',
+            border: '1px solid var(--line, #e2e8f0)', borderRadius: 16,
+            boxShadow: '0 24px 48px rgba(15, 23, 42, .22)',
+          } : {
+            position: 'fixed', zIndex: 80,
+            right: 'calc(16px + env(safe-area-inset-right))', bottom: 'calc(16px + env(safe-area-inset-bottom))',
+            width: 'min(380px, calc(100vw - 24px))', height: 'min(560px, calc(100dvh - 110px))',
+            maxWidth: 'calc(100vw - 24px)', maxHeight: 'calc(100dvh - 24px)',
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
             background: 'var(--panel, #ffffff)', color: 'var(--ink, #0f172a)',
             border: '1px solid var(--line, #e2e8f0)', borderRadius: 16,
@@ -401,11 +450,20 @@ export function FloatingAssistant() {
               <div style={{fontWeight: 600, fontSize: 13}}>আল-রিফাঈ সহকারী</div>
               <div className="muted" style={{fontSize: 11}}>Read-only · employees, cash, vessel, attendance</div>
             </div>
-            <button type="button" onClick={() => setOpen(false)} aria-label="Minimize assistant"
-              style={{border: '1px solid var(--line, #e2e8f0)', background: 'transparent', color: 'inherit', borderRadius: 8, width: 28, height: 28, cursor: 'pointer'}}>–</button>
+            <div className="alrifai-controls" style={{display: 'flex', gap: 4, flexShrink: 0}}>
+              <button type="button" className="alrifai-ctrl" onClick={() => windowAction('minimize')}
+                aria-label="Minimize assistant" title="Minimize (—)">—</button>
+              <button type="button" className="alrifai-ctrl" aria-pressed={maximized}
+                onClick={() => windowAction('toggleMaximize')}
+                aria-label={maximized ? 'Restore assistant size' : 'Maximize assistant'} title={maximized ? 'Restore (□)' : 'Maximize (□)'}>
+                {maximized ? '❐' : '□'}
+              </button>
+              <button type="button" className="alrifai-ctrl" onClick={closePanel}
+                aria-label="Close assistant" title="Close (×)">×</button>
+            </div>
           </header>
 
-          <div ref={listRef} style={{flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 8}}>
+          <div ref={listRef} style={{flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', padding: 12, display: 'flex', flexDirection: 'column', gap: 8}}>
             {messages.map((message, index) => (
               <div key={index} style={{display: 'flex', justifyContent: message.role === 'user' ? 'flex-end' : 'flex-start'}}>
                 <div style={{
@@ -455,7 +513,8 @@ export function FloatingAssistant() {
 
           <form onSubmit={(event) => { event.preventDefault(); void send(input); }}
             style={{display: 'flex', gap: 8, padding: 10, borderTop: '1px solid var(--line, #e2e8f0)'}}>
-            <input value={input} onChange={(event) => setInput(event.target.value)} maxLength={500}
+            <input ref={inputRef} value={input} onChange={(event) => setInput(event.target.value)} maxLength={500}
+              className="alrifai-input"
               placeholder="কর্মী, ক্যাশ বা পেইজ সম্পর্কে জিজ্ঞাসা করুন…" aria-label="Your question"
               style={{flex: 1, minWidth: 0, padding: '8px 10px', borderRadius: 10, border: '1px solid var(--line, #e2e8f0)', background: 'transparent', color: 'inherit', fontSize: 13}} />
             <button type="submit" disabled={busy || !input.trim()}
@@ -469,15 +528,19 @@ export function FloatingAssistant() {
           </p>
         </section>
       ) : (
-        <div style={{position: 'fixed', right: 20, bottom: 20, zIndex: 80, display: 'flex', alignItems: 'center', gap: 8}}>
+        <div style={{
+          position: 'fixed', right: 'calc(16px + env(safe-area-inset-right))',
+          bottom: 'calc(16px + env(safe-area-inset-bottom))', zIndex: 80,
+          display: 'flex', alignItems: 'center', gap: 8, maxWidth: 'calc(100vw - 24px)',
+        }}>
           <span className="alrifai-label" style={{
             background: 'var(--panel, #ffffff)', color: 'var(--ink, #0f172a)', border: '1px solid var(--line, #e2e8f0)',
             borderRadius: 999, padding: '5px 10px', fontSize: 11, boxShadow: '0 6px 16px rgba(15, 23, 42, .12)',
           }}>Need help? Ask a question</span>
-          <button type="button" className="alrifai-fab" onClick={() => setOpen(true)} aria-label="Open dashboard assistant"
-            title="Need Help? Ask a Question"
+          <button ref={launcherRef} type="button" className="alrifai-fab" onClick={() => windowAction('open')}
+            aria-label="Open Al-Rifa'i assistant" aria-expanded={false} title="Open assistant"
             style={{
-              width: 56, height: 56, borderRadius: 28, border: 0, cursor: 'pointer',
+              width: 56, height: 56, borderRadius: 28, border: 0, cursor: 'pointer', flexShrink: 0,
               background: 'linear-gradient(135deg, #0f766e, #0d9488)', color: '#fff',
               fontSize: 22, fontWeight: 700, transition: 'transform .15s ease',
             }}>?</button>
