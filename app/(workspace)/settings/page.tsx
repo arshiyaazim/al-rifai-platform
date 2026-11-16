@@ -9,6 +9,12 @@ import {AssistantToggle} from '@/components/standalone/assistant-toggle';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * The authorized-chats table has no frontend consumer yet. The query below and
+ * the WhatsApp API stay intact; only the render is switched off.
+ */
+const SHOW_AUTHORIZED_CHATS = false;
+
 export default async function SettingsPage() {
   const user = await pageUser();
   const canManageAccounts = can(user as never, 'cash.account.manage');
@@ -141,6 +147,7 @@ export default async function SettingsPage() {
             ]}
           />
         </section>
+        {SHOW_AUTHORIZED_CHATS ? (
         <section className="card">
           <h3>Authorized chats (first 100 per account)</h3>
           <table>
@@ -154,6 +161,7 @@ export default async function SettingsPage() {
             </tbody>
           </table>
         </section>
+        ) : null}
       </div>
 
       {user.superAdmin ? (

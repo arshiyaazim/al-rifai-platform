@@ -147,11 +147,19 @@ export async function getEmployee(employeeMobile: string) {
     [key],
   );
   const extensions = await employeeProfileExtensions();
-  const documents = extensions.documents
-    ? await rows<EmployeeDocument>(
+  let documents: EmployeeDocument[] = [];
+  if (extensions.documents) {
+    try {
+      documents = await rows<EmployeeDocument>(
         `SELECT * FROM employee_documents WHERE employee_mobile = $1 ORDER BY created_at DESC`, [key],
-      )
-    : [];
+      );
+    } catch (error) {
+      // 42501 = runtime role lacks the grant (table created after grants.mjs
+      // learned about it). The profile still renders without the file list.
+      if ((error as {code?: string}).code !== '42501') throw error;
+      console.warn('employee_documents not readable by the app role; run scripts/standalone/migrate.mjs');
+    }
+  }
   return {employee, programs, attendance, documents};
 }
 
@@ -369,9 +377,14 @@ export async function listEmployeeDocuments(employeeMobile: string): Promise<Emp
   const key = mobile(employeeMobile, 'employeeMobile');
   const extensions = await employeeProfileExtensions();
   if (!extensions.documents) return [];
-  return rows<EmployeeDocument>(
-    'SELECT * FROM employee_documents WHERE employee_mobile = $1 ORDER BY created_at DESC', [key],
-  );
+  try {
+    return await rows<EmployeeDocument>(
+      'SELECT * FROM employee_documents WHERE employee_mobile = $1 ORDER BY created_at DESC', [key],
+    );
+  } catch (error) {
+    if ((error as {code?: string}).code === '42501') return [];
+    throw error;
+  }
 }
 
 export type EmployeeDocumentInput = {
@@ -396,7 +409,10 @@ export async function addEmployeeDocument(actor: Actor, input: EmployeeDocumentI
     [key, text(input.fileName, 'fileName', {max: 255}), text(input.filePath, 'filePath', {max: 500}),
       input.fileType, optionalText(input.mimeType, 'mimeType', 120), input.fileSizeBytes ?? null,
       input.uploadedBy ?? actor.id],
-  );
+  ).catch((error: {code?: string}) => {
+    if (error.code === '42501') throw new DomainError('EMPLOYEE_DOCUMENTS_NOT_GRANTED', 503);
+    throw error;
+  });
   await recordAudit({
     actor, action: 'EMPLOYEE_DOCUMENT_ADDED', entity: 'employee', entityId: key,
     detail: {fileName: input.fileName, fileType: input.fileType},

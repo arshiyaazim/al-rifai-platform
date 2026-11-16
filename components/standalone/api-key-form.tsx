@@ -142,7 +142,7 @@ export function ApiKeyForm({
       if (!apiKey.trim() && !editingMode && provider !== 'ollama') throw new Error('API key is required');
       if (needsBaseUrl && !baseUrl.trim()) throw new Error('Base URL is required for this provider');
       if (recruitmentPurpose && !RECRUITMENT_PROVIDERS.includes(provider)) {
-        throw new Error('Recruitment keys work only with Gemini, OpenAI (use OpenAI for OpenRouter keys), Anthropic or Other.');
+        throw new Error('Recruitment keys: select OpenAI as provider for OpenRouter keys (auto-detected from sk-or- prefix). Supported: Gemini, OpenAI, Anthropic, Other.');
       }
       if (!model.trim()) throw new Error('Enter or verify a model first');
       const token = await csrfToken();

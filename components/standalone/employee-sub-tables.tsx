@@ -49,7 +49,10 @@ export function EmployeeSubTables({mobile, from, to}: {mobile: string; from: str
 
   useEffect(() => {
     const controller = new AbortController();
-    const query = (extra: Record<string, string>) => new URLSearchParams(extra).toString();
+    // Empty strings must be dropped: `''::date` is invalid in Postgres and the
+    // attendance/vessel filters would return 500 instead of "all dates".
+    const query = (params: Record<string, string>) =>
+      new URLSearchParams(Object.entries(params).filter(([, value]) => value !== '')).toString();
     setLoading(true);
     setError('');
     const range = {from, to};
