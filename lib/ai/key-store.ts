@@ -22,6 +22,8 @@ export type PlatformKey = {
   baseUrl: string;
   priority: number;
   isFree: boolean;
+  /** Consecutive failures; used as a tiebreaker so flaky keys sink. */
+  failCount: number;
   timeoutMs: number;
   source: 'database' | 'env';
 };
@@ -51,6 +53,7 @@ type KeyRow = {
   notes: string | null;
   priority: number | null;
   is_free: boolean | null;
+  fail_count: number | null;
 };
 
 /**
@@ -61,7 +64,7 @@ type KeyRow = {
  */
 export async function listPlatformKeys(purpose: KeyPurpose, limit = 10): Promise<PlatformKey[]> {
   const data = await rows<KeyRow>(
-    `SELECT id, provider, api_key, model, base_url, notes, priority, is_free
+    `SELECT id, provider, api_key, model, base_url, notes, priority, is_free, fail_count
        FROM api_keys
       WHERE is_active = true
         AND (purpose = $1 OR $1 = ANY (purpose_tags))
@@ -71,6 +74,7 @@ export async function listPlatformKeys(purpose: KeyPurpose, limit = 10): Promise
         AND btrim(model) <> ''
       ORDER BY is_free DESC,
                coalesce(priority, 0) ASC,
+               coalesce(fail_count, 0) ASC,
                coalesce(last_used_at, 'epoch'::timestamptz) ASC,
                created_at ASC
       LIMIT $2`,
@@ -93,6 +97,7 @@ export async function listPlatformKeys(purpose: KeyPurpose, limit = 10): Promise
       baseUrl,
       priority: Number(record.priority ?? 0),
       isFree: record.is_free === true,
+      failCount: Number(record.fail_count ?? 0),
       timeoutMs: providerTimeoutMs(provider),
       source: 'database',
     });
@@ -181,10 +186,39 @@ export async function markAuthFailure(id: string, message = 'AUTH_FAILED'): Prom
 export async function usablePurposes(): Promise<Record<string, number>> {
   const data = await rows<{purpose: string; n: string}>(
     `SELECT purpose, count(*)::text AS n
-       FROM api_keys
-      WHERE is_active = true
-        AND (cooldown_until IS NULL OR cooldown_until <= now())
+       FROM (
+         SELECT id, purpose
+           FROM api_keys
+          WHERE is_active = true
+            AND (cooldown_until IS NULL OR cooldown_until <= now())
+         UNION ALL
+         SELECT id, unnest(purpose_tags) AS purpose
+           FROM api_keys
+          WHERE is_active = true
+            AND (cooldown_until IS NULL OR cooldown_until <= now())
+            AND coalesce(array_length(purpose_tags, 1), 0) > 0
+       ) merged
       GROUP BY purpose`,
   );
   return Object.fromEntries(data.map((entry) => [entry.purpose, Number(entry.n)]));
+}
+
+/**
+ * Single failure-policy entry point for the transport, so the HTTP meaning of a
+ * status code lives in exactly one place:
+ *
+ *   429      -> cooldown until the Retry-After window passes
+ *   401/403  -> disable the credential
+ *   5xx / network / empty body -> bump the failure counter only
+ *
+ * `detail` carries Retry-After seconds for 429 and the reason tag otherwise.
+ */
+export async function recordKeyFailure(
+  id: string,
+  status: number | null,
+  detail = '',
+): Promise<void> {
+  if (status === 429) return markRateLimited(id, Number(detail) || 60);
+  if (status === 401 || status === 403) return markAuthFailure(id, detail || `HTTP_${status}`);
+  return markError(id, detail || (status ? `HTTP_${status}` : 'REQUEST_FAILED'));
 }

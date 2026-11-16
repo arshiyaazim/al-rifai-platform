@@ -18,8 +18,8 @@
 //   draft  -> local Ollama (offline / privacy-sensitive drafting)
 //   vision -> local Ollama vision model (OCR of cash slips and release docs)
 
-import {completeChat, stripThinking, type ChatMessage} from './provider-client.ts';
-import type {PlatformKey} from './key-store.ts';
+import {completeChat, stripThinking, type ChatMessage, type ContentPart} from './provider-client.ts';
+import type {KeyPurpose, PlatformKey} from './key-store.ts';
 
 export {stripThinking};
 
@@ -86,12 +86,49 @@ function readOllamaConfig(): LlmEnv {
 }
 
 /**
+ * Latency preference, used only as a tiebreaker: the operator's `priority`
+ * still decides first. Gemini and Groq answer fastest, local Ollama slowest.
+ */
+const LATENCY_RANK: Record<string, number> = {
+  gemini: 0, groq: 1, openai: 2, anthropic: 3, mistral: 4, openrouter: 5, ollama: 6,
+};
+
+function orderForLive(keys: PlatformKey[]): PlatformKey[] {
+  const rank = (key: PlatformKey) => LATENCY_RANK[key.provider] ?? 7;
+  // Array.prototype.sort is stable, so equal keys keep the key-store order.
+  return [...keys].sort((a, b) =>
+    Number(b.isFree) - Number(a.isFree)
+    || a.priority - b.priority
+    || rank(a) - rank(b)
+    || a.failCount - b.failCount);
+}
+
+const databaseConfigured = () => Boolean(env('PGDATABASE') || env('DATABASE_URL'));
+
+/**
+ * Keys stored in the database for a purpose.
+ *
+ * `null` means "not attempted": no PG configuration, so the environment key is
+ * the only source. `[]` means the database was asked and had nothing usable.
+ * The dynamic import keeps env-only unit tests off the database.
+ */
+async function databaseKeys(purpose: KeyPurpose): Promise<PlatformKey[] | null> {
+  if (!databaseConfigured()) return null;
+  try {
+    const {listPlatformKeys} = await import('./key-store.ts');
+    return await listPlatformKeys(purpose);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Candidate keys for a task.
  *
- * An explicitly configured environment key wins (it is the documented
- * precedence and keeps unit tests off the production database). Otherwise the
- * database is consulted for the best `platform-llm` key by free tier, priority,
- * then least recently used.
+ * The database wins: an operator-managed `platform-llm` key is authoritative and
+ * rotates on failure. The environment key is the fallback for deployments that
+ * have not migrated yet, and it keeps env-only unit tests off the database. When
+ * neither exists the caller answers deterministically.
  */
 async function resolveKeys(task: LlmTask): Promise<PlatformKey[]> {
   if (task === 'draft') {
@@ -105,12 +142,16 @@ async function resolveKeys(task: LlmTask): Promise<PlatformKey[]> {
       baseUrl: ollama.baseUrl,
       priority: 0,
       isFree: true,
+      failCount: 0,
       timeoutMs: ollama.timeoutMs,
       source: 'env',
     }];
   }
 
   const config = readConfig();
+  const stored = await databaseKeys('platform-llm');
+  if (stored?.length) return orderForLive(stored);
+
   if (config.apiKey && config.model) {
     return [{
       id: 'env',
@@ -120,19 +161,13 @@ async function resolveKeys(task: LlmTask): Promise<PlatformKey[]> {
       baseUrl: config.baseUrl,
       priority: 0,
       isFree: false,
+      failCount: 0,
       timeoutMs: config.timeoutMs,
       source: 'env',
     }];
   }
 
-  try {
-    // Dynamic import keeps the env-only unit tests free of database access.
-    const {listPlatformKeys} = await import('./key-store.ts');
-    return await listPlatformKeys('platform-llm');
-  } catch {
-    // No database, or no usable rows: the caller falls back deterministically.
-    return [];
-  }
+  return stored ?? [];
 }
 
 /** Configuration summary without any secret. */
@@ -341,8 +376,41 @@ export type VisionResult = {
   model: string | null;
 };
 
+const visionModel = () => env('AI_OLLAMA_VISION_MODEL') || 'qwen3-vl:2b';
+
 /**
- * Describe an image with the local vision model (OCR for cash slips, release
+ * OCR keys: operator-managed `ocr` rows first (any provider with vision), then
+ * the local Ollama vision model. On-demand only — nothing calls this on a timer.
+ */
+async function visionKeys(): Promise<PlatformKey[]> {
+  const stored = await databaseKeys('ocr');
+  if (stored?.length) return stored;
+  const ollama = readOllamaConfig();
+  return [{
+    id: 'env:vision',
+    provider: 'ollama',
+    apiKey: ollama.apiKey || 'ollama',
+    model: visionModel(),
+    baseUrl: ollama.baseUrl,
+    priority: 0,
+    isFree: true,
+    failCount: 0,
+    timeoutMs: numberEnv('AI_OLLAMA_VISION_TIMEOUT_MS', 120_000, 5_000, 300_000),
+    source: 'env',
+  }];
+}
+
+function mapVisionReason(reason: string): string {
+  if (reason === 'NO_KEYS') return 'AI_VISION_NOT_CONFIGURED';
+  if (reason === 'TIMEOUT') return 'AI_VISION_TIMEOUT';
+  if (reason === 'EMPTY_RESPONSE') return 'AI_VISION_EMPTY_RESPONSE';
+  if (reason === 'RATE_LIMITED') return 'AI_VISION_RATE_LIMITED';
+  if (reason.startsWith('HTTP_')) return `AI_VISION_${reason}`;
+  return 'AI_VISION_REQUEST_FAILED';
+}
+
+/**
+ * Describe an image with the configured vision key (OCR for cash slips, release
  * documents). Independent of the WhatsApp reply path: callers decide what to do
  * with the text; nothing here writes to the database.
  */
@@ -352,41 +420,32 @@ export async function composeVision(input: {
   prompt: string;
   timeoutMs?: number;
 }): Promise<VisionResult> {
-  const ollama = readOllamaConfig();
-  const model = env('AI_OLLAMA_VISION_MODEL') || 'qwen3-vl:2b';
+  const model = visionModel();
   const fallback = (reason: string): VisionResult => ({text: '', used: false, reason, model});
   if (!input.imageBase64) return fallback('AI_VISION_NO_IMAGE');
 
   const mimeType = input.mimeType || 'image/jpeg';
   const timeoutMs = input.timeoutMs ?? numberEnv('AI_OLLAMA_VISION_TIMEOUT_MS', 120_000, 5_000, 300_000);
 
-  try {
-    const response = await fetch(`${ollama.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {'content-type': 'application/json', authorization: `Bearer ${ollama.apiKey}`},
-      body: JSON.stringify({
-        model,
-        temperature: 0.1,
-        max_tokens: 1_200,
-        messages: [{
-          role: 'user',
-          content: [
-            {type: 'text', text: input.prompt},
-            {type: 'image_url', image_url: {url: `data:${mimeType};base64,${input.imageBase64}`}},
-          ],
-        }],
-      }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!response.ok) return fallback(`AI_VISION_HTTP_${response.status}`);
-    const data = (await response.json()) as {choices?: Array<{message?: {content?: unknown}}>};
-    const candidate = data.choices?.[0]?.message?.content;
-    if (typeof candidate !== 'string' || !candidate.trim()) return fallback('AI_VISION_EMPTY_RESPONSE');
-    return {text: stripThinking(candidate).slice(0, 8_000), used: true, reason: null, model};
-  } catch (error) {
-    const name = error instanceof Error ? error.name : '';
-    return fallback(name === 'TimeoutError' || name === 'AbortError' ? 'AI_VISION_TIMEOUT' : 'AI_VISION_REQUEST_FAILED');
-  }
+  const keys = await visionKeys();
+  if (!keys.length) return fallback('AI_VISION_NOT_CONFIGURED');
+
+  const content: ContentPart[] = [
+    {type: 'text', text: input.prompt},
+    {type: 'image', mimeType, base64: input.imageBase64},
+  ];
+
+  const outcome = await completeChat(keys, {
+    messages: [{role: 'user', content}],
+    temperature: 0.1,
+    maxTokens: 1_200,
+    timeoutMsOverride: timeoutMs,
+  });
+  if (!outcome.ok) return fallback(mapVisionReason(outcome.reason));
+
+  const text = stripThinking(outcome.text).slice(0, 8_000);
+  if (!text) return fallback('AI_VISION_EMPTY_RESPONSE');
+  return {text, used: true, reason: null, model: outcome.model};
 }
 
 /** Test hook: reset in-process counters. */

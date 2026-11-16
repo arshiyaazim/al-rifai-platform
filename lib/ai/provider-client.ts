@@ -18,7 +18,11 @@
 import {isGeminiNative} from '../ai-provider.ts';
 import type {PlatformKey} from './key-store.ts';
 
-export type ChatMessage = {role: 'system' | 'user' | 'assistant'; content: string};
+export type ContentPart =
+  | {type: 'text'; text: string}
+  | {type: 'image'; mimeType: string; base64: string};
+
+export type ChatMessage = {role: 'system' | 'user' | 'assistant'; content: string | ContentPart[]};
 
 export type ChatRequest = {
   messages: ChatMessage[];
@@ -50,9 +54,7 @@ const isStored = (id: string) => Boolean(id) && id !== 'env' && !id.startsWith('
 
 type Markers = {
   success: (id: string) => Promise<void>;
-  rateLimited: (id: string, seconds: number) => Promise<void>;
-  authFailure: (id: string, message: string) => Promise<void>;
-  error: (id: string, message: string) => Promise<void>;
+  failure: (id: string, status: number | null, detail: string) => Promise<void>;
 };
 
 let markers: Markers | null = null;
@@ -62,20 +64,23 @@ async function loadMarkers(): Promise<Markers> {
     const store = await import('./key-store.ts');
     markers = {
       success: store.markSuccess,
-      rateLimited: store.markRateLimited,
-      authFailure: store.markAuthFailure,
-      error: store.markError,
+      failure: store.recordKeyFailure,
     };
   }
   return markers;
 }
 
-async function mark(kind: keyof Markers, id: string, detail: string | number): Promise<void> {
+async function markSuccess(id: string): Promise<void> {
   if (!isStored(id)) return;
   try {
-    const set = await loadMarkers();
-    if (kind === 'rateLimited') await set.rateLimited(id, Number(detail) || 60);
-    else await set[kind](id, String(detail));
+    await (await loadMarkers()).success(id);
+  } catch { /* telemetry must not break a reply */ }
+}
+
+async function markFailure(id: string, status: number | null, detail: string): Promise<void> {
+  if (!isStored(id)) return;
+  try {
+    await (await loadMarkers()).failure(id, status, detail);
   } catch { /* telemetry must not break a reply */ }
 }
 
@@ -100,6 +105,36 @@ function authHeaders(key: PlatformKey): Record<string, string> {
   return {Authorization: `Bearer ${secret}`};
 }
 
+/** Text-only projection, used for `system` messages on every wire format. */
+function textOf(content: ChatMessage['content']): string {
+  if (typeof content === 'string') return content;
+  return content
+    .filter((part): part is {type: 'text'; text: string} => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n');
+}
+
+function openAiContent(content: ChatMessage['content']): unknown {
+  if (typeof content === 'string') return content;
+  return content.map((part) => part.type === 'text'
+    ? {type: 'text', text: part.text}
+    : {type: 'image_url', image_url: {url: `data:${part.mimeType};base64,${part.base64}`}});
+}
+
+function geminiParts(content: ChatMessage['content']): Array<Record<string, unknown>> {
+  if (typeof content === 'string') return [{text: content}];
+  return content.map((part) => part.type === 'text'
+    ? {text: part.text}
+    : {inline_data: {mime_type: part.mimeType, data: part.base64}});
+}
+
+function anthropicContent(content: ChatMessage['content']): unknown {
+  if (typeof content === 'string') return content;
+  return content.map((part) => part.type === 'text'
+    ? {type: 'text', text: part.text}
+    : {type: 'image', source: {type: 'base64', media_type: part.mimeType, data: part.base64}});
+}
+
 type BuiltRequest = {url: string; headers: Record<string, string>; body: Record<string, unknown>};
 
 function buildRequest(key: PlatformKey, request: ChatRequest): BuiltRequest {
@@ -110,10 +145,13 @@ function buildRequest(key: PlatformKey, request: ChatRequest): BuiltRequest {
 
   if (mode === 'gemini-native') {
     const system = request.messages.filter((message) => message.role === 'system')
-      .map((message) => message.content).join('\n\n');
+      .map((message) => textOf(message.content)).join('\n\n');
     const contents = request.messages
       .filter((message) => message.role !== 'system')
-      .map((message) => ({role: message.role === 'assistant' ? 'model' : 'user', parts: [{text: message.content}]}));
+      .map((message) => ({
+        role: message.role === 'assistant' ? 'model' : 'user',
+        parts: geminiParts(message.content),
+      }));
     return {
       url: `${base}/models/${encodeURIComponent(key.model)}:generateContent?key=${encodeURIComponent(key.apiKey)}`,
       headers: {'Content-Type': 'application/json'},
@@ -131,10 +169,13 @@ function buildRequest(key: PlatformKey, request: ChatRequest): BuiltRequest {
 
   if (mode === 'anthropic') {
     const system = request.messages.filter((message) => message.role === 'system')
-      .map((message) => message.content).join('\n\n');
+      .map((message) => textOf(message.content)).join('\n\n');
     const messages = request.messages
       .filter((message) => message.role !== 'system')
-      .map((message) => ({role: message.role === 'assistant' ? 'assistant' : 'user', content: message.content}));
+      .map((message) => ({
+        role: message.role === 'assistant' ? 'assistant' : 'user',
+        content: anthropicContent(message.content),
+      }));
     return {
       url: `${base}/v1/messages`,
       headers: {'Content-Type': 'application/json', 'x-api-key': key.apiKey, 'anthropic-version': '2023-06-01'},
@@ -153,7 +194,10 @@ function buildRequest(key: PlatformKey, request: ChatRequest): BuiltRequest {
     headers: {'Content-Type': 'application/json', ...authHeaders(key)},
     body: {
       model: key.model,
-      messages: request.messages,
+      messages: request.messages.map((message) => ({
+        role: message.role,
+        content: openAiContent(message.content),
+      })),
       temperature,
       max_tokens: maxTokens,
       stream: false,
@@ -234,17 +278,17 @@ export async function completeChat(keys: PlatformKey[], request: ChatRequest): P
 
       if (response.status === 429) {
         lastReason = 'RATE_LIMITED';
-        await mark('rateLimited', key.id, retryAfterSeconds(response));
+        await markFailure(key.id, 429, String(retryAfterSeconds(response)));
         continue;
       }
       if (response.status === 401 || response.status === 403) {
         lastReason = `HTTP_${response.status}`;
-        await mark('authFailure', key.id, lastReason);
+        await markFailure(key.id, response.status, lastReason);
         continue;
       }
       if (!response.ok) {
         lastReason = `HTTP_${response.status}`;
-        await mark('error', key.id, lastReason);
+        await markFailure(key.id, response.status, lastReason);
         continue;
       }
 
@@ -253,11 +297,11 @@ export async function completeChat(keys: PlatformKey[], request: ChatRequest): P
       const text = stripThinking(parsed.text);
       if (!text) {
         lastReason = 'EMPTY_RESPONSE';
-        await mark('error', key.id, lastReason);
+        await markFailure(key.id, null, lastReason);
         continue;
       }
 
-      await mark('success', key.id, '');
+      await markSuccess(key.id);
       return {
         ok: true,
         text,
@@ -270,7 +314,7 @@ export async function completeChat(keys: PlatformKey[], request: ChatRequest): P
     } catch (error) {
       const name = error instanceof Error ? error.name : '';
       lastReason = name === 'TimeoutError' || name === 'AbortError' ? 'TIMEOUT' : 'REQUEST_FAILED';
-      await mark('error', key.id, lastReason);
+      await markFailure(key.id, null, lastReason);
     }
   }
 
