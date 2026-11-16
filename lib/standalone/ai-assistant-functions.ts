@@ -140,8 +140,12 @@ export type SuggestionIntent =
   | 'employee_search_results'
   | 'employee_profile'
   | 'cash_summary'
+  | 'cash_summary_range'
   | 'attendance'
+  | 'attendance_summary'
   | 'vessel'
+  | 'vessel_program_info'
+  | 'walkthrough'
   | 'mobile_did_you_mean'
   | 'blocked'
   | 'unsupported_date_range'
@@ -151,8 +155,12 @@ const SUGGESTIONS: Record<SuggestionIntent, string[]> = {
   employee_search_results: ['Open profile', 'Show cash history', 'Show attendance'],
   employee_profile: ['Add payment', 'Add attendance', 'Vessel history'],
   cash_summary: ['Last 5 transactions', 'This month only', 'Open ledger'],
+  cash_summary_range: ['এই মাসের ক্যাশ সামারি', 'খতিয়ানে দেখুন', 'Add Hotel Bill..'],
   attendance: ['This month', 'Open attendance', 'Employee profile'],
+  attendance_summary: ['কর্মচারী অনুযায়ী দেখুন', 'Add Attendance..', 'Search an employee..'],
   vessel: ['Open program', "Escort's profile", 'Release status'],
+  vessel_program_info: ['Add Release Info..', 'Add lighter program..'],
+  walkthrough: ['পরের ধাপ কী?', 'Cancel কিভাবে?', 'আবার শুরুতে'],
   mobile_did_you_mean: ['Use this number', 'Search by name'],
   blocked: ['Search an employee…', "Today's cash"],
   unsupported_date_range: ['This month', 'Open dated ledger'],

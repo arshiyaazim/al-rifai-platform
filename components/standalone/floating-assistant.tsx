@@ -3,7 +3,7 @@
 import {displayMobile} from '@/lib/display-mobile';
 import {ASSISTANT_DENIAL} from '@/lib/standalone/ai-assistant-prompt';
 import {buildNavigation, isBlockedQuestion, isConfidentMatch, suppressesModelBubble} from '@/lib/standalone/ai-assistant-functions';
-import {TEMPLATE_GROUPS, templatesForDomain} from '@/lib/standalone/ai-assistant-templates';
+import {ASSISTANT_TEMPLATES} from '@/lib/standalone/ai-assistant-templates';
 import {transliterate} from '@/lib/standalone/transliterate';
 import {useEffect, useReducer, useRef, useState} from 'react';
 import {usePathname, useRouter} from 'next/navigation';
@@ -121,6 +121,7 @@ export function FloatingAssistant() {
   const launcherRef = useRef<HTMLButtonElement | null>(null);
   const wasVisible = useRef(false);
   const hintShown = useRef(false);
+  const contextRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!visible || messages.length) return;
@@ -172,10 +173,14 @@ export function FloatingAssistant() {
     mobileHint();
   }
 
-  /** One mobile hint per conversation, only after a navigate/form-open. */
+  /** One mobile hint per session, only after a navigate/form-open. */
   function mobileHint() {
     if (hintShown.current) return;
     if (typeof window === 'undefined' || !window.matchMedia('(max-width: 520px)').matches) return;
+    try {
+      if (sessionStorage.getItem('alrifai:mobile-hint') === '1') return;
+      sessionStorage.setItem('alrifai:mobile-hint', '1');
+    } catch { /* private mode: still show once per mount */ }
     hintShown.current = true;
     push({role: 'assistant', text: MOBILE_MINIMISE_HINT});
   }
@@ -356,13 +361,14 @@ export function FloatingAssistant() {
         method: 'POST',
         credentials: 'same-origin',
         headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token},
-        body: JSON.stringify({message: text, page: pathname}),
+        body: JSON.stringify({message: text, page: pathname, context: contextRef.current ?? undefined}),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok || body.ok === false) {
         const code = String(body.error ?? `HTTP_${response.status}`);
         throw new Error(ERROR_TEXT[code] ?? code);
       }
+      contextRef.current = typeof body.context === 'string' ? body.context : null;
       const call = body.function_call as FunctionCall | undefined;
       const suggestions = Array.isArray(body.suggestions)
         ? (body.suggestions as unknown[]).slice(0, 4).map(String) : undefined;
@@ -538,19 +544,12 @@ export function FloatingAssistant() {
               </div>
             ) : null}
             {!messages.length || messages.length === 1 ? (
-              <div style={{display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6}}>
-                {TEMPLATE_GROUPS.map((group) => (
-                  <div key={group.domain}>
-                    <div className="muted" style={{fontSize: 11, fontWeight: 600, marginBottom: 4}}>{group.title}</div>
-                    <div style={{display: 'flex', flexDirection: 'column', gap: 4}}>
-                      {templatesForDomain(group.domain).map((template) => (
-                        <button key={template.id} type="button" onClick={() => void send(template.label)} disabled={busy}
-                          style={{textAlign: 'left', fontSize: 12, padding: '7px 10px', borderRadius: 9, border: '1px solid var(--line, #e2e8f0)', background: 'transparent', color: 'inherit', cursor: 'pointer'}}>
-                          {template.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+              <div style={{display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6}}>
+                {ASSISTANT_TEMPLATES.map((template) => (
+                  <button key={template.id} type="button" onClick={() => void send(template.label)} disabled={busy}
+                    style={{textAlign: 'left', fontSize: 12, padding: '8px 10px', borderRadius: 9, border: '1px solid var(--line, #e2e8f0)', background: 'transparent', color: 'inherit', cursor: 'pointer'}}>
+                    {template.label}
+                  </button>
                 ))}
               </div>
             ) : null}

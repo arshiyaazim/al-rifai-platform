@@ -5,10 +5,12 @@ import {assistantEnabled} from '@/lib/standalone/assistant-settings';
 import {composeReply} from '@/lib/ai/llm';
 import {ASSISTANT_DENIAL, getSystemPrompt} from '@/lib/standalone/ai-assistant-prompt';
 import {
-  hasExplicitDateRange, isBlockedQuestion, guideFor, planAssistantCall, UNSUPPORTED_DATE_RANGE,
+  hasExplicitDateRange, isBlockedQuestion, guideFor, planAssistantCall,
   intentForCall, suggestionsForIntent,
 } from '@/lib/standalone/ai-assistant-functions';
 import {matchTemplateByLabel, resolveTemplateActions} from '@/lib/standalone/ai-assistant-templates';
+import {answerDatedSummary, detectDatedIntent, DATE_HELP} from '@/lib/standalone/ai-assistant-summaries';
+import {flowFromContext, flowFromMessage, walkthroughAnswer, WALKTHROUGHS} from '@/lib/standalone/ai-assistant-walkthrough';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -79,9 +81,10 @@ export async function POST(request: Request) {
       return ok({ok: false, error: 'ASSISTANT_DISABLED'}, 403);
     }
 
-    const body = await bodyOf<{message?: string; page?: string}>(request);
+    const body = await bodyOf<{message?: string; page?: string; context?: string}>(request);
     const message = String(body.message ?? '').trim().slice(0, 500);
     const page = String(body.page ?? '').slice(0, 120);
+    const flowContext = String(body.context ?? '').slice(0, 60);
     if (!message) return ok({ok: false, error: 'MESSAGE_REQUIRED'}, 400);
 
     const slot = takeSlot(String(actor.id ?? 'unknown'));
@@ -99,6 +102,7 @@ export async function POST(request: Request) {
         template: {id: template.id, label: template.label},
         actions: resolveTemplateActions(template),
         suggestions: template.followUps.slice(0, 4),
+        context: template.context,
         used: false, model: null, remaining: slot.remaining,
       });
     }
@@ -112,15 +116,40 @@ export async function POST(request: Request) {
       });
     }
 
-    // Explicit calendar dates cannot become filters yet. Refuse instead of
-    // returning an all-time total that would misrepresent the finance data.
+    // Date-aware summaries (deterministic, SELECT-only). This is why
+    // "গতকালে ক্যাশ সামারি দাও" no longer falls back to dashboard totals.
+    const dated = detectDatedIntent(message);
+    if (dated) {
+      const summary = await answerDatedSummary(message, dated);
+      return ok({
+        ok: true, answer: summary.text, actions: summary.actions,
+        suggestions: summary.suggestions, context: summary.context,
+        used: false, model: null, remaining: slot.remaining,
+      });
+    }
+
+    // A date-like phrase we cannot parse must not become an all-time total.
     if (hasExplicitDateRange(message)) {
       return ok({
-        ok: true, answer: UNSUPPORTED_DATE_RANGE, unsupported_range: true,
+        ok: true, answer: DATE_HELP, unsupported_range: true,
         used: false, model: null,
         suggestions: suggestionsForIntent('unsupported_date_range'),
         remaining: slot.remaining,
       });
+    }
+
+    // Mid-flow questions resolve against the walkthrough KB before any model.
+    const MIDFLOW = /(সেভ|save|ক্যান্সেল|cancel|ডিলিট|delete|আপলোড|upload|ধাপ|step|কিরুম|কি\s*করব|কিভাবে|কোথায়|error|এরর|সমস্যা|next|পরের)/i;
+    if (MIDFLOW.test(message)) {
+      const flow = flowFromContext(flowContext) ?? flowFromMessage(message);
+      if (flow) {
+        const reply = walkthroughAnswer(flow, message);
+        return ok({
+          ok: true, answer: reply.text, actions: WALKTHROUGHS[flow].actions,
+          suggestions: reply.suggestions, context: reply.context,
+          used: false, model: null, remaining: slot.remaining,
+        });
+      }
     }
 
     const call = planAssistantCall(message);
@@ -178,6 +207,7 @@ export async function POST(request: Request) {
       reason: composed.reason,
       remaining: slot.remaining,
       function_call: call,
+      context: null,
       suggestions: suggestionsForIntent(call ? intentForCall(call) : 'free_chat'),
     });
   } catch (error) {
