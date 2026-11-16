@@ -30,6 +30,9 @@ async function csrfToken(): Promise<string> {
 const initialBaseUrl = (editing?: EditableKey | null) =>
   editing ? (editing.base_url || baseUrlFromNotes(editing.notes) || defaultBaseUrl(editing.provider)) : defaultBaseUrl('gemini');
 
+/** The recruitment worker only understands these providers. */
+const RECRUITMENT_PROVIDERS = ['gemini', 'openai', 'anthropic', 'other'];
+
 export function ApiKeyForm({
   onCreated, editing, onSaved, onCancel, defaultPurpose = 'platform-llm',
 }: {
@@ -66,6 +69,20 @@ export function ApiKeyForm({
   }
 
   const needsBaseUrl = requiresBaseUrl(provider);
+  const recruitmentPurpose = purpose === 'recruitment';
+
+  function onPurposeChange(next: string) {
+    setPurpose(next);
+    if (next !== 'recruitment') return;
+    // Recruitment never uses free-tier routing and cannot reach every provider.
+    setIsFree(false);
+    if (!RECRUITMENT_PROVIDERS.includes(provider)) {
+      setProvider('openai');
+      setBaseUrl(defaultBaseUrl('openai'));
+      setCustomEndpoint(false);
+      setVerifiedModels([]);
+    }
+  }
 
   async function test() {
     setBusy(true); setError(''); setNotice('');
@@ -176,17 +193,23 @@ export function ApiKeyForm({
       </label>
 
       <label className="text-sm">Purpose
-        <select className="vessel-select" value={purpose} onChange={(event) => setPurpose(event.target.value)}>
+        <select className="vessel-select" value={purpose} onChange={(event) => onPurposeChange(event.target.value)}>
           {KEY_PURPOSES.map((entry) => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
         </select>
       </label>
+
+      {recruitmentPurpose ? (
+        <p role="note" style={{margin: 0, padding: '6px 8px', borderRadius: 6, background: '#fef3c7', border: '1px solid #f59e0b', color: '#92400e', fontSize: 12}}>
+          Recruitment keys are stored as plaintext and only work with providers: Gemini, OpenAI, Anthropic, Other. Free-tier routing does not apply.
+        </p>
+      ) : null}
 
       <div style={{display: 'flex', gap: 12, alignItems: 'flex-end'}}>
         <label className="text-sm" style={{width: 130}}>Priority
           <Input type="number" min={0} value={priority} onChange={(event) => setPriority(event.target.value)} />
         </label>
-        <label className="text-sm" style={{display: 'flex', gap: 6, alignItems: 'center', paddingBottom: 6}}>
-          <input type="checkbox" checked={isFree} onChange={(event) => setIsFree(event.target.checked)} />
+        <label className="text-sm" style={{display: 'flex', gap: 6, alignItems: 'center', paddingBottom: 6, opacity: recruitmentPurpose ? 0.5 : 1}}>
+          <input type="checkbox" checked={isFree} disabled={recruitmentPurpose} onChange={(event) => setIsFree(event.target.checked)} />
           Free-tier model
         </label>
       </div>

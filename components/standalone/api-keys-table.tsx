@@ -147,7 +147,13 @@ export function ApiKeysTable() {
                       <RowActionsMenu items={[
                         {label: 'Test', onClick: () => void action(row, {action: 'test'})},
                         {label: 'Edit', onClick: () => setEditing(row)},
-                        {label: row.is_active ? 'Disable' : 'Enable', onClick: () => void action(row, {action: 'update', isActive: !row.is_active})},
+                        {label: row.is_active ? 'Disable' : 'Enable', onClick: () => {
+                          // Soft guard: a `general` key is shared with the
+                          // recruitment worker, which reads plaintext only.
+                          if (!row.is_active && row.purpose === 'general'
+                            && !window.confirm('This key is encrypted. Enabling it may cause issues with the recruitment app. Are you sure?')) return;
+                          void action(row, {action: 'update', isActive: !row.is_active});
+                        }},
                         {label: 'Delete', danger: true, onClick: () => {
                           if (window.confirm(`Delete ${row.key_name}?`)) void action(row, {action: 'delete'});
                         }},
