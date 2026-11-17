@@ -276,7 +276,7 @@ export function FloatingAssistant() {
       if (call.name === 'searchEmployee') {
         const query = str('query') ?? '';
         if (!query) return;
-        const rows = await apiJson<LookupRow[]>(`/api/employees/search?q=${encodeURIComponent(query)}`);
+        const rows = await apiJson<LookupRow[]>(`/api/employees/search?expand=1&q=${encodeURIComponent(query)}`);
         const list = Array.isArray(rows) ? rows : [];
         if (!list.length) {
           push({role: 'assistant', text: `"${query}" এর জন্য কোনো কর্মী পাওয়া যায়নি।`});
@@ -376,7 +376,12 @@ export function FloatingAssistant() {
       // A navigate/form confirmation is rendered once by execute() with হ্যাঁ/না
       // chips — the model's own confirmation sentence is suppressed here.
       if (!suppressesModelBubble(call)) {
-        push({role: 'assistant', text: String(body.answer ?? ''), suggestions, actions});
+        const chips = Array.isArray(body.chips)
+          ? (body.chips as Array<{label?: unknown; value?: unknown}>)
+            .filter((chip) => chip && typeof chip.label === 'string' && typeof chip.value === 'string')
+            .map((chip) => ({label: String(chip.label), value: String(chip.value)}))
+          : undefined;
+        push({role: 'assistant', text: String(body.answer ?? ''), suggestions, actions, chips});
       }
       if (call) await execute(call, suggestions);
     } catch (cause) {

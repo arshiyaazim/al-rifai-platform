@@ -136,6 +136,13 @@ export function isBlockedQuestion(question: string): boolean {
   return BLOCKED_TOPIC_PATTERNS.some((entry) => entry.pattern.test(question));
 }
 
+/** Localised "I did not understand" reply — never a dead end. */
+export function fallbackMessage(message: string): string {
+  return /[\u0980-\u09FF]/.test(message)
+    ? 'বুঝতে পারিনি। কর্মচারীর নাম/মোবাইল দিন, অথবা নিচের টেমপ্লেট ব্যবহার করুন।'
+    : 'I could not understand that. Give an employee name or mobile, or use a template below.';
+}
+
 export type SuggestionIntent =
   | 'employee_search_results'
   | 'employee_profile'

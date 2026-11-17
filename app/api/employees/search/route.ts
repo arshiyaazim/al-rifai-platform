@@ -2,6 +2,7 @@ import {actorFor, errorResponse, ok} from '../../_shared';
 import {assertCapability} from '@/lib/standalone/authz';
 import {rows} from '@/lib/standalone/db';
 import {transliterate} from '@/lib/standalone/transliterate';
+import {generateNameVariants} from '@/lib/standalone/ai-assistant-names';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
     // A mobile is identified by its last 11 digits; shorter input is too noisy.
     const mobileKey = digits.length >= 4 ? digits.slice(-11) : null;
 
-    const result = await rows<SearchRow>(
+    const searchOne = (term: string) => rows<SearchRow>(
       `WITH p AS (SELECT $1::text AS q, $2::text AS digits),
             scored AS (
               SELECT e.employee_mobile,
@@ -83,8 +84,24 @@ export async function GET(request: Request) {
          FROM scored, p
         ORDER BY similarity_score DESC, preferred_name
         LIMIT 20`,
-      [query, mobileKey],
+      [term, mobileKey],
     );
+
+    // expand=1 unions every plausible spelling variant and dedupes by mobile.
+    const expand = url.searchParams.get('expand') === '1'
+      && /[a-zA-Z\u0980-\u09FF]/.test(raw);
+    const terms = expand ? generateNameVariants(raw).all.slice(0, 12) : [query];
+    const lists = await Promise.all(terms.map((term) => searchOne(term)));
+    const merged = new Map<string, SearchRow>();
+    for (const entry of lists.flat()) {
+      const score = Number(entry.similarity_score);
+      const current = merged.get(entry.employee_mobile);
+      if (!current || score > Number(current.similarity_score)) merged.set(entry.employee_mobile, entry);
+    }
+    const result = [...merged.values()]
+      .sort((a, b) => Number(b.similarity_score) - Number(a.similarity_score)
+        || a.preferred_name.localeCompare(b.preferred_name))
+      .slice(0, 20);
 
     return ok(result.map((entry) => ({...entry, similarity_score: Number(entry.similarity_score)})));
   } catch (error) {

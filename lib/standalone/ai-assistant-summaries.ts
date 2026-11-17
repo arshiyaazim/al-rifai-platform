@@ -6,6 +6,7 @@
  * "গতকালে ক্যাশ সামারি দাও" can never fall back to dashboard totals.
  */
 import {parseDateExpression, formatBnDate, toBengaliDigits, type ParsedDateRange} from './ai-assistant-dates.ts';
+import {encodeContext} from './ai-assistant-context.ts';
 import {
   attendanceSummary, cashSummary, employeeAttendance, employeeCashSummary, vesselPrograms,
 } from './ai-assistant-queries.ts';
@@ -92,7 +93,7 @@ export type SummaryAnswer = {
   text: string;
   actions: Array<{label: string; href: string}>;
   suggestions: string[];
-  context: null;
+  context: string | null;
 };
 
 export async function answerDatedSummary(message: string, intent: DatedIntent): Promise<SummaryAnswer> {
@@ -111,7 +112,7 @@ export async function answerDatedSummary(message: string, intent: DatedIntent): 
           {label: 'Open profile', href: `/employees/${encodeURIComponent(found.mobile)}`},
         ],
         suggestions: ['এই মাসের ক্যাশ সামারি', 'Add Hotel Bill..', 'Search an employee..'],
-        context: null,
+        context: encodeContext({domain: 'employee', employeeMobile: found.mobile, from: range.from, to: range.to}),
       };
     }
     const summary = await cashSummary(range.from, range.to);
@@ -131,7 +132,7 @@ export async function answerDatedSummary(message: string, intent: DatedIntent): 
         {label: 'Review queue', href: '/review?category=CASH'},
       ],
       suggestions: ['এই মাসের ক্যাশ সামারি', 'Open ledger', 'Add Hotel Bill..'],
-      context: null,
+      context: encodeContext({domain: 'cash', from: range.from, to: range.to}),
     };
   }
 
@@ -147,7 +148,7 @@ export async function answerDatedSummary(message: string, intent: DatedIntent): 
           {label: 'Open attendance', href: '/attendance'},
         ],
         suggestions: ['এই মাসের হাজিরা সামারি', 'Add Attendance..', 'Search an employee..'],
-        context: null,
+        context: encodeContext({domain: 'employee', employeeMobile: found.mobile, from: range.from, to: range.to}),
       };
     }
     const summary = await attendanceSummary(range.from, range.to);
@@ -164,7 +165,7 @@ export async function answerDatedSummary(message: string, intent: DatedIntent): 
       ].join('\n'),
       actions: [{label: 'Open attendance', href: '/attendance'}],
       suggestions: ['এই মাসের হাজিরা সামারি', 'Add Attendance..', 'Search an employee..'],
-      context: null,
+      context: encodeContext({domain: 'attendance', from: range.from, to: range.to}),
     };
   }
 
@@ -175,7 +176,7 @@ export async function answerDatedSummary(message: string, intent: DatedIntent): 
       text: `${range.labelBn}: কোনো ভেসেল প্রোগ্রাম পাওয়া যায়নি${name ? ` ("${name}")` : ''}।`,
       actions: [{label: 'Open vessel', href: `/vessel?from=${range.from}&to=${range.to}`}],
       suggestions: ['Add lighter program..', 'Add Release Info..'],
-      context: null,
+      context: encodeContext({domain: 'vessel', from: range.from, to: range.to}),
     };
   }
   const lines = vessels.slice(0, 5).map((entry) =>
@@ -186,6 +187,6 @@ export async function answerDatedSummary(message: string, intent: DatedIntent): 
       {label: 'Open vessel', href: `/vessel?from=${range.from}&to=${range.to}${name ? `&q=${encodeURIComponent(name)}` : ''}`},
     ],
     suggestions: ['Add lighter program..', 'Add Release Info..'],
-    context: null,
+    context: encodeContext({domain: 'vessel', from: range.from, to: range.to}),
   };
 }

@@ -5,12 +5,17 @@ import {assistantEnabled} from '@/lib/standalone/assistant-settings';
 import {composeReply} from '@/lib/ai/llm';
 import {ASSISTANT_DENIAL, getSystemPrompt} from '@/lib/standalone/ai-assistant-prompt';
 import {
-  hasExplicitDateRange, isBlockedQuestion, guideFor, planAssistantCall,
+  hasExplicitDateRange, isBlockedQuestion, guideFor, planAssistantCall, fallbackMessage,
   intentForCall, suggestionsForIntent,
 } from '@/lib/standalone/ai-assistant-functions';
 import {matchTemplateByLabel, resolveTemplateActions} from '@/lib/standalone/ai-assistant-templates';
 import {answerDatedSummary, detectDatedIntent, DATE_HELP} from '@/lib/standalone/ai-assistant-summaries';
 import {flowFromContext, flowFromMessage, walkthroughAnswer, WALKTHROUGHS} from '@/lib/standalone/ai-assistant-walkthrough';
+import {
+  classifyPersonMessage, inheritedAnswer, inheritedIntent, personAnswer,
+} from '@/lib/standalone/ai-assistant-person';
+import {decodeContext, encodeContext} from '@/lib/standalone/ai-assistant-context';
+import {parseDateExpression} from '@/lib/standalone/ai-assistant-dates';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,12 +27,22 @@ export const dynamic = 'force-dynamic';
  * tools, no write path). The language model may only rephrase the verified
  * digest, and every failure returns the digest verbatim.
  */
-const FALLBACK = 'I can help you find information from your dashboards — employees, attendance, vessel programmes and cash totals. Try asking "how many employees joined this month?"';
+const IN_SCOPE = /(employee|staff|worker|attendance|present|absent|vessel|ship|program|programme|cash|payment|paid|taka|salary|today|yesterday|this month|summary|dashboard|report|কর্ম|কর্মচারী|এমপ্লোয়ি|উপস্থিত|অনুপস্থিত|জাহাজ|প্রোগ্রাম|টাকা|বেতন|আজ|গতকাল|মাস|কত|হিসাব)/i;
 
-const IN_SCOPE = /(employee|staff|worker|attendance|present|absent|vessel|ship|program|programme|cash|payment|paid|taka|salary|today|yesterday|this month|summary|dashboard|report|কর্ম|উপস্থিত|অনুপস্থিত|জাহাজ|প্রোগ্রাম|টাকা|বেতন|আজ|গতকাল|মাস|কত)/i;
+/** Remember the last navigated domain so a bare follow-up name has meaning. */
+function navContext(call: ReturnType<typeof planAssistantCall>): string | null {
+  if (!call || call.name !== 'navigateToPage') return null;
+  const page = String(call.arguments?.page ?? '');
+  const filters = (call.arguments?.filters ?? {}) as Record<string, string>;
+  const domain = page.startsWith('cash') ? 'cash'
+    : page === 'vessel' ? 'vessel'
+      : page === 'attendance' ? 'attendance'
+        : page === 'employees' ? 'employee' : null;
+  if (!domain) return null;
+  return encodeContext({domain: domain as 'cash' | 'attendance' | 'vessel' | 'employee', from: filters.from, to: filters.to});
+}
 
-const PAGE_LABEL: Record<string, string> = {
-  '/home': 'Home dashboard',
+const PAGE_LABEL: Record<string, string> = {  '/home': 'Home dashboard',
   '/insights': 'Insights',
   '/employees': 'Employees / Escorts',
   '/vessel': 'Vessel Register',
@@ -128,6 +143,24 @@ export async function POST(request: Request) {
       });
     }
 
+    // Person-aware intents (search / "হিসাব") run before the generic date guard
+    // so a name with a date never loses its subject.
+    const personIntent = classifyPersonMessage(message);
+    if (personIntent) {
+      if (hasExplicitDateRange(message) && !parseDateExpression(message)) {
+        return ok({
+          ok: true, answer: DATE_HELP, unsupported_range: true, used: false, model: null,
+          suggestions: suggestionsForIntent('unsupported_date_range'), remaining: slot.remaining,
+        });
+      }
+      const answer = await personAnswer(personIntent, message);
+      return ok({
+        ok: true, answer: answer.text, actions: answer.actions, chips: answer.chips,
+        suggestions: answer.suggestions, context: answer.context || null,
+        used: false, model: null, remaining: slot.remaining,
+      });
+    }
+
     // A date-like phrase we cannot parse must not become an all-time total.
     if (hasExplicitDateRange(message)) {
       return ok({
@@ -135,6 +168,33 @@ export async function POST(request: Request) {
         used: false, model: null,
         suggestions: suggestionsForIntent('unsupported_date_range'),
         remaining: slot.remaining,
+      });
+    }
+
+    // Context memory: pronouns and bare names inherit the previous domain.
+    const prior = decodeContext(flowContext);
+    if (prior?.domain === 'employee' && prior.employeeMobile && /^(হ্যাঁ|হা|yes\b|y\b|ok\b|okay\b)/i.test(message)) {
+      const answer = await inheritedAnswer({domain: 'cash', mobile: prior.employeeMobile, from: prior.from, to: prior.to});
+      return ok({
+        ok: true, answer: answer.text, actions: answer.actions, chips: answer.chips,
+        suggestions: answer.suggestions, context: answer.context || null,
+        used: false, model: null, remaining: slot.remaining,
+      });
+    }
+    if (prior?.domain === 'employee' && /^(না|ন\b|no\b|n\b|cancel)/i.test(message)) {
+      return ok({
+        ok: true, answer: 'ঠিক আছে — নামের বানান বা মোবাইল নম্বর বলুন।',
+        suggestions: ['Search an employee..', 'Today\'s cash..'],
+        context: null, used: false, model: null, remaining: slot.remaining,
+      });
+    }
+    const inherited = inheritedIntent(prior, message);
+    if (inherited) {
+      const answer = await inheritedAnswer(inherited);
+      return ok({
+        ok: true, answer: answer.text, actions: answer.actions, chips: answer.chips,
+        suggestions: answer.suggestions, context: answer.context || null,
+        used: false, model: null, remaining: slot.remaining,
       });
     }
 
@@ -157,7 +217,7 @@ export async function POST(request: Request) {
 
     if (!IN_SCOPE.test(message) && !mobile && !call && !guide) {
       return ok({
-        ok: true, answer: FALLBACK, used: false, model: null,
+        ok: true, answer: fallbackMessage(message), used: false, model: null,
         suggestions: suggestionsForIntent('free_chat'),
         remaining: slot.remaining,
       });
@@ -207,7 +267,7 @@ export async function POST(request: Request) {
       reason: composed.reason,
       remaining: slot.remaining,
       function_call: call,
-      context: null,
+      context: navContext(call),
       suggestions: suggestionsForIntent(call ? intentForCall(call) : 'free_chat'),
     });
   } catch (error) {
