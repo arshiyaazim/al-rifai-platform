@@ -9,6 +9,7 @@ import {EmployeeDetailSidebar} from '@/components/standalone/employee-detail-sid
 import {EmployeeDetailCard} from '@/components/standalone/employee-detail-card';
 import {EmployeeSubTables} from '@/components/standalone/employee-sub-tables';
 import {EmployeeLookup} from '@/components/standalone/employee-lookup';
+import {useSearchParams} from 'next/navigation';
 import {displayMobile} from '@/lib/display-mobile';
 
 type SummaryRow = {
@@ -66,7 +67,10 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
   const [createOpen, setCreateOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<{key: SortKey; dir: 'asc' | 'desc'}>({key: 'preferred_name', dir: 'asc'});
-  const [query, setQuery] = useState('');
+  const search = useSearchParams();
+  const requestedState = (search.get('state') ?? '').trim();
+  const [query, setQuery] = useState(() => search.get('q') ?? '');
+  const [designation, setDesignation] = useState(() => search.get('designation') ?? '');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const limit = 20;
@@ -113,7 +117,7 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
   useEffect(() => { void load(); }, []);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- any filter change must return the table to page 1.
-  useEffect(() => { setPage(1); }, [query, fromDate, toDate]);
+  useEffect(() => { setPage(1); }, [query, fromDate, toDate, designation]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -126,9 +130,10 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
       const joined = row.date_of_join ? String(row.date_of_join).slice(0, 10) : '';
       if (fromDate && (!joined || joined < fromDate)) return false;
       if (toDate && (!joined || joined > toDate)) return false;
+      if (designation && String(row.designation ?? '').toLowerCase() !== designation.toLowerCase()) return false;
       return true;
     });
-  }, [rows, query, fromDate, toDate]);
+  }, [rows, query, fromDate, toDate, designation]);
 
   const sorted = useMemo(() => {
     const copy = [...filtered];
@@ -185,6 +190,10 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
         <MetricCard label="Total Salary" value={money(salaryTotal)} />
         <MetricCard label="Total Paid" value={money(paidTotal)} href="/cash" />
       </div>
+
+      {requestedState && requestedState.toUpperCase() !== 'ACTIVE' ? (
+        <p className="muted">The directory lists ACTIVE employees only (requested state: {requestedState}).</p>
+      ) : null}
 
       <div className="ui-filter-row">
         <div style={{flex: '0 1 320px', width: 320, maxWidth: '100%'}}>

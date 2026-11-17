@@ -7,8 +7,8 @@
  *                            employeeMobile, payoutMobile, openPayment
  *   /cash/transactions     → q, from, to, employee_mobile, source, page
  *   /vessel                → q, state, mother, escort_mobile, page
- *   /attendance            → (no server params — client-side filters only)
- *   /employees             → (no server params — client-side filters only)
+ *   /attendance            → from, to, q, employee_mobile (client init)
+ *   /employees             → q, state, designation (client init)
  *   /employees/[mobile]     and legacy /employee/[phone] profile pages.
  */
 
@@ -48,8 +48,8 @@ export const URL_REGISTRY = {
   },
   attendance: {
     base: '/attendance',
-    /** No server params exist; filters live in the client only. */
-    filter: (_params: {q?: string; from?: string; to?: string}) => '/attendance',
+    filter: (params: {q?: string; from?: string; to?: string; employee_mobile?: string}) =>
+      `/attendance${query(params)}`,
   },
   vessel: {
     base: '/vessel',
@@ -73,9 +73,6 @@ const BASES: Record<string, string> = {
   review: '/review',
 };
 
-/** Pages whose filters run in the browser; a query string would be ignored. */
-const CLIENT_ONLY = new Set(['employees', 'attendance']);
-
 /**
  * `buildUrl('vessel', {state: 'RUNNING', escort_mobile: '+8801…'})`
  * → `/vessel?state=RUNNING&escort_mobile=%2B8801…`
@@ -88,7 +85,7 @@ export function buildUrl(page: string, filters: Record<string, ParamValue> = {})
     if (!mobile) throw new Error('EMPLOYEE_MOBILE_REQUIRED');
     return `${base}/${encodeURIComponent(String(mobile))}`;
   }
-  return CLIENT_ONLY.has(page) ? base : `${base}${query(filters)}`;
+  return `${base}${query(filters)}`;
 }
 
 export type UrlRegistry = typeof URL_REGISTRY;

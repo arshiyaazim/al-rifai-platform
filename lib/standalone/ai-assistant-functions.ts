@@ -404,10 +404,22 @@ export function planAssistantCall(message: string, now: Date = new Date()): Assi
       };
     }
     if (ATTENDANCE.test(text)) {
-      return {name: 'navigateToPage', arguments: {page: 'attendance', filters: {}}, requires_confirmation: true};
+      return {
+        name: 'navigateToPage',
+        arguments: {page: 'attendance', filters: filters({
+          from: range.from, to: range.to, employee_mobile: employeeMobile,
+        })},
+        requires_confirmation: true,
+      };
     }
     if (EMPLOYEE.test(text)) {
-      return {name: 'navigateToPage', arguments: {page: 'employees', filters: {}}, requires_confirmation: true};
+      const pageWords = /^(পেজ|পেইজ|page|তালিকা|list|directory)$/i;
+      const query = employeeMobile ? undefined : (name && !pageWords.test(name) ? name : undefined);
+      return {
+        name: 'navigateToPage',
+        arguments: {page: 'employees', filters: filters({q: query})},
+        requires_confirmation: true,
+      };
     }
   }
 

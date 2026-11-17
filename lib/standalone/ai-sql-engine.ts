@@ -346,12 +346,13 @@ export function formatEngineAnswer(plan: SqlPlan, result: SqlResult, now: Date =
   }
 
   if (plan.kind === 'attendance_list' || plan.kind === 'cash_attendance_join') {
+    const attendanceHref = plan.from && plan.to ? `/attendance?from=${plan.from}&to=${plan.to}` : '/attendance';
     const lines = result.rows.slice(0, 10).map((row, index) =>
       `${index + 1}. ${String(row.name ?? '—')} — ${String(row.day ?? '')} ${String(row.shift ?? '')}${row.location ? `, ${String(row.location)}` : ''}`);
     const more = !capped && result.rowCount > 10 ? `\nআরও ${n(result.rowCount - 10)} টি আছে।` : '';
     return {
       text: `${plan.label ?? 'নির্বাচিত সময়ে'} ${capped ? `${n(result.rowCount)} টি পর্যন্ত` : `${n(result.rowCount)} টি`} উপস্থিতি:\n${lines.join('\n')}${more}`,
-      actions: [{label: 'Open attendance', href: '/attendance'}],
+      actions: [{label: 'Open attendance', href: attendanceHref}],
       suggestions, context,
     };
   }

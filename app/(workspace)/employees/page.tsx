@@ -1,5 +1,6 @@
 import {pageUser} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
+import {Suspense} from 'react';
 import {EmployeesSummaryTable} from '@/components/standalone/employees-summary-table';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,9 @@ export default async function EmployeesPage() {
         </div>
       </div>
       <section className="card">
-        <EmployeesSummaryTable canManage={canManage} />
+        <Suspense fallback={<p className="muted">Loading employees…</p>}>
+          <EmployeesSummaryTable canManage={canManage} />
+        </Suspense>
       </section>
     </div>
   );

@@ -54,8 +54,10 @@ test('sensitive topics are refused and pages without URL filters are not offered
     assert.equal(isBlockedQuestion(question), true, question);
   }
   assert.equal(isBlockedQuestion('সাইফুলের কত টাকা পেয়েছে?'), false);
-  assert.equal(buildNavigation('employees', {q: 'x'})?.url, '/employees');
-  assert.equal(buildNavigation('attendance', {q: 'x'})?.url, '/attendance');
+  // E2.8: both pages now consume URL filters.
+  assert.equal(buildNavigation('employees', {q: 'x'})?.url, '/employees?q=x');
+  assert.equal(buildNavigation('attendance', {from: '2026-11-16', to: '2026-11-16'})?.url,
+    '/attendance?from=2026-11-16&to=2026-11-16');
   const attendance = planAssistantCall('আজ উপস্থিতি দেখতে চাই', NOW);
-  assert.deepEqual(attendance?.arguments?.filters, {});
+  assert.deepEqual(attendance?.arguments?.filters, {from: '2026-11-16', to: '2026-11-16'});
 });

@@ -6,9 +6,9 @@
 - **Source:** `/opt/al-rifai-platform`
 - **Repo:** `git@github.com:arshiyaazim/al-rifai-platform.git`
 - **Branch:** `main` @ `1e68ff1` (2026-11-13)
-- **Current version:** `v3.3.0-escort-release`
-- **Current image:** `local/al-rifai-platform:v3.3.0-escort-release` (app + sync, same tag)
-- **Schema:** `1.13.7` — 25 migrations; 60 migration-managed tables plus 6 runtime `*_snapshot` tables (66 in production)
+- **Current version:** `v3.3.17-final`
+- **Current image:** `local/al-rifai-platform:v3.3.17-final` (app + sync, same tag)
+- **Schema:** `1.13.8` — 29 migration files (002–029; 28 ledger rows), 67 public tables
 - **Web URL:** `https://app.al-rifai.iamazim.com` (also `alrifai.iamazim.com`, `al-rifai.iamazim.com`)
 
 ## Key Paths
@@ -27,6 +27,13 @@
 | Release backfill / join-date backfill | `scripts/backfill-release-slips.ts`, `scripts/backfill-employee-join-date.ts` |
 
 UI routes under `app/(workspace)/`: `/home`, `/insights`, `/assistant`, `/employees`, `/employees/[mobile]`, `/employee`, `/employee/[phone]`, `/vessel`, `/vessel/[id]`, `/vessel/drafts`, `/vessel-register`, `/vessel/register`, `/vessel/vessel-register`, `/release`, `/attendance`, `/cash`, `/cash/[id]`, `/cash/archive`, `/cash/employee/[employeeId]`, `/cash/paid`, `/cash/paid/[id]`, `/cash/submissions`, `/cash/transactions`, `/payroll`, `/review`, `/review/[id]`, `/messages`, `/message-mirror`, `/conversations`, `/reports`, `/archive`, `/audit`, `/settings`, `/settings/api-keys`, `/settings/recruitment`, `/sources-review`, `/submissions`, `/transactions`, `/transactions/employee/[phone]`, `/income-expenditure`, `/register`. `/dashboard` 307-redirects to `/home`.
+
+## AI Assistant (E2)
+
+- Files: `components/standalone/floating-assistant.tsx`, `lib/standalone/ai-assistant-{prompt,functions,templates,dates,queries,summaries,walkthrough,names,person,context}.ts`, `lib/standalone/ai-sql-engine.ts`, `app/api/assistant/chat/route.ts`.
+- Order: template → blocked topics → dated summaries → person/“হিসাব” → write-intent advice → NL2SQL → navigation/planner → LLM fallback (localized).
+- Read-only by construction: NL2SQL accepts only SELECT/WITH, rejects write/DDL keywords and system catalogs, appends LIMIT 50 and runs with a 5s timeout in a READ ONLY transaction on the read-only pool. No write tool exists; no internals appear in chat.
+- Rate limit 20/hour per user (`takeSlot`) and the Settings kill-switch stay in the backend.
 
 ## Deploy
 

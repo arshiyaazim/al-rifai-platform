@@ -4,10 +4,10 @@
 
 | Category | Value |
 |---|---|
-| **Version** | **v3.3.6** |
+| **Version** | **v3.3.17-final** |
 | **Branch** | `main`. Phase 4A–4E UI is merged into `main`; `feat/15-task-roadmap` is merged and **no longer the source of truth** (the branch is retained, not deleted). |
-| **Deployed image** | `local/al-rifai-platform:v3.3.6` (app **and** sync always deploy together on the same tag) |
-| **DB schema** | **1.13.7** — 60 tables, **25 migrations (001–026)** |
+| **Deployed image** | `local/al-rifai-platform:v3.3.17-final` (app **and** sync always deploy together on the same tag) |
+| **DB schema** | **1.13.8** — 67 tables, **29 migration files (002–029)**; 28 ledger rows (baseline lives in `schema.sql`) |
 | **Auth** | Application login/session. Unauthenticated workspace routes fail closed with JSON `401`; document navigations redirect to `/login`. |
 | **Attendance definitions** | **Vessel** attendance is derived from vessel programs (`program_assignments` + `program_pay`). **Security** attendance is every attendance day (legacy `attendance` + `attendance_records`, deduplicated by employee/day/shift) that is not already covered by a vessel program assignment on that date. Vessel + Security = total attendance days. |
 | **Navigation** | The workspace home is **`/home`** (renamed from `/dashboard`; `/dashboard` 307-redirects to `/home`). Unauthenticated page requests 307-redirect to `/login`; API requests keep a JSON `401`. |
@@ -66,6 +66,13 @@
 **Files changed:** `components/standalone/vessel-review-sidebar.tsx`, `components/standalone/employee-review-panel.tsx`, `components/standalone/attendance-review-panel.tsx`, `components/standalone/cash-review-panel.tsx`, `AGENTS.md`, `DEVELOPER_START_HERE.md`, `README.md`.
 
 **Rollback:** set `ALRIFAI_TAG=v3.3.5` in both `.env` files and re-run the compose command.
+
+## AI Floating Assistant (E2.1–E2.7)
+
+- **Search:** pg_trgm fuzzy employee search with similarity badges, Bengali↔Latin transliteration and multi-variant name matching (j↔z, e↔i, u↔oo, a↔o, silent h) over names and aliases.
+- **Planner:** deterministic templates (7), date parser (Bengali word numbers 1–31, relative and offset ranges), person/“হিসাব” intents, walkthrough KB with a 10-minute context token, and a read-only NL2SQL path for unanticipated questions.
+- **Safety:** SELECT-only guard (writes/DDL/system catalogs/comments/multi-statement rejected), LIMIT 50, 5s timeout inside a READ ONLY transaction; edit/delete requests only explain the UI path. Internals (SQL, tables, columns) are never shown.
+- **UX:** orange Ask launcher, single হ্যাঁ/না confirmation, follow-up chips, auto-minimize, 375px/safe-area layout; rate limit (20/hour) and kill-switch unchanged.
 
 ## v3.3.6 (2026-11-15)
 
