@@ -16,6 +16,7 @@ import {
 } from '@/lib/standalone/ai-assistant-person';
 import {decodeContext, encodeContext} from '@/lib/standalone/ai-assistant-context';
 import {parseDateExpression} from '@/lib/standalone/ai-assistant-dates';
+import {answerSqlQuestion, writeIntentAnswer} from '@/lib/standalone/ai-sql-engine';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -159,6 +160,29 @@ export async function POST(request: Request) {
         suggestions: answer.suggestions, context: answer.context || null,
         used: false, model: null, remaining: slot.remaining,
       });
+    }
+
+    // Edit/delete requests never reach SQL — explain the UI path instead.
+    const writeAnswer = writeIntentAnswer(message);
+    if (writeAnswer) {
+      return ok({
+        ok: true, answer: writeAnswer.text, actions: writeAnswer.actions,
+        suggestions: writeAnswer.suggestions, context: null,
+        used: false, model: null, remaining: slot.remaining,
+      });
+    }
+
+    // Universal read-only search for unanticipated data questions. Skipped when
+    // a date-like phrase cannot be parsed (it would become an all-time total).
+    if (!(hasExplicitDateRange(message) && !parseDateExpression(message))) {
+      const sqlAnswer = await answerSqlQuestion(message, decodeContext(flowContext));
+      if (sqlAnswer) {
+        return ok({
+          ok: true, answer: sqlAnswer.text, actions: sqlAnswer.actions,
+          suggestions: sqlAnswer.suggestions, context: sqlAnswer.context,
+          used: false, model: null, remaining: slot.remaining,
+        });
+      }
     }
 
     // A date-like phrase we cannot parse must not become an all-time total.
