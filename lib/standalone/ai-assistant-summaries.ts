@@ -26,10 +26,10 @@ export const DATE_HELP = [
 ].join(' ');
 
 const MOBILE = /(?:\+?88)?(01[3-9]\d{8})/;
-const DOMAIN_CASH = /(ক্যাশ|\bcash\b)/i;
+const DOMAIN_CASH = /(ক্যাশ|লেনদেন|\bcash\b|\btransactions?\b)/i;
 const DOMAIN_ATTENDANCE = /(হাজিরা|উপস্থিতি|\battendance\b)/i;
 const DOMAIN_VESSEL = /(ভেসেল|জাহাজ|লাইটার|\bvessel\b|\blighter\b|এসকর্ট|\bescort\b)/i;
-const INTENT = /(সামারি|সারসংক্ষেপ|\bsummary\b|মোট|\btotal\b|দেখাও|হিস্ট্রি|\bhistory\b|কে\s*গেছ|কে\s*গেছিল|\bwho\s+went\b|কত)/i;
+const INTENT = /(সামারি|সারসংক্ষেপ|\bsummary\b|মোট|\btotal\b|দেখাও|হিস্ট্রি|\bhistory\b|কে\s*গেছ|কে\s*গেছিল|\bwho\s+went\b|কত|হাজিরা|উপস্থিতি)/i;
 
 /** Domain + intent + parseable date → dated summary; otherwise null. */
 export function detectDatedIntent(message: string, now: Date = new Date()): DatedIntent | null {

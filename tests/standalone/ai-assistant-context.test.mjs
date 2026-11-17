@@ -59,6 +59,21 @@ test('regression: "গতকালে ক্যাশ সামারি দা�
   assert.equal(intent.range.to, '2026-11-15');
 });
 
+test('E2.6b word-number offsets reach the dated summary intents', () => {
+  const threeDays = detectDatedIntent('তিন দিন আগের ক্যাশ সামারি', NOW);
+  assert.equal(threeDays?.domain, 'cash');
+  assert.equal(threeDays?.range.from, '2026-11-13');
+  assert.equal(threeDays?.range.to, '2026-11-13');
+
+  const rolling = detectDatedIntent('গত তিন দিনের হাজিরা', NOW);
+  assert.equal(rolling?.domain, 'attendance');
+  assert.deepEqual([rolling?.range.from, rolling?.range.to], ['2026-11-14', '2026-11-16']);
+
+  const fiveDays = detectDatedIntent('পাঁচ দিন আগে কত লেনদেন', NOW);
+  assert.equal(fiveDays?.domain, 'cash');
+  assert.deepEqual([fiveDays?.range.from, fiveDays?.range.to], ['2026-11-11', '2026-11-11']);
+});
+
 test('dated intents cover attendance, vessel and employee scoping; non-dated text is ignored', () => {
   assert.equal(detectDatedIntent('গতকালের হাজিরা সামারি', NOW)?.domain, 'attendance');
   assert.equal(detectDatedIntent('গত সপ্তাহে ভেসেল কে গেছিলো', NOW)?.domain, 'vessel');

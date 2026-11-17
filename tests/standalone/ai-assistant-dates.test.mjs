@@ -60,6 +60,50 @@ test('unparseable text returns null', () => {
   }
 });
 
+test('Bengali word numbers 1–31 convert to digits', () => {
+  const words = [
+    ['এক', 1], ['দুই', 2], ['তিন', 3], ['চার', 4], ['পাঁচ', 5], ['ছয়', 6], ['সাত', 7],
+    ['আট', 8], ['নয়', 9], ['দশ', 10], ['এগারো', 11], ['বারো', 12], ['তেরো', 13],
+    ['চৌদ্দ', 14], ['পনেরো', 15], ['ষোলো', 16], ['সতেরো', 17], ['আঠারো', 18], ['উনিশ', 19],
+    ['কুড়ি', 20], ['একুশ', 21], ['বাইশ', 22], ['তেইশ', 23], ['চব্বিশ', 24], ['পঁচিশ', 25],
+    ['ছাব্বিশ', 26], ['সাতাশ', 27], ['আটাশ', 28], ['ঊনত্রিশ', 29], ['ত্রিশ', 30], ['একত্রিশ', 31],
+  ];
+  for (const [word, value] of words) {
+    assert.equal(toLatinDigits(`${word} দিন`), `${value} দিন`, word);
+  }
+  assert.equal(toLatinDigits('গত তিন দিন'), 'গত 3 দিন');
+  assert.equal(toLatinDigits('একুশ তারিখ'), '21 তারিখ');
+  assert.equal(toLatinDigits('একটি দিন'), 'একটি দিন', 'letters inside a word are untouched');
+});
+
+test('mixed word/digit rolling windows', () => {
+  assert.deepEqual(pick(parseDateExpression('গত তিন দিনের হাজিরা', NOW)), ['2026-11-14', '2026-11-16']);
+  assert.deepEqual(pick(parseDateExpression('গত ৩ দিন', NOW)), ['2026-11-14', '2026-11-16']);
+  assert.deepEqual(pick(parseDateExpression('গত সাত দিন', NOW)), ['2026-11-10', '2026-11-16']);
+});
+
+test('single-day past offsets (N দিন আগে/আগের)', () => {
+  assert.deepEqual(pick(parseDateExpression('তিন দিন আগের ক্যাশ সামারি', NOW)), ['2026-11-13', '2026-11-13']);
+  assert.deepEqual(pick(parseDateExpression('পাঁচ দিন আগে কত লেনদেন', NOW)), ['2026-11-11', '2026-11-11']);
+  assert.deepEqual(pick(parseDateExpression('এক দিন আগের হিসাব', NOW)), ['2026-11-15', '2026-11-15']);
+  assert.deepEqual(pick(parseDateExpression('ত্রিশ দিন আগে', NOW)), ['2026-10-17', '2026-10-17']);
+  assert.match(parseDateExpression('তিন দিন আগের ক্যাশ সামারি', NOW).labelBn, /৩ দিন আগে/);
+});
+
+test('week and calendar-month offsets', () => {
+  assert.deepEqual(pick(parseDateExpression('দুই সপ্তাহ আগে', NOW)), ['2026-10-27', '2026-11-02']);
+  assert.deepEqual(pick(parseDateExpression('এক সপ্তাহ আগের', NOW)), ['2026-11-03', '2026-11-09']);
+  assert.deepEqual(pick(parseDateExpression('এক মাস আগে', NOW)), ['2026-10-01', '2026-10-31']);
+  assert.deepEqual(pick(parseDateExpression('ছয় মাস আগে', NOW)), ['2026-05-01', '2026-05-31']);
+  const january = new Date('2026-01-05T10:00:00Z');
+  assert.deepEqual(pick(parseDateExpression('দুই মাস আগে', january)), ['2025-11-01', '2025-11-30']);
+});
+
+test('word-number day ranges respect the current/previous month rule', () => {
+  assert.deepEqual(pick(parseDateExpression('একুশ তারিখ থেকে ত্রিশ তারিখ', NOW)), ['2026-10-21', '2026-10-30']);
+  assert.deepEqual(pick(parseDateExpression('দুই তারিখ থেকে দশ তারিখ', NOW)), ['2026-11-02', '2026-11-10']);
+});
+
 function pick(value) {
   return value ? [value.from, value.to] : null;
 }
