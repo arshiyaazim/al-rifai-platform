@@ -6,12 +6,14 @@
   `/opt/al-rifai-platform-user-review`); base `25bf459` (`origin/main`).
 - Scope: USER Review Queue submissions, Review Delete in all four domains,
   vessel/cash staging, cash typeahead + alias table, audit domain filters.
-- Status: implemented, typecheck/build/unit tests pass; **not deployed** and
-  **not run against a DB-backed staging stack** in this session.
+- Status: implemented; typecheck/build/unit tests pass; Docker image
+  `v3.3.20-review-workflow` built; **not deployed**.
+- Staging verification: review DB suite 7/7 PASS; feature Playwright suite 6/6
+  PASS; original staging suite 8/8 PASS. Staging schema is `1.12.0`
+  (production `1.13.8`).
 - CHANGELOG: `v3.3.20-review-workflow`. No migration.
-- Next: run the DB-backed standalone suites against staging, then browser QA
-  (`/review`, `/vessel`, `/cash`, `/employees`, `/attendance`) and only then
-  approve a production deploy.
+- Next: merge/rebase with the Next.js security branch before any production
+  deploy; then run a final production-readiness check and deploy with approval.
 
 **Session ended:** 2026-11-20 — `v3.3.18-ui` is deployed; this file is the latest handoff.
 **Current state:** production app + sync run `local/al-rifai-platform:v3.3.18-ui`;

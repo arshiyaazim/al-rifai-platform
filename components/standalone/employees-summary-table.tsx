@@ -6,6 +6,7 @@ import {Eye, Plus} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {EmployeeDetailSidebar} from '@/components/standalone/employee-detail-sidebar';
+import {AppToaster} from '@/components/standalone/app-toaster';
 import {EmployeeDetailCard} from '@/components/standalone/employee-detail-card';
 import {EmployeeSubTables} from '@/components/standalone/employee-sub-tables';
 import {EmployeeLookup} from '@/components/standalone/employee-lookup';
@@ -181,6 +182,7 @@ export function EmployeesSummaryTable({canManage, canSubmit = false}: {canManage
 
   return (
     <>
+      <AppToaster />
       <div className="ui-cards">
         <MetricCard label="Total Employees" value={rows.length.toLocaleString()} href="/employees" />
         <MetricCard label="Last-month Joins" value={joinedIn(lastMonth).toLocaleString()} />

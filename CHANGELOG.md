@@ -24,9 +24,19 @@
 - Audit: EMPLOYEE and ATTENDANCE domains added to the Audit Trail filters; the
   existing append-only audit tab remains the audit surface.
 - Verification: typecheck 0, unit suite 201/201, production build compiled
-  (exit 0 on retry after Next's security nudge). DB-backed standalone suites were
-  not run against production; staging DB verification is the next step. No
-  migration, no production deployment in this commit.
+  (exit 0 on retry after Next's security nudge), Docker build
+  `local/al-rifai-platform:v3.3.20-review-workflow` exit 0.
+- Staging verification (2026-11-20): review DB suite 7/7 PASS after adding
+  `employee_documents` to the reset truncate list; Dockerized Playwright feature
+  suite 6/6 PASS (admin pages, USER employee/attendance/vessel/cash submissions,
+  approvals, Cash typeahead/aliases, Review Delete) and the original staging
+  suite 8/8 PASS. QA found and fixed three real gaps: create submissions shared
+  one pending slot (`target_ref` is now unique per create), an open
+  `program_assignments` row blocked vessel approval (the reviewer now closes it
+  before inserting the reviewed assignment), and Employees/Attendance had no
+  toast host for USER submission confirmation.
+- Staging schema remains `1.12.0` (production is `1.13.8`); this branch contains
+  no migration. No production deployment in this commit.
 - Emergency rollback: deploy the previous image tag; this change adds no schema.
 
 ## v3.3.18-ui — Home search, mobile cards, cash lookup/icons, draggable assistant (2026-11-20)

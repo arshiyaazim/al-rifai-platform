@@ -5,6 +5,7 @@ import {useEffect, useMemo, useState} from 'react';
 import {Eye, Plus} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
+import {AppToaster} from '@/components/standalone/app-toaster';
 import {AttendanceForm, type AttendanceRecord} from '@/components/standalone/attendance-form';
 import {useSearchParams} from 'next/navigation';
 import {EmployeeLookupDual} from '@/components/standalone/employee-lookup';
@@ -167,6 +168,7 @@ export function AttendanceView({canManage = false, canSubmit = false}: {canManag
 
   return (
     <>
+      <AppToaster />
       <div className="page-head">
         <div>
           <h1>Attendance / হাজিরা</h1>

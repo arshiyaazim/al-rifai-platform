@@ -55,6 +55,7 @@ export async function POST(request: Request) {
       const review = await submitForReview(actor as never, {
         domain: 'PROGRAM',
         action: 'CREATE',
+        targetRef: `create:${payload.motherVessel}|${payload.lighterVessel}|${payload.startDate}`,
         payload: {
           ...payload,
           escortMobile: body.escortMobile ?? null,

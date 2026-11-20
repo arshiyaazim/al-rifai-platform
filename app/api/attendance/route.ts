@@ -37,7 +37,10 @@ export async function POST(request: Request) {
     const body = await bodyOf(request);
     if (!can(actor as never, 'attendance.manage')) {
       const review = await submitForReview(actor as never, {
-        domain: 'ATTENDANCE', action: 'CREATE', payload: body,
+        domain: 'ATTENDANCE',
+        action: 'CREATE',
+        targetRef: `create:${String(body.employeeMobile ?? '')}:${String(body.attendanceDate ?? body.dutyDate ?? '')}:${String(body.shift ?? '')}`,
+        payload: body,
       });
       return ok({pending: true, review}, 202);
     }

@@ -40,6 +40,7 @@ export async function POST(request: Request) {
         const review = await submitForReview(actor as never, {
           domain: 'PROGRAM',
           action: 'CREATE',
+          targetRef: `create:${String(body.motherVessel ?? '')}|${String(body.lighterVessel ?? body.lighterName ?? '')}|${String(body.startDate ?? '')}`,
           payload: body,
         });
         return ok({pending: true, review}, 202);

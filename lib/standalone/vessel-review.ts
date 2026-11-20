@@ -405,13 +405,35 @@ async function decideItem(actor: Actor, id: string, decision: string,
         }
       }
       if (confirmed) {
-        await client.query(
-          `INSERT INTO program_assignments (id, program_id, revision, employee_mobile, start_date, start_shift, source, created_by)
-           VALUES ($1,$2,1,$3,$4,$5,'WHATSAPP','system')
-           ON CONFLICT (id) DO NOTHING`,
-          [stableId('asg', ['vessel-review', programId, escortMobile, date, shift]),
-            programId, `+88${escortMobile}`, date, shift],
+        const open = await client.query<{employee_mobile: string; start_date: string; start_shift: string}>(
+          `SELECT employee_mobile, start_date::text, start_shift
+             FROM program_assignments
+            WHERE program_id = $1 AND end_date IS NULL
+            ORDER BY created_at DESC LIMIT 1`,
+          [programId],
         );
+        const existing = open.rows[0];
+        if (!existing || existing.employee_mobile !== `+88${escortMobile}`
+          || existing.start_date !== date || existing.start_shift !== shift) {
+          if (existing) {
+            // The partial unique index allows one open assignment per program.
+            // Close the previous one before inserting the reviewed assignment.
+            await client.query(
+              `UPDATE program_assignments
+                  SET end_date = CASE WHEN $2::date >= start_date THEN $2::date ELSE start_date END,
+                      end_shift = $3
+                WHERE program_id = $1 AND end_date IS NULL`,
+              [programId, date, shift],
+            );
+          }
+          await client.query(
+            `INSERT INTO program_assignments (id, program_id, revision, employee_mobile, start_date, start_shift, source, created_by)
+             VALUES ($1,$2,1,$3,$4,$5,'WHATSAPP','system')
+             ON CONFLICT (id) DO NOTHING`,
+            [stableId('asg', ['vessel-review', programId, escortMobile, date, shift]),
+              programId, `+88${escortMobile}`, date, shift],
+          );
+        }
       }
       await client.query(
         `INSERT INTO program_events (program_id, action, command_key, actor, payload)
