@@ -1,5 +1,68 @@
 # Changelog
 
+## v3.3.21-review-workflow — USER review workflow on Next.js 16.4.6 (2026-11-20)
+
+- Merged `feature/user-review-workflow` into security-updated `main`
+  (`c3f312c`) without rebase; Next.js stays `16.4.6` and React/React DOM stay
+  `19.2.6`.
+- Review Queue: USER submissions for Employee, Attendance, Vessel and Cash;
+  ADMIN Approve/Reject/Edit+Save/Delete in all four domains; Delete removes the
+  pending submission and its target domain row while immutable ledger/audit
+  records remain protected.
+- Cash: manual USER payments and edit/delete requests use `cash_submissions`
+  (PENDING_REVIEW); backend typeahead (max 10), 20-row employee history and the
+  Name Aliases table are live. Cash is **not frozen**: there is no freeze
+  table/flag in the standalone schema, and money movement remains protected by
+  `cash.post` / `cash.reverse` capabilities, immutable triggers and explicit
+  posting.
+- Remaining lint errors fixed: `npm run lint` is 0 errors; `npm run typecheck`
+  is 0 errors. Unit suite 201/201.
+- Staging QA on the combined 16.4.6 tree: review DB 7/7, feature Playwright 6/6,
+  original staging 8/8, concurrent Employee/Attendance/Vessel submissions 1/1.
+- Staging schema is labelled 1.12.0 vs Production 1.13.8; both have 28
+  migrations (latest 029). Dump comparison shows identical core schema; only
+  six production-only diagnostic snapshot tables differ and the app does not
+  reference them. No migration was run.
+
+## v3.3.20-review-workflow — USER submissions, review delete, cash aliases (2026-11-20)
+
+- Review Queue: Delete is now present in all four domain panels (equal `sm`
+  outline buttons) and hard-deletes both the pending submission and, when the
+  submission targets an existing row, that domain row; immutable ledger/audit
+  rows are never touched. A row with dependent or financial history is refused
+  instead of being half-deleted. Approving a USER Delete request applies the
+  same domain deletion (program, employee, attendance or unposted cash).
+- Review actions: `PENDING_REVIEW` cash submissions are actionable; the
+  vessel panel no longer disables Approve for cash/confirmation/release rows.
+  Vessel panel columns now include the domain Days/Salary/Conv./Total pay cells
+  when the review item targets an existing program.
+- USER flows: Employees gained Add/Edit/Delete (staged through Review); Attendance
+  gained Edit/Delete (staged); Vessel escort/assign/release/void/end-date edits
+  stage as PROGRAM review instead of returning 403; Cash manual payments create
+  `cash_submissions` (PENDING_REVIEW), and Cash edit/delete requests use the
+  same queue.
+- Cash: Google-style backend typeahead in the transaction toolbar (max 10),
+  selecting an employee filters to that Employee ID with the existing 20-row
+  pagination. New read-only Name Aliases table distinguishes same-ID/different
+  name from same-name/different-ID without merging employees.
+- Audit: EMPLOYEE and ATTENDANCE domains added to the Audit Trail filters; the
+  existing append-only audit tab remains the audit surface.
+- Verification: typecheck 0, unit suite 201/201, production build compiled
+  (exit 0 on retry after Next's security nudge), Docker build
+  `local/al-rifai-platform:v3.3.20-review-workflow` exit 0.
+- Staging verification (2026-11-20): review DB suite 7/7 PASS after adding
+  `employee_documents` to the reset truncate list; Dockerized Playwright feature
+  suite 6/6 PASS (admin pages, USER employee/attendance/vessel/cash submissions,
+  approvals, Cash typeahead/aliases, Review Delete) and the original staging
+  suite 8/8 PASS. QA found and fixed three real gaps: create submissions shared
+  one pending slot (`target_ref` is now unique per create), an open
+  `program_assignments` row blocked vessel approval (the reviewer now closes it
+  before inserting the reviewed assignment), and Employees/Attendance had no
+  toast host for USER submission confirmation.
+- Staging schema remains `1.12.0` (production is `1.13.8`); this branch contains
+  no migration. No production deployment in this commit.
+- Emergency rollback: deploy the previous image tag; this change adds no schema.
+
 ## v3.3.19-next16.4.6 — Next.js security update + staging E2E (2026-11-20)
 
 - Next.js `16.4.1` → `16.4.6` in commit `2f70402` on `security/nextjs-upgrade`
@@ -19,7 +82,6 @@
   authenticated regression is **NOT VERIFIED**; staging data is synthetic, the
   assistant LLM fallback is disabled, and mobile Profile/Cash screenshots were
   not taken. No production restart/migration occurred during the staging task.
-
 ## v3.3.18-ui — Home search, mobile cards, cash lookup/icons, draggable assistant (2026-11-20)
 
 - Home: employee search below the All Time cards (name / alias / partial mobile,

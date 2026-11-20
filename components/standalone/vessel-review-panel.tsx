@@ -33,6 +33,11 @@ const shift = (date: string, value: string) => {
   return rendered === '—' ? '—' : `${rendered}(${value || '—'})`;
 };
 
+const money = (minor: string | null | undefined) => {
+  if (minor === null || minor === undefined) return '—';
+  return `৳${(Number(minor) / 100).toLocaleString('en-IN', {minimumFractionDigits: 2})}`;
+};
+
 export function VesselReviewPanel({
   rows, mothers, lighters, escortNames, escortMobiles, canDecide,
 }: {
@@ -96,10 +101,10 @@ export function VesselReviewPanel({
                   </td>
                   <td>{shift(row.fields.startDate, row.fields.shift)}</td>
                   <td>{shift(row.fields.endDate, row.fields.endShift)}</td>
-                  <td className="num">—</td>
-                  <td className="num">—</td>
-                  <td className="num">—</td>
-                  <td className="num">—</td>
+                  <td className="num">{row.pay?.days ?? '—'}</td>
+                  <td className="num">{money(row.pay?.salaryMinor)}</td>
+                  <td className="num">{money(row.pay?.conveyanceMinor)}</td>
+                  <td className="num">{money(row.pay?.totalMinor)}</td>
                   <td>
                     <Button type="button" size="icon-sm" variant="ghost" aria-label="View vessel review item" onClick={() => setSelected(row)}>
                       <Eye className="size-4" />

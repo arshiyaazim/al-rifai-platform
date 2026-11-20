@@ -65,7 +65,9 @@ export function CashPaymentForm({accounts, defaults = {}}: Props) {
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
       setAmount('');
       setPurpose('');
-      setState({busy: false, ok: 'Payment instruction created for review.'});
+      setState({busy: false, ok: body.pending
+        ? 'Payment submitted to the Review Queue.'
+        : 'Payment instruction created for review.'});
       router.refresh();
     } catch (error) {
       setState({busy: false, error: error instanceof Error ? error.message : 'FAILED'});

@@ -185,6 +185,14 @@ function EmployeeReviewSidebar({
     } finally { setBusy(''); }
   }
 
+  async function remove() {
+    if (!window.confirm('Delete this pending employee submission permanently? If it targets an existing employee, that employee record is deleted too.')) return;
+    setBusy('delete'); setError('');
+    try { await reviewPost({action: 'delete', kind: 'review_item', id: row!.id}); onDone(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Delete failed.'); }
+    finally { setBusy(''); }
+  }
+
   async function decline() {
     const why = reason.trim() || 'Declined from review queue';
     setBusy('decline'); setError('');
@@ -208,6 +216,7 @@ function EmployeeReviewSidebar({
           <Button type="button" size="sm" variant="outline" onClick={() => void save()} disabled={Boolean(busy)}>{busy === 'save' ? 'Saving…' : 'Save Edit'}</Button>
           <Button type="button" size="sm" onClick={() => void approve()} disabled={Boolean(busy)}>{busy === 'approve' ? 'Approving…' : 'Approve'}</Button>
           <Button type="button" size="sm" variant="outline" onClick={() => void decline()} disabled={Boolean(busy)}>{busy === 'decline' ? 'Declining…' : 'Decline'}</Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => void remove()} disabled={Boolean(busy)}>{busy === 'delete' ? 'Deleting…' : 'Delete'}</Button>
         </>
       ) : <Button type="button" size="sm" variant="outline" onClick={onClose}>Close</Button>}
     >

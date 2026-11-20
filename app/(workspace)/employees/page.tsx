@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 export default async function EmployeesPage() {
   const user = await pageUser();
   const canManage = can(user as never, 'employee.manage');
+  const canSubmit = can(user as never, 'employee.submit');
   return (
     <div className="vessel-workspace">
       <div className="page-head">
@@ -18,7 +19,7 @@ export default async function EmployeesPage() {
       </div>
       <section className="card">
         <Suspense fallback={<p className="muted">Loading employees…</p>}>
-          <EmployeesSummaryTable canManage={canManage} />
+          <EmployeesSummaryTable canManage={canManage} canSubmit={canSubmit} />
         </Suspense>
       </section>
     </div>

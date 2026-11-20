@@ -3,6 +3,7 @@ import {
   correctCashSubmission,
   correctReviewItem,
   decideReview,
+  deletePendingReview,
   getReviewDetail,
   listCashReviewCandidates,
   listReviewQueue,
@@ -86,6 +87,12 @@ export async function POST(request: Request) {
     const body = await bodyOf<{action?: string} & Record<string, unknown>>(request);
     const action = body.action ?? '';
     const id = String(body.id ?? '');
+
+    if (action === 'delete') {
+      assertCapability(actor as never, 'review.decide');
+      const kind = body.kind === 'cash_submission' ? 'cash_submission' : 'review_item';
+      return ok(await deletePendingReview(actor as never, id, kind));
+    }
 
     if (action === 'decide') {
       assertCapability(actor as never, 'review.decide');

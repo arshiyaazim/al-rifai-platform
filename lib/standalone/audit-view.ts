@@ -55,6 +55,8 @@ WITH audit AS (
                 OR a.action LIKE '%RECONCILIATION%' OR a.action LIKE 'ACCOUNT_%' THEN 'CASH'
            WHEN a.target_type = 'program' OR a.action LIKE 'PROGRAM%' OR a.action LIKE 'ESCORT%'
                 OR a.action LIKE 'VESSEL%' THEN 'VESSEL'
+           WHEN a.target_type IN ('employee','employee_document') OR a.action LIKE 'EMPLOYEE%' THEN 'EMPLOYEE'
+           WHEN a.target_type LIKE 'attendance%' OR a.action LIKE 'ATTENDANCE%' THEN 'ATTENDANCE'
            WHEN a.target_type = 'review_item' OR a.action LIKE 'REVIEW%' THEN 'REVIEW'
            WHEN a.action LIKE 'AUTH%' OR a.action LIKE 'LOGIN%' OR a.action LIKE 'LOGOUT%'
                 OR a.target_type = 'user' THEN 'AUTH'

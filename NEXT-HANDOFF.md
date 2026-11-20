@@ -1,10 +1,11 @@
 # NEXT-HANDOFF
 
-**Session ended:** 2026-11-20 — `v3.3.19-next16.4.6` is deployed; this file is the latest handoff.
-**Current state:** production app + sync run `local/al-rifai-platform:v3.3.19-next16.4.6`;
-schema `1.13.8`; no migration. `main` history: `faa98ec` (application) →
-`10fbf6c` (handoff) → `25bf459` (docs); this handoff update is uncommitted. The security
-upgrade commit is `2f70402` on `security/nextjs-upgrade` (not pushed).
+**Session ended:** 2026-11-20 — `v3.3.21-review-workflow` is merged to `main`; final production deploy is in progress.
+**Current state:** `main` contains the security update (`c3f312c`) plus the USER
+review workflow; Next.js `16.4.6`, React/React DOM `19.2.6`; schema `1.13.8`;
+no migration. Production deploy and post-deploy smoke are the final step.
+**Feature status:** merged (no rebase); lint 0 errors, typecheck 0, unit 201/201;
+staging QA 6/6 + 8/8 + concurrent 1/1.
 **Next session state (2026-11-20):**
 - Current production release: `v3.3.19-next16.4.6` (app + sync, same tag).
 - Next.js 16.4.1 advisory: **RESOLVED by 16.4.6** (OSV 0; React 19.2.6 unchanged).

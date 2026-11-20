@@ -41,9 +41,19 @@ export async function GET(request: Request, context: {params: Promise<{id: strin
 export async function DELETE(request: Request, context: {params: Promise<{id: string}>}) {
   try {
     const actor = await actorFor(request);
-    assertCapability(actor as never, 'vessel.command');
+    assertCapability(actor as never, 'vessel.submit');
     const {id} = await context.params;
     const programId = decodeURIComponent(id);
+    if (!can(actor as never, 'vessel.command')) {
+      const review = await submitForReview(actor as never, {
+        domain: 'PROGRAM',
+        action: 'DELETE',
+        targetRef: programId,
+        payload: {reason: 'Delete requested from vessel register'},
+      });
+      return ok({pending: true, review}, 202);
+    }
+    assertCapability(actor as never, 'vessel.command');
     let reason = 'Deleted from vessel register';
     try {
       const body = await request.clone().json() as {reason?: string};
@@ -72,24 +82,35 @@ export async function PATCH(request: Request, context: {params: Promise<{id: str
       startDate?: string; startShift?: string; endDate?: string | null; endShift?: string | null; notes?: string | null;
     }>(request);
     if (!can(actor as never, 'vessel.command')) {
-      // USER edits stage for review instead of writing directly. Escort and
-      // release changes still need the operational capabilities.
+      // USER edits are staged for admin review instead of writing directly.
+      // This includes escort and end/release fields so Save never returns 403;
+      // the admin approval applies the change through updateProgram.
       const current = await getProgram(programId);
       if (current.program.state === 'VOIDED') throw new DomainError('PROGRAM_VOIDED', 409);
       if (current.program.state === 'COMPLETED') throw new DomainError('PROGRAM_COMPLETED', 409);
-      const digits = (value: unknown) => String(value ?? '')
-        .replace(/[^0-9]/g, '').replace(/^880(1[3-9][0-9]{8})$/, '0$1');
-      const escortChanged = body.escortMobile !== undefined
-        && digits(body.escortMobile) !== digits(current.program.escort_mobile);
-      const releaseChanged = (body.endDate !== undefined && String(body.endDate ?? '') !== String(current.program.end_date ?? ''))
-        || (body.endShift !== undefined && String(body.endShift ?? '') !== String(current.program.end_shift ?? ''));
-      if (escortChanged) assertCapability(actor as never, 'vessel.command');
-      if (releaseChanged) assertCapability(actor as never, 'vessel.release');
-      assertCapability(actor as never, 'vessel.submit');
-      const payload: Record<string, unknown> = {};
+      // Carry the program identity into the review payload. Without it the
+      // admin approval cannot resolve which program is being edited.
+      const program = current.program;
+      const payload: Record<string, unknown> = {
+        motherVessel: program.mother_vessel,
+        lighterVessel: program.lighter_vessel,
+        masterMobile: program.master_mobile,
+        destination: program.destination,
+        escortName: program.escort_name,
+        escortMobile: program.escort_mobile,
+        startDate: program.start_date,
+        startShift: program.start_shift,
+        endDate: program.end_date,
+        endShift: program.end_shift,
+        notes: program.notes,
+      };
       if (body.masterMobile !== undefined) payload.masterMobile = body.masterMobile;
+      if (body.escortMobile !== undefined) payload.escortMobile = body.escortMobile;
+      if (body.escortName !== undefined) payload.escortName = body.escortName;
       if (body.startDate !== undefined) payload.startDate = body.startDate;
       if (body.startShift !== undefined) payload.startShift = body.startShift;
+      if (body.endDate !== undefined) payload.endDate = body.endDate;
+      if (body.endShift !== undefined) payload.endShift = body.endShift;
       if (body.notes !== undefined) payload.notes = body.notes;
       if (!Object.keys(payload).length) return ok({pending: false, unchanged: true}, 200);
       const review = await submitForReview(actor as never, {

@@ -186,6 +186,12 @@ export function EmployeeDetailSidebar({
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error ?? `HTTP_${response.status}`);
+      if (payload.pending) {
+        toast.success(creating ? 'New employee submitted for admin review.' : 'Employee change submitted for admin review.');
+        onUpdated?.();
+        onClose();
+        return;
+      }
       toast.success(creating ? 'Employee created.' : 'Employee updated.');
       if (creating) {
         // Files were queued before the row existed; upload them now that the
@@ -220,18 +226,17 @@ export function EmployeeDetailSidebar({
 
   const remove = async () => {
     if (!employee) return;
-    if (!window.confirm(`Mark ${employee.preferred_name} INACTIVE? The record is kept.`)) return;
+    if (!window.confirm(`Delete ${employee.preferred_name} permanently? Linked vessel/attendance records must be removed first.`)) return;
     setBusy(true);
     try {
       const token = await csrfToken();
-      const response = await fetch('/api/employees', {
-        method: 'PATCH', credentials: 'same-origin',
-        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token},
-        body: JSON.stringify({employeeMobile: employee.employee_mobile, state: 'INACTIVE'}),
+      const response = await fetch(`/api/employees?mobile=${encodeURIComponent(employee.employee_mobile)}`, {
+        method: 'DELETE', credentials: 'same-origin',
+        headers: {'X-CSRF-Token': token},
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error ?? `HTTP_${response.status}`);
-      toast.success('Employee marked INACTIVE.');
+      toast.success(payload.pending ? 'Delete request submitted for admin review.' : 'Employee deleted.');
       onUpdated?.();
       onClose();
     } catch (cause) {

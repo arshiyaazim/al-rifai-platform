@@ -189,13 +189,13 @@ export function FloatingAssistant() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  useEffect(() => {
-    if (!visible || messages.length) return;
-    setMessages([{
+  function openPanel() {
+    windowAction('open');
+    setMessages((current) => current.length ? current : [{
       role: 'assistant',
       text: 'আসসালামু আলাইকুম। আমি আল-রিফাঈ সহকারী। কর্মী খোঁজা, ক্যাশ/উপস্থিতি/ভেসেলের সারসংক্ষেপ বা পেইজে নিয়ে যাওয়া — কী করতে চান?',
     }]);
-  }, [visible, messages.length]);
+  }
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -654,7 +654,7 @@ export function FloatingAssistant() {
             onPointerCancel={() => { dragRef.current = null; setDragging(false); }}
             onClick={() => {
               if (suppressClick.current) { suppressClick.current = false; return; }
-              windowAction('open');
+              openPanel();
             }}
             aria-label="Open Al-Rifa'i assistant (drag to move)" aria-expanded={false} title="Open assistant — drag to move"
             style={{

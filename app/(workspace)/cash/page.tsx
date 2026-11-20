@@ -1,10 +1,11 @@
 import Link from 'next/link';
-import {cashTransactionView, countCashTransactions, listAccounts, listCashTransactions, listReconciliations} from '@/lib/standalone/finance';
+import {cashTransactionView, countCashTransactions, listAccounts, listCashAliasEntries, listCashTransactions, listReconciliations} from '@/lib/standalone/finance';
 import {cashDashboardSummary, currentMonthRange, previousMonthRange, shiftIsoDate, paidEventsReportingEnabled} from '@/lib/standalone/cash-dashboard';
 import {money, pageUser, when} from '@/lib/standalone/session';
 import {can} from '@/lib/standalone/authz';
 import {ActionForm} from '@/components/standalone/action-form';
 import {CashTransactionsTable} from '@/components/standalone/cash-transactions-table';
+import {CashAliasTable} from '@/components/standalone/cash-alias-table';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,12 +50,13 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
   const payoutMobile = (filters.payoutMobile ?? '').trim();
   const paymentOpen = filters.openPayment === '1' || Boolean(employeeName || employeeMobile || payoutMobile);
   const txLimit = 20;
-  const [accounts, summary, reconciliations, txRows, txTotal] = await Promise.all([
+  const [accounts, summary, reconciliations, txRows, txTotal, aliases] = await Promise.all([
     listAccounts(),
     cashDashboardSummary(),
     listReconciliations(25),
     listCashTransactions({q: txSearch, state: state || undefined, employeeId: filters.employee_mobile || undefined, limit: txLimit, offset: 0}),
     countCashTransactions({q: txSearch, state: state || undefined, employeeId: filters.employee_mobile || undefined}),
+    listCashAliasEntries({page: 1, limit: 20}),
   ]);
   const initialTransactions = txRows.map(cashTransactionView);
   const monthRange = currentMonthRange(summary.asOfDate);
@@ -93,6 +95,8 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
         limit: txLimit,
         totalPages: Math.max(1, Math.ceil(txTotal / txLimit)),
       }} />
+
+      <CashAliasTable initial={aliases} />
 
       {/* Income/expense posting has no other route (the ledger views are read-only),
           so the form stays here even though the ledger table moved out of this page. */}

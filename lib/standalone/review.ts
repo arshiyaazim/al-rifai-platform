@@ -3,8 +3,8 @@ import {createHash, randomUUID} from 'node:crypto';
 import {rows, row, tx, text, optionalText, optionalMobile, isoDate, shift, DomainError, type Actor} from './db.ts';
 import {recordAudit, newId} from './audit.ts';
 import {emitDomainEvent} from '../realtime/server.ts';
-import {assertCapability} from './authz.ts';
-import {createEmployee, updateEmployee} from './employees.ts';
+import {assertCapability, can} from './authz.ts';
+import {createEmployee, deleteEmployee, updateEmployee} from './employees.ts';
 import {createProgram, updateProgram} from './programs.ts';
 import {createAttendanceRecord} from './attendance-records.ts';
 
@@ -607,6 +607,81 @@ export async function correctCashSubmission(actor: Actor, id: string, correction
 }
 
 // ── Submit / decide / withdraw (existing state machines) ───────────────────
+/**
+ * Hard-delete a PENDING review submission and, when it targets an existing
+ * domain row, that row as well. This is the Owner's "Delete means delete"
+ * rule. Immutable ledger/audit rows are never touched; a row with financial or
+ * dependent history is refused instead of being half-deleted.
+ */
+export async function deletePendingReview(
+  actor: Actor,
+  id: string,
+  kind: 'review_item' | 'cash_submission',
+) {
+  if (!can(actor, 'review.decide')) throw new DomainError('CAPABILITY_REQUIRED', 403, 'review.decide');
+  return tx(async (client) => {
+    if (kind === 'cash_submission') {
+      const found = await client.query<{id: string; state: string; payload: Record<string, unknown>}>(
+        'SELECT id, state, payload FROM cash_submissions WHERE id = $1 FOR UPDATE', [id],
+      );
+      if (!found.rowCount) throw new DomainError('REVIEW_NOT_FOUND', 404);
+      if (found.rows[0].state !== 'PENDING_REVIEW') throw new DomainError('REVIEW_NOT_PENDING', 409);
+      const payload = found.rows[0].payload ?? {};
+      const instructionId = typeof payload.instructionId === 'string' ? payload.instructionId : null;
+      let domainDeleted = false;
+      if (instructionId) {
+        const instruction = await client.query<{state: string}>(
+          'SELECT state FROM cash_instructions WHERE id = $1 FOR UPDATE', [instructionId],
+        );
+        if (instruction.rowCount) {
+          if (['POSTED', 'REVERSED'].includes(instruction.rows[0].state)) {
+            throw new DomainError('POSTED_CASH_REQUIRES_REVERSAL', 409,
+              'Posted cash cannot be deleted. Reverse it first so the ledger stays balanced.');
+          }
+          const dependencies = await client.query<{count: string}>(
+            `SELECT count(*)::text AS count FROM cash_payment_events WHERE instruction_id = $1
+              UNION ALL SELECT count(*)::text FROM cash_postings WHERE instruction_id = $1
+              UNION ALL SELECT count(*)::text FROM cash_submissions WHERE instruction_id = $1 AND id <> $2`,
+            [instructionId, id],
+          );
+          if (dependencies.rows.some((entry) => Number(entry.count) > 0)) {
+            throw new DomainError('CASH_IN_USE', 409, 'This cash row has financial history and cannot be deleted.');
+          }
+          await client.query('DELETE FROM cash_instructions WHERE id = $1', [instructionId]);
+          domainDeleted = true;
+        }
+      }
+      await client.query('DELETE FROM cash_submissions WHERE id = $1', [id]);
+      return {deleted: true, domainDeleted, kind, id};
+    }
+
+    const found = await client.query<{
+      id: string; domain: Domain; action: Action; target_ref: string | null; state: string;
+    }>('SELECT id, domain, action, target_ref, state FROM review_items WHERE id = $1 FOR UPDATE', [id]);
+    if (!found.rowCount) throw new DomainError('REVIEW_NOT_FOUND', 404);
+    const item = found.rows[0];
+    if (item.state !== 'PENDING') throw new DomainError('REVIEW_NOT_PENDING', 409);
+    let domainDeleted = false;
+    if (item.target_ref && item.action !== 'CREATE') {
+      if (item.domain === 'EMPLOYEE') {
+        await deleteEmployee(actor, item.target_ref, client);
+        domainDeleted = true;
+      } else if (item.domain === 'PROGRAM') {
+        await hardDeleteProgram(client, item.target_ref);
+        domainDeleted = true;
+      } else if (item.domain === 'ATTENDANCE') {
+        await hardDeleteAttendance(client, item.target_ref);
+        domainDeleted = true;
+      }
+    }
+    await client.query('DELETE FROM review_items WHERE id = $1', [id]);
+    return {deleted: true, domainDeleted, kind, id};
+  }).then((result) => {
+    emitDomainEvent('REVIEW', 'REVIEW_DELETED', id);
+    return result;
+  });
+}
+
 export async function submitForReview(
   actor: Actor,
   input: {domain: string; action: string; targetRef?: string | null; payload: Record<string, unknown>},
@@ -631,6 +706,22 @@ export async function submitForReview(
   return created;
 }
 
+async function hardDeleteProgram(client: Pick<PoolClient, 'query'>, programId: string) {
+  // program_assignments is the only RESTRICT reference; program_pay and
+  // program_source_messages are ON DELETE CASCADE. program_events is immutable
+  // by design and intentionally remains as the audit trail.
+  await client.query('DELETE FROM program_assignments WHERE program_id = $1', [programId]);
+  const deleted = await client.query('DELETE FROM programs WHERE id = $1 RETURNING id', [programId]);
+  if (!deleted.rowCount) throw new DomainError('PROGRAM_NOT_FOUND', 404);
+  return {id: programId, deleted: true};
+}
+
+async function hardDeleteAttendance(client: Pick<PoolClient, 'query'>, id: string) {
+  const deleted = await client.query('DELETE FROM attendance_records WHERE id = $1 RETURNING id', [id]);
+  if (!deleted.rowCount) throw new DomainError('ATTENDANCE_NOT_FOUND', 404);
+  return {id, deleted: true};
+}
+
 async function applyItem(
   client: Pick<PoolClient, 'query'>,
   actor: Actor,
@@ -640,6 +731,42 @@ async function applyItem(
   if (item.domain === 'EMPLOYEE' && item.action === 'UPDATE') {
     if (!item.target_ref) throw new DomainError('TARGET_REQUIRED');
     return updateEmployee(actor, item.target_ref, item.payload as never, client);
+  }
+  if (item.domain === 'EMPLOYEE' && item.action === 'DELETE') {
+    if (!item.target_ref) throw new DomainError('TARGET_REQUIRED');
+    return deleteEmployee(actor, item.target_ref, client);
+  }
+  if (item.domain === 'PROGRAM' && item.action === 'DELETE') {
+    if (!item.target_ref) throw new DomainError('TARGET_REQUIRED');
+    return hardDeleteProgram(client, item.target_ref);
+  }
+  if (item.domain === 'ATTENDANCE' && (item.action === 'UPDATE' || item.action === 'DELETE')) {
+    if (!item.target_ref) throw new DomainError('TARGET_REQUIRED');
+    if (item.action === 'DELETE') return hardDeleteAttendance(client, item.target_ref);
+    const payload = item.payload ?? {};
+    const found = await client.query<{
+      employee_mobile: string; attendance_date: string; shift: string;
+      location: string | null; client_name: string | null; designation: string | null; remarks: string | null;
+    }>('SELECT employee_mobile, attendance_date::text, shift, location, client_name, designation, remarks FROM attendance_records WHERE id = $1 FOR UPDATE',
+      [item.target_ref]);
+    if (!found.rowCount) throw new DomainError('ATTENDANCE_NOT_FOUND', 404);
+    const current = found.rows[0];
+    const value = (key: string, fallback: unknown) => payload[key] === undefined ? fallback : payload[key];
+    await client.query(
+      `UPDATE attendance_records
+          SET employee_mobile=$2, attendance_date=$3, shift=$4, location=$5,
+              client_name=$6, designation=$7, remarks=$8, updated_at=now()
+        WHERE id=$1`,
+      [item.target_ref,
+        optionalMobile(value('employeeMobile', current.employee_mobile), 'employeeMobile') ?? current.employee_mobile,
+        isoDate(value('attendanceDate', value('dutyDate', current.attendance_date)), 'attendanceDate'),
+        shift(value('shift', current.shift), 'shift'),
+        value('location', current.location) === null ? null : String(value('location', current.location)).slice(0, 250),
+        value('clientName', current.client_name) === null ? null : String(value('clientName', current.client_name)).slice(0, 150),
+        value('designation', current.designation) === null ? null : String(value('designation', current.designation)).slice(0, 80),
+        value('remarks', current.remarks) === null ? null : String(value('remarks', current.remarks)).slice(0, 2000)],
+    );
+    return {id: item.target_ref, updated: true};
   }
   if (item.domain === 'PROGRAM' && (item.action === 'CREATE' || item.action === 'UPDATE')) {
     const payload = item.payload ?? {};

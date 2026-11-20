@@ -4,6 +4,7 @@ import {rows, row, tx, text, optionalText, optionalMobile, mobile, isoDate, mone
 import {recordAudit, stableId, newId} from './audit.ts';
 import {assertCapability} from './authz.ts';
 import {cleanEmployeeName} from '../display-name.ts';
+import {buildAliasEntries, isMinorNameVariant, type AliasEntry} from '../name-alias.ts';
 import {emitDomainEvent} from '../realtime/server.ts';
 
 type Tx = Pick<PoolClient, 'query'>;
@@ -548,6 +549,88 @@ export async function getCashTransaction(id: string): Promise<CashTransactionRow
   return found ? {...found, name_of_employee: cleanEmployeeName(found.name_of_employee)} : null;
 }
 
+export type CashAliasRow = AliasEntry & {
+  payouts: number;
+  totalPaidMinor: string;
+  otherPayouts: number;
+  otherTotalPaidMinor: string;
+};
+
+/**
+ * Cash alias directory. The main Cash table stays one row per Employee ID;
+ * this read model is the second table the Owner asked for:
+ *   * SAME_ID_DIFFERENT_NAME — an alias recorded on one employee;
+ *   * SAME_NAME_DIFFERENT_ID — two employees with the same/similar name.
+ * It never merges employees and never changes a payment.
+ */
+export async function listCashAliasEntries(input: {page?: number; limit?: number} = {}) {
+  const page = Math.max(1, Number(input.page) || 1);
+  const limit = Math.min(Math.max(Number(input.limit) || 20, 1), 200);
+  const employees = await rows<{
+    employee_mobile: string;
+    preferred_name: string;
+    name_aliases: string[] | null;
+    payouts: number;
+    total_paid_minor: string;
+  }>(
+    `SELECT e.employee_mobile, e.preferred_name, e.name_aliases,
+            count(i.id) FILTER (WHERE i.state NOT IN ('VOID','REJECTED'))::int AS payouts,
+            coalesce(sum(CASE WHEN i.state NOT IN ('VOID','REJECTED') THEN i.amount_minor ELSE 0 END), 0)::text AS total_paid_minor
+       FROM employees e
+       LEFT JOIN cash_instructions i ON i.employee_mobile = e.employee_mobile
+      GROUP BY e.employee_mobile, e.preferred_name, e.name_aliases
+      ORDER BY e.preferred_name, e.employee_mobile`,
+  );
+  const byMobile = new Map(employees.map((employee) => [employee.employee_mobile, employee]));
+  const entries = buildAliasEntries(employees).map((entry): CashAliasRow => {
+    const left = byMobile.get(entry.employeeId);
+    const right = entry.otherEmployeeId ? byMobile.get(entry.otherEmployeeId) : null;
+    return {
+      ...entry,
+      payouts: Number(left?.payouts ?? 0),
+      totalPaidMinor: String(left?.total_paid_minor ?? '0'),
+      otherPayouts: Number(right?.payouts ?? 0),
+      otherTotalPaidMinor: String(right?.total_paid_minor ?? '0'),
+    };
+  });
+  const offset = (page - 1) * limit;
+  return {
+    rows: entries.slice(offset, offset + limit),
+    total: entries.length,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(entries.length / limit)),
+  };
+}
+
+/**
+ * Keep the employee directory honest after a Cash approval. A minor spelling
+ * variant is the same person and is left alone; a genuinely different name is
+ * appended to `name_aliases` instead of overwriting the preferred name.
+ */
+export async function rememberEmployeeName(
+  client: Pick<PoolClient, 'query'>,
+  employeeMobile: string | null | undefined,
+  employeeName: string | null | undefined,
+): Promise<void> {
+  if (!employeeMobile || !employeeName) return;
+  const found = await client.query<{preferred_name: string; name_aliases: string[] | null}>(
+    'SELECT preferred_name, name_aliases FROM employees WHERE employee_mobile = $1', [employeeMobile],
+  );
+  if (!found.rowCount) return;
+  const employee = found.rows[0];
+  const incoming = String(employeeName).trim();
+  if (!incoming) return;
+  if (isMinorNameVariant(incoming, employee.preferred_name)) return;
+  if ((employee.name_aliases ?? []).some((alias) => isMinorNameVariant(alias, incoming))) return;
+  await client.query(
+    `UPDATE employees
+        SET name_aliases = array_append(coalesce(name_aliases, '{}'), $2), updated_at = now()
+      WHERE employee_mobile = $1`,
+    [employeeMobile, incoming.slice(0, 150)],
+  );
+}
+
 /** One employee's Cash summary for the history page header. */
 export async function getCashEmployeeSummary(employeeId: string) {
   const mobile = normalizedMobile(employeeId) ?? employeeId;
@@ -628,6 +711,36 @@ export async function updateCashTransaction(
   });
   emitDomainEvent('CASH', 'UPDATED', id);
   return getCashTransaction(id);
+}
+
+/** ADMIN hard delete of an unposted Cash instruction. Posted rows must be reversed. */
+export async function deleteCashTransaction(actor: Actor, id: string) {
+  assertCapability(actor, 'cash.review');
+  if (actor.role !== 'ADMIN') throw new DomainError('ADMIN_REQUIRED', 403);
+  return tx(async (client) => {
+    const found = await client.query<{id: string; state: string}>(
+      'SELECT id, state FROM cash_instructions WHERE id = $1 FOR UPDATE', [id],
+    );
+    if (!found.rowCount) throw new DomainError('CASH_TRANSACTION_NOT_FOUND', 404);
+    if (['POSTED', 'REVERSED'].includes(found.rows[0].state)) {
+      throw new DomainError('POSTED_CASH_REQUIRES_REVERSAL', 409,
+        'Posted cash cannot be deleted. Reverse it first so the ledger stays balanced.');
+    }
+    const dependencies = await client.query<{count: string}>(
+      `SELECT count(*)::text AS count FROM cash_payment_events WHERE instruction_id = $1
+        UNION ALL SELECT count(*)::text AS count FROM cash_postings WHERE instruction_id = $1`,
+      [id],
+    );
+    if (dependencies.rows.some((row) => Number(row.count) > 0)) {
+      throw new DomainError('CASH_IN_USE', 409, 'This cash row has financial history and cannot be deleted.');
+    }
+    await client.query('DELETE FROM cash_instructions WHERE id = $1', [id]);
+    await recordAudit({actor, action: 'CASH_TRANSACTION_DELETED', entity: 'cash_instruction', entityId: id}, client);
+    return {id, deleted: true};
+  }).then((result) => {
+    emitDomainEvent('CASH', 'DELETED', id);
+    return result;
+  });
 }
 
 export async function listInstructions(filters: {state?: string; q?: string; limit?: number; offset?: number} = {}) {
@@ -1337,6 +1450,138 @@ export async function submitCash(actor: Actor, payload: InstructionInput) {
   });
 }
 
+export type CashSubmissionActionInput = {
+  instructionId: string;
+  action: 'UPDATE' | 'DELETE';
+  designation?: string | null;
+  amountMinor?: number | null;
+  notes?: string | null;
+  reason?: string | null;
+};
+
+/**
+ * USER edit/delete request for an existing Cash transaction. The request is a
+ * normal `cash_submissions` row so it appears in the same Review Queue panel.
+ * ADMIN approval applies the change; nothing is written to the transaction now.
+ */
+export async function submitCashAction(actor: Actor, input: CashSubmissionActionInput) {
+  assertCapability(actor, 'cash.submit');
+  const instructionId = text(input.instructionId, 'instructionId', {max: 120});
+  const action = input.action === 'DELETE' ? 'DELETE' : 'UPDATE';
+  const payload: Record<string, unknown> = {
+    action,
+    instructionId,
+    designation: input.designation ?? null,
+    amountMinor: input.amountMinor ?? null,
+    notes: input.notes ?? null,
+    reason: input.reason ?? null,
+  };
+  const canonical = JSON.stringify(payload);
+  const hash = stableId('h', [canonical]);
+  return tx(async (client) => {
+    const existing = await client.query<{id: string; state: string}>(
+      'SELECT id, state FROM cash_submissions WHERE payload_hash = $1', [hash],
+    );
+    if (existing.rowCount) return {id: existing.rows[0].id, duplicate: true, state: existing.rows[0].state};
+    const instruction = await client.query<{
+      employee_name: string; employee_mobile: string | null; payout_mobile: string | null;
+      method: string; amount_minor: string; purpose: string | null; account_id: string | null;
+    }>('SELECT employee_name, employee_mobile, payout_mobile, method, amount_minor, purpose, account_id FROM cash_instructions WHERE id = $1',
+      [instructionId]);
+    if (instruction.rowCount) {
+      payload.employeeName = instruction.rows[0].employee_name;
+      payload.employeeMobile = instruction.rows[0].employee_mobile;
+      payload.payoutMobile = instruction.rows[0].payout_mobile;
+      payload.method = instruction.rows[0].method;
+      payload.currentAmountMinor = instruction.rows[0].amount_minor;
+      payload.purpose = instruction.rows[0].purpose;
+      payload.accountId = instruction.rows[0].account_id;
+    }
+    const id = newId('sub');
+    await client.query(
+      `INSERT INTO cash_submissions
+         (id, payload, payload_hash, submitted_by, state, instruction_id)
+       VALUES ($1,$2::jsonb,$3,$4,'PENDING_REVIEW',$5)`,
+      [id, JSON.stringify(payload), hash, actor.id, instructionId],
+    );
+    await recordAudit({actor, action: 'CASH_ACTION_SUBMITTED', entity: 'cash_submission', entityId: id,
+      detail: {instructionId, action}}, client);
+    return {id, duplicate: false, state: 'PENDING_REVIEW'};
+  }).then((result) => {
+    emitDomainEvent('CASH', 'CASH_SUBMITTED', result?.id ?? '');
+    return result;
+  });
+}
+
+async function applyCashSubmissionAction(
+  client: Pick<PoolClient, 'query'>,
+  actor: Actor,
+  submissionId: string,
+  payload: Record<string, unknown>,
+  why: string | null,
+) {
+  const action = payload.action === 'DELETE' ? 'DELETE' : payload.action === 'UPDATE' ? 'UPDATE' : null;
+  if (!action) return null;
+  const instructionId = String(payload.instructionId ?? '');
+  if (!instructionId) throw new DomainError('INSTRUCTION_REQUIRED', 400);
+  const found = await client.query<{
+    id: string; state: string; employee_mobile: string | null; employee_name: string;
+    amount_minor: string; purpose: string | null;
+  }>('SELECT id, state, employee_mobile, employee_name, amount_minor, purpose FROM cash_instructions WHERE id = $1 FOR UPDATE',
+    [instructionId]);
+  if (!found.rowCount) throw new DomainError('INSTRUCTION_NOT_FOUND', 404);
+  const instruction = found.rows[0];
+
+  if (action === 'DELETE') {
+    if (['POSTED', 'REVERSED'].includes(instruction.state)) {
+      throw new DomainError('POSTED_CASH_REQUIRES_REVERSAL', 409,
+        'Posted cash cannot be deleted. Reverse it first so the ledger stays balanced.');
+    }
+    const dependencies = await client.query<{count: string}>(
+      `SELECT count(*)::text AS count FROM cash_payment_events WHERE instruction_id = $1
+        UNION ALL SELECT count(*)::text FROM cash_postings WHERE instruction_id = $1
+        UNION ALL SELECT count(*)::text FROM cash_submissions WHERE instruction_id = $1`,
+      [instructionId],
+    );
+    if (dependencies.rows.some((row) => Number(row.count) > 0)) {
+      throw new DomainError('CASH_IN_USE', 409, 'This cash row has financial history and cannot be deleted.');
+    }
+    await client.query('DELETE FROM cash_instructions WHERE id = $1', [instructionId]);
+  } else {
+    const designation = payload.designation === undefined || payload.designation === null
+      ? undefined : String(payload.designation).slice(0, 100);
+    const notes = payload.notes === undefined || payload.notes === null
+      ? undefined : String(payload.notes).slice(0, 500);
+    const amount = payload.amountMinor === undefined || payload.amountMinor === null
+      ? undefined : Number(payload.amountMinor);
+    if (designation !== undefined && instruction.employee_mobile) {
+      await client.query('UPDATE employees SET designation=$2, updated_at=now() WHERE employee_mobile=$1',
+        [instruction.employee_mobile, designation || null]);
+    }
+    if (amount !== undefined) {
+      if (['POSTED', 'REVERSED'].includes(instruction.state)) {
+        throw new DomainError('POSTED_FINANCIAL_FIELDS_LOCKED', 409);
+      }
+      if (!Number.isSafeInteger(amount) || amount <= 0) throw new DomainError('INVALID_AMOUNT', 400);
+      await client.query('UPDATE cash_instructions SET amount_minor=$2 WHERE id=$1', [instructionId, amount]);
+    }
+    if (notes !== undefined) {
+      await client.query('UPDATE cash_instructions SET purpose=$2 WHERE id=$1', [instructionId, notes || null]);
+    }
+  }
+
+  await client.query(
+    `UPDATE cash_submissions
+        SET state='APPROVED', decided_at=now(), decided_by=$2, decision_reason=$3, updated_at=now()
+      WHERE id=$1`,
+    [submissionId, actor.id, why],
+  );
+  await recordAudit({actor, action: action === 'DELETE' ? 'CASH_TRANSACTION_DELETED' : 'CASH_TRANSACTION_UPDATED',
+    entity: 'cash_instruction', entityId: instructionId,
+    detail: {submissionId, action, payload}}, client);
+  return {id: submissionId, state: 'APPROVED', instructionId, action};
+}
+
 /**
  * Review a cash candidate. APPROVED atomically creates a linked instruction in
  * REVIEW state; it never posts, approves or settles funds by itself. The
@@ -1357,10 +1602,15 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
     if (submission.state !== 'PENDING_REVIEW') throw new DomainError('SUBMISSION_NOT_PENDING', 409);
     if (submission.submitted_by === actor.id) throw new DomainError('REVIEWER_IS_SUBMITTER', 403);
 
+    const submittedPayload = (submission.payload ?? {}) as Record<string, unknown>;
+    if (decision === 'APPROVED' && (submittedPayload.action === 'UPDATE' || submittedPayload.action === 'DELETE')) {
+      return applyCashSubmissionAction(client, actor, id, submittedPayload, why);
+    }
+
     let instructionId: string | null = null;
     let paidEventId: string | null = null;
     if (decision === 'APPROVED') {
-      const payload = (submission.payload ?? {}) as Record<string, unknown>;
+      const payload = submittedPayload;
       const payloadFields = (payload.fields && typeof payload.fields === 'object')
         ? payload.fields as Record<string, unknown>
         : {};
@@ -1403,6 +1653,7 @@ export async function decideCashSubmission(actor: Actor, id: string, decision: '
       });
       if (!instruction) throw new DomainError('INSTRUCTION_ALREADY_EXISTS', 409);
       instructionId = instruction.id;
+      await rememberEmployeeName(client, instruction.employee_mobile, instruction.employee_name);
       await recordAudit({actor, action: 'INSTRUCTION_CREATED_FROM_CANDIDATE', entity: 'instruction',
         entityId: instruction.id, detail: {submissionId: id}}, client);
       await client.query(

@@ -6,12 +6,12 @@ import {Eye} from 'lucide-react';
 import {AppToaster} from '@/components/standalone/app-toaster';
 import {CashPaymentForm} from '@/components/standalone/cash-payment-form';
 import {CashTransactionSidebar} from '@/components/standalone/cash-transaction-sidebar';
+import {EmployeeLookup, type EmployeeSuggestion} from '@/components/standalone/employee-lookup';
 import {CsvImportDialog} from '@/components/standalone/csv-import-dialog';
 import {DetailSidebar} from '@/components/standalone/detail-sidebar';
 import {TableExportControls} from '@/components/standalone/export-controls';
 import {RealtimeIndicator} from '@/components/standalone/realtime-refresher';
 import {Button} from '@/components/ui/button';
-import {Input} from '@/components/ui/input';
 import {useRealtimeUpdates} from '@/hooks/use-realtime-updates';
 import {bdtNumber, dateDdMmYyyy, dhakaTime12, type ExportColumn} from '@/lib/export-format';
 import {displayMobile} from '@/lib/display-mobile';
@@ -207,6 +207,17 @@ export function CashTransactionsTable({
     void load(1, limit, appliedSearch, stateFilter, '');
   };
 
+  const selectEmployee = (employee: EmployeeSuggestion) => {
+    setSearch(employee.preferred_name);
+    setAppliedSearch('');
+    setEmployeeFilter(employee.employee_mobile);
+    setEmployeeLabel(employee.preferred_name);
+    setPage(1);
+    setSelected(null);
+    updateUrl(1, limit, '', stateFilter, employee.employee_mobile);
+    void load(1, limit, '', stateFilter, employee.employee_mobile);
+  };
+
   async function fetchAllForExport(): Promise<ExportRow[]> {
     const params = new URLSearchParams({page: '1', limit: '10000'});
     if (appliedSearch) params.set('search', appliedSearch);
@@ -263,15 +274,21 @@ export function CashTransactionsTable({
         </div>
 
         <div className="table-toolbar print-hidden">
-          <form method="get" className="form compact" onSubmit={submitSearch} style={{margin: 0, display: 'flex', gap: 8}}>
-            <Input
-              name="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search Employee ID or Name"
-              aria-label="Search Employee ID or Name"
-              className="cash-search-input"
-            />
+          <form method="get" className="form compact" onSubmit={submitSearch} style={{margin: 0, display: 'flex', gap: 8, alignItems: 'center'}}>
+            <div style={{flex: '0 1 320px', width: 320, maxWidth: '100%'}}>
+              <EmployeeLookup
+                id="cash-transactions-search"
+                label="Search Employee ID or Name"
+                hideLabel
+                showIcon
+                showClear
+                placeholder="Search Employee ID or Name"
+                value={search}
+                onChange={setSearch}
+                onSelect={selectEmployee}
+                inputClassName="cash-search-input"
+              />
+            </div>
             <Button type="submit" size="sm">Search</Button>
           </form>
           <div className="row cash-mobile-actions" style={{gap: 8, flexWrap: 'wrap'}}>
