@@ -397,6 +397,41 @@ export type EmployeeDocumentInput = {
   uploadedBy?: string | null;
 };
 
+/**
+ * Hard delete an employee. The identity row is removed only when nothing else
+ * references it; vessel, attendance and document links must be removed first.
+ * Audit events are append-only and intentionally survive.
+ */
+export async function deleteEmployee(
+  actor: Actor,
+  employeeMobile: string,
+  client?: Pick<PoolClient, 'query'>,
+) {
+  assertCapability(actor, 'employee.manage');
+  const key = mobile(employeeMobile, 'employeeMobile');
+  const run = async (txClient: Pick<PoolClient, 'query'>) => {
+    const dependencies = await txClient.query<{count: string}>(
+      `SELECT (
+         (SELECT count(*) FROM programs WHERE escort_mobile = $1)
+         + (SELECT count(*) FROM program_assignments WHERE employee_mobile = $1)
+         + (SELECT count(*) FROM attendance_records WHERE employee_mobile = $1)
+         + (SELECT count(*) FROM attendance WHERE employee_mobile = $1)
+         + (SELECT count(*) FROM employee_documents WHERE employee_mobile = $1)
+       )::text AS count`,
+      [key],
+    );
+    if (Number(dependencies.rows[0]?.count ?? 0) > 0) {
+      throw new DomainError('EMPLOYEE_IN_USE', 409,
+        'This employee is linked to vessel/attendance documents. Remove those links first.');
+    }
+    const deleted = await txClient.query('DELETE FROM employees WHERE employee_mobile = $1 RETURNING employee_mobile', [key]);
+    if (!deleted.rowCount) throw new DomainError('EMPLOYEE_NOT_FOUND', 404);
+    await recordAudit({actor, action: 'EMPLOYEE_DELETED', entity: 'employee', entityId: key}, txClient);
+    return {employeeMobile: key, deleted: true};
+  };
+  return client ? run(client) : tx(run);
+}
+
 export async function addEmployeeDocument(actor: Actor, input: EmployeeDocumentInput) {
   assertCapability(actor, 'employee.manage');
   const key = mobile(input.employeeMobile, 'employeeMobile');

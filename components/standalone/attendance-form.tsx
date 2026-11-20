@@ -30,11 +30,12 @@ async function csrfToken(): Promise<string> {
 const today = () => new Date().toISOString().slice(0, 10);
 
 export function AttendanceForm({
-  record, onSaved, onCancel,
+  record, onSaved, onCancel, canDelete = false,
 }: {
   record?: AttendanceRecord | null;
   onSaved: () => void;
   onCancel: () => void;
+  canDelete?: boolean;
 }) {
   const [mobile, setMobile] = useState(record?.employee_mobile ?? '');
   const [name, setName] = useState(record?.preferred_name ?? '');
@@ -98,6 +99,29 @@ export function AttendanceForm({
     }
   }
 
+  async function remove() {
+    if (!record) return;
+    if (!window.confirm('Delete this attendance record?')) return;
+    setBusy(true);
+    setError('');
+    try {
+      const token = await csrfToken();
+      const response = await fetch(`/api/attendance/${encodeURIComponent(record.id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: {'X-CSRF-Token': token},
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
+      toast.success(body.pending ? 'Delete request submitted for admin review.' : 'Attendance deleted.');
+      onSaved();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Delete failed.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="grid gap-3">
       <EmployeeLookupDual
@@ -124,6 +148,7 @@ export function AttendanceForm({
         <Button type="button" size="sm" onClick={() => void save()} disabled={busy}>{busy ? 'Saving…' : 'Save'}</Button>
         <Button type="button" size="sm" variant="outline" onClick={reset} disabled={busy}>Clear</Button>
         <Button type="button" size="sm" variant="outline" onClick={onCancel} disabled={busy}>Cancel</Button>
+        {record && canDelete ? <Button type="button" size="sm" variant="outline" onClick={() => void remove()} disabled={busy}>Delete</Button> : null}
       </div>
     </div>
   );

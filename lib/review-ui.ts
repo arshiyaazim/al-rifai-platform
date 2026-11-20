@@ -71,6 +71,7 @@ export function reviewDomainLabel(value: string | null | undefined): string {
 export function reviewStateLabel(value: string | null | undefined): string {
   if (!value) return '—';
   if (value === 'RESOLVED') return 'Resolved';
+  if (value === 'PENDING_REVIEW') return 'Pending';
   if (value === 'WITHDRAWN') return 'Withdrawn';
   return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
 }
@@ -78,7 +79,7 @@ export function reviewStateLabel(value: string | null | undefined): string {
 export function reviewStateTone(value: string | null | undefined): 'neutral' | 'ok' | 'warn' | 'danger' | 'brand' {
   if (value === 'APPROVED') return 'ok';
   if (value === 'REJECTED') return 'danger';
-  if (value === 'PENDING') return 'warn';
+  if (value === 'PENDING' || value === 'PENDING_REVIEW') return 'warn';
   if (value === 'WITHDRAWN') return 'neutral';
   return 'brand';
 }
@@ -91,7 +92,7 @@ export function reviewStateTone(value: string | null | undefined): 'neutral' | '
 export function reviewActionsFor(actor: ReviewActor, item: ReviewItemLike): ReviewActions {
   const isAdmin = actor.role === 'ADMIN';
   const isSubmitter = actor.id === item.submitted_by;
-  const isPending = item.state === 'PENDING';
+  const isPending = item.state === 'PENDING' || item.state === 'PENDING_REVIEW';
   const canDecide = isAdmin && isPending && !isSubmitter;
   return {
     canApprove: canDecide,

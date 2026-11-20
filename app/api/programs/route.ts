@@ -62,8 +62,29 @@ export async function POST(request: Request) {
       return ok(await updateProgram(actor as never, String(body.programId), body as never));
     }
     if (action === 'assign') {
-      assertCapability(actor as never, 'vessel.command');
       if (!body.programId) return ok({error: 'PROGRAM_REQUIRED'}, 400);
+      if (!can(actor as never, 'vessel.command')) {
+        assertCapability(actor as never, 'vessel.submit');
+        const current = await getProgram(String(body.programId));
+        const review = await submitForReview(actor as never, {
+          domain: 'PROGRAM', action: 'UPDATE', targetRef: String(body.programId),
+          payload: {
+            motherVessel: current.program.mother_vessel,
+            lighterVessel: current.program.lighter_vessel,
+            masterMobile: current.program.master_mobile,
+            destination: current.program.destination,
+            startDate: current.program.start_date,
+            startShift: current.program.start_shift,
+            endDate: current.program.end_date,
+            endShift: current.program.end_shift,
+            notes: current.program.notes,
+            escortMobile: body.escortMobile ?? body.employeeMobile ?? null,
+            escortName: body.escortName ?? body.employeeName ?? null,
+          },
+        });
+        return ok({pending: true, review}, 202);
+      }
+      assertCapability(actor as never, 'vessel.command');
       const replace = body.replace === true || body.replace === 'yes' || body.replace === '1';
       return ok(await assignEscort(actor as never, String(body.programId), {...body, replace} as never));
     }
@@ -78,13 +99,43 @@ export async function POST(request: Request) {
       return ok(await completeProgram(actor as never, String(body.programId)));
     }
     if (action === 'release') {
-      assertCapability(actor as never, 'vessel.release');
       if (!body.programId) return ok({error: 'PROGRAM_REQUIRED'}, 400);
+      if (!can(actor as never, 'vessel.release')) {
+        assertCapability(actor as never, 'vessel.submit');
+        const current = await getProgram(String(body.programId));
+        const review = await submitForReview(actor as never, {
+          domain: 'PROGRAM', action: 'UPDATE', targetRef: String(body.programId),
+          payload: {
+            motherVessel: current.program.mother_vessel,
+            lighterVessel: current.program.lighter_vessel,
+            masterMobile: current.program.master_mobile,
+            destination: current.program.destination,
+            escortName: current.program.escort_name,
+            escortMobile: current.program.escort_mobile,
+            startDate: current.program.start_date,
+            startShift: current.program.start_shift,
+            endDate: body.endDate ?? body.releaseDate ?? null,
+            endShift: body.endShift ?? body.releaseShift ?? null,
+            notes: body.notes ?? current.program.notes,
+          },
+        });
+        return ok({pending: true, review}, 202);
+      }
+      assertCapability(actor as never, 'vessel.release');
       return ok(await releaseProgram(actor as never, String(body.programId), body as never));
     }
     if (action === 'void') {
+      if (!body.programId) return ok({error: 'PROGRAM_REQUIRED'}, 400);
+      if (!can(actor as never, 'vessel.command')) {
+        assertCapability(actor as never, 'vessel.submit');
+        const review = await submitForReview(actor as never, {
+          domain: 'PROGRAM', action: 'DELETE', targetRef: String(body.programId),
+          payload: {reason: String(body.reason ?? 'Void requested from vessel register')},
+        });
+        return ok({pending: true, review}, 202);
+      }
       assertCapability(actor as never, 'vessel.command');
-      if (!body.programId || !body.reason) return ok({error: 'PROGRAM_AND_REASON_REQUIRED'}, 400);
+      if (!body.reason) return ok({error: 'REASON_REQUIRED'}, 400);
       return ok(await voidProgram(actor as never, String(body.programId), String(body.reason)));
     }
     return ok({error: 'UNKNOWN_ACTION'}, 400);

@@ -32,7 +32,7 @@ const nested = (payload: Record<string, unknown>, key: string): unknown => {
 
 function formFrom(row: CashReviewCandidate, accounts: AccountOption[]): CashForm {
   const p = row.payload ?? {};
-  const amountMinor = Number(nested(p, 'amountMinor') ?? 0);
+  const amountMinor = Number(nested(p, 'amountMinor') ?? nested(p, 'currentAmountMinor') ?? 0);
   return {
     employeeName: String(nested(p, 'employeeName') ?? ''),
     employeeMobile: String(nested(p, 'employeeMobile') ?? nested(p, 'employeeId') ?? ''),
@@ -87,7 +87,7 @@ export function CashReviewPanel({
       <div className="page-head" style={{marginBottom: 8}}>
         <div>
           <h3 style={{margin: 0}}>Cash Review ({rows.length})</h3>
-          <p className="muted" style={{margin: '4px 0 0'}}>AI-extracted cash messages pending review. Approve creates a REVIEW cash instruction; it does not post funds.</p>
+          <p className="muted" style={{margin: '4px 0 0'}}>USER payments, edits and deletes waiting for admin review. Approve applies the named action; posting remains a separate admin step.</p>
         </div>
       </div>
       {!rows.length ? <p className="muted" style={{margin: 0}}>No pending cash review items.</p> : (
@@ -122,7 +122,7 @@ export function CashReviewPanel({
                     <td>{employee?.designation ?? '—'}</td>
                     <td>{employee?.dateOfJoin ? dateDdMmYyyy(employee.dateOfJoin) : '—'}</td>
                     <td style={{textAlign: 'center'}}>—</td>
-                    <td className="cash-amount" style={{textAlign: 'right'}}>{formatReviewAmount(nested(p, 'amountMinor') as string | number | null)}</td>
+                    <td className="cash-amount" style={{textAlign: 'right'}}>{formatReviewAmount((nested(p, 'amountMinor') ?? nested(p, 'currentAmountMinor')) as string | number | null)}</td>
                     <td className="cash-amount" style={{textAlign: 'right'}}>—</td>
                     <td style={{textAlign: 'center'}}>
                       <Button type="button" size="icon-sm" variant="ghost" aria-label="View cash review item" onClick={() => setSelected(row)}>
@@ -232,6 +232,16 @@ function CashReviewSidebar({
     finally { setBusy(''); }
   }
 
+  async function remove() {
+    if (!window.confirm('Delete this pending cash submission permanently? If it targets an existing transaction, that transaction is deleted too (posted rows are refused).')) return;
+    setBusy('delete'); setError('');
+    try {
+      await reviewPost({action: 'delete', kind: 'cash_submission', id: row!.id});
+      onDone();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Delete failed.'); }
+    finally { setBusy(''); }
+  }
+
   async function decline() {
     const why = reason.trim() || 'Declined from review queue';
     setBusy('decline'); setError('');
@@ -254,6 +264,7 @@ function CashReviewSidebar({
           <Button type="button" size="sm" variant="outline" onClick={() => void save()} disabled={Boolean(busy)}>{busy === 'save' ? 'Saving…' : 'Save Edit'}</Button>
           <Button type="button" size="sm" onClick={() => void approve()} disabled={Boolean(busy)}>{busy === 'approve' ? 'Approving…' : 'Approve'}</Button>
           <Button type="button" size="sm" variant="outline" onClick={() => void decline()} disabled={Boolean(busy)}>{busy === 'decline' ? 'Declining…' : 'Decline'}</Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => void remove()} disabled={Boolean(busy)}>{busy === 'delete' ? 'Deleting…' : 'Delete'}</Button>
         </>
       ) : <Button type="button" size="sm" variant="outline" onClick={onClose}>Close</Button>}
     >

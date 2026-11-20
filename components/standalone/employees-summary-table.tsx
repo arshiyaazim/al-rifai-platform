@@ -58,7 +58,8 @@ function MetricCard({label, value, href, missing}: {label: string; value: string
     : <div className="ui-card">{body}</div>;
 }
 
-export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
+export function EmployeesSummaryTable({canManage, canSubmit = false}: {canManage: boolean; canSubmit?: boolean}) {
+  const canEdit = canManage || canSubmit;
   const [rows, setRows] = useState<SummaryRow[]>([]);
   const [selectedMobile, setSelectedMobile] = useState('');
   const [loading, setLoading] = useState(true);
@@ -81,7 +82,7 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
   useEffect(() => {
     const apply = (detail: {action?: string; employee_mobile?: string | null} | null) => {
       if (!detail) return;
-      if (detail.action === 'add' && canManage) setCreateOpen(true);
+      if (detail.action === 'add' && canEdit) setCreateOpen(true);
       if ((detail.action === 'view' || detail.action === 'edit') && detail.employee_mobile) {
         setSelected(detail.employee_mobile);
       }
@@ -96,7 +97,7 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
     };
     window.addEventListener('alrifai:open-sidebar', listener);
     return () => window.removeEventListener('alrifai:open-sidebar', listener);
-  }, [canManage]);
+  }, [canEdit]);
 
   async function load() {
     setLoading(true);
@@ -218,7 +219,7 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
         <label>Join date to
           <Input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} aria-label="Join date to" />
         </label>
-        {canManage ? (
+        {canEdit ? (
           <Button type="button" size="sm" onClick={() => setCreateOpen(true)}><Plus className="size-4" />Add New Employee</Button>
         ) : null}
       </div>
@@ -295,7 +296,7 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
         mode="view"
         onClose={() => setSelected(null)}
         onUpdated={() => void load()}
-        canManage={canManage}
+        canManage={canEdit}
       />
       {createOpen ? (
         <EmployeeDetailSidebar
@@ -304,7 +305,7 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
           mode="create"
           onClose={() => setCreateOpen(false)}
           onUpdated={() => void load()}
-          canManage={canManage}
+          canManage={canEdit}
         />
       ) : null}
     </>

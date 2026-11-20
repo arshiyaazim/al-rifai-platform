@@ -1,6 +1,6 @@
 import {actorFor, bodyOf, errorResponse, ok} from '../_shared';
 import {
-  EMPLOYEE_SUGGESTION_LIMIT, listEmployees, searchEmployees, createEmployee, updateEmployee, getEmployee,
+  EMPLOYEE_SUGGESTION_LIMIT, listEmployees, searchEmployees, createEmployee, deleteEmployee, updateEmployee, getEmployee,
 } from '@/lib/standalone/employees';
 import {assertCapability, can} from '@/lib/standalone/authz';
 import {submitForReview} from '@/lib/standalone/review';
@@ -49,6 +49,32 @@ export async function POST(request: Request) {
       return ok({error: 'EMPLOYEE_EXISTS', employeeMobile: created.employeeMobile}, 409);
     }
     return ok(created, 201);
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const actor = await actorFor(request);
+    assertCapability(actor as never, 'employee.submit');
+    const url = new URL(request.url);
+    let mobile = url.searchParams.get('mobile') ?? '';
+    if (!mobile) {
+      const body = await bodyOf<{employeeMobile?: string}>(request).catch(() => ({employeeMobile: ''}));
+      mobile = String(body.employeeMobile ?? '');
+    }
+    if (!mobile) return ok({error: 'EMPLOYEE_REQUIRED'}, 400);
+    if (!can(actor as never, 'employee.manage')) {
+      const review = await submitForReview(actor as never, {
+        domain: 'EMPLOYEE',
+        action: 'DELETE',
+        targetRef: mobile,
+        payload: {employeeMobile: mobile},
+      });
+      return ok({pending: true, review}, 202);
+    }
+    return ok(await deleteEmployee(actor as never, mobile));
   } catch (error) {
     return errorResponse(error);
   }

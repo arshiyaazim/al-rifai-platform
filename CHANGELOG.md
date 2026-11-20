@@ -1,5 +1,34 @@
 # Changelog
 
+## v3.3.20-review-workflow — USER submissions, review delete, cash aliases (2026-11-20)
+
+- Review Queue: Delete is now present in all four domain panels (equal `sm`
+  outline buttons) and hard-deletes both the pending submission and, when the
+  submission targets an existing row, that domain row; immutable ledger/audit
+  rows are never touched. A row with dependent or financial history is refused
+  instead of being half-deleted. Approving a USER Delete request applies the
+  same domain deletion (program, employee, attendance or unposted cash).
+- Review actions: `PENDING_REVIEW` cash submissions are actionable; the
+  vessel panel no longer disables Approve for cash/confirmation/release rows.
+  Vessel panel columns now include the domain Days/Salary/Conv./Total pay cells
+  when the review item targets an existing program.
+- USER flows: Employees gained Add/Edit/Delete (staged through Review); Attendance
+  gained Edit/Delete (staged); Vessel escort/assign/release/void/end-date edits
+  stage as PROGRAM review instead of returning 403; Cash manual payments create
+  `cash_submissions` (PENDING_REVIEW), and Cash edit/delete requests use the
+  same queue.
+- Cash: Google-style backend typeahead in the transaction toolbar (max 10),
+  selecting an employee filters to that Employee ID with the existing 20-row
+  pagination. New read-only Name Aliases table distinguishes same-ID/different
+  name from same-name/different-ID without merging employees.
+- Audit: EMPLOYEE and ATTENDANCE domains added to the Audit Trail filters; the
+  existing append-only audit tab remains the audit surface.
+- Verification: typecheck 0, unit suite 201/201, production build compiled
+  (exit 0 on retry after Next's security nudge). DB-backed standalone suites were
+  not run against production; staging DB verification is the next step. No
+  migration, no production deployment in this commit.
+- Emergency rollback: deploy the previous image tag; this change adds no schema.
+
 ## v3.3.18-ui — Home search, mobile cards, cash lookup/icons, draggable assistant (2026-11-20)
 
 - Home: employee search below the All Time cards (name / alias / partial mobile,

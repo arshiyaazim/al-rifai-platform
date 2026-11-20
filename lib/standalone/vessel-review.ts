@@ -56,6 +56,8 @@ export type UnifiedVesselReview = {
   timestamp: string;
   createdAt: string;
   fields: ReviewFields;
+  /** Target program pay, when this row edits an existing program. */
+  pay?: {days: string; salaryMinor: string; conveyanceMinor: string; totalMinor: string} | null;
 };
 
 const clean = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
@@ -120,8 +122,11 @@ export async function listUnifiedVesselReview(limit = 200): Promise<UnifiedVesse
     rows<Record<string, unknown>>(
       `SELECT r.id, r.payload, r.category, r.state, r.target_ref, r.created_at::text AS created_at,
               coalesce(ident.display_name, emp.preferred_name) AS sender_name,
-              ident.canonical_jid AS sender_canonical_jid
+              ident.canonical_jid AS sender_canonical_jid,
+              pp.shifts AS pay_shifts, pp.salary_minor::text AS pay_salary_minor,
+              pp.conveyance_minor::text AS pay_conveyance_minor, pp.total_minor::text AS pay_total_minor
          FROM review_items r
+         LEFT JOIN program_pay pp ON pp.program_id = r.target_ref
          LEFT JOIN LATERAL (
            SELECT ia.display_name, ia.canonical_jid
              FROM identity_aliases ia
@@ -200,6 +205,12 @@ export async function listUnifiedVesselReview(limit = 200): Promise<UnifiedVesse
       message: text,
       timestamp,
       createdAt: iso(item.created_at ?? timestamp),
+      pay: item.pay_shifts === null || item.pay_shifts === undefined ? null : {
+        days: String(item.pay_shifts),
+        salaryMinor: String(item.pay_salary_minor ?? '0'),
+        conveyanceMinor: String(item.pay_conveyance_minor ?? '0'),
+        totalMinor: String(item.pay_total_minor ?? '0'),
+      },
       fields: {
         motherVessel: clean(payloadFields.motherVessel ?? rawFields.motherVessel),
         lighterVessel: clean(payloadFields.lighterVessel ?? rawFields.lighterVessel),
@@ -265,6 +276,24 @@ async function decideItem(actor: Actor, id: string, decision: string,
     const text = String(merged.rawText ?? '');
     const createdAt = iso(item.created_at);
     const sourceTimestamp = iso(merged.sourceTimestamp ?? createdAt);
+    if (decision === 'APPROVED' && item.action === 'DELETE') {
+      if (!item.target_ref) throw new DomainError('TARGET_REQUIRED', 400, 'Program reference is required.');
+      await client.query('DELETE FROM program_assignments WHERE program_id = $1', [item.target_ref]);
+      const deleted = await client.query('DELETE FROM programs WHERE id = $1 RETURNING id', [item.target_ref]);
+      if (!deleted.rowCount) throw new DomainError('PROGRAM_NOT_FOUND', 404, 'Program not found.');
+      await client.query(
+        `UPDATE review_items SET state='APPROVED', decided_at=now(), updated_at=now(), payload=$2::jsonb WHERE id=$1`,
+        [id, JSON.stringify(merged)],
+      );
+      await client.query(
+        `INSERT INTO review_decisions (id, item_id, decision, reason, actor)
+         VALUES ($1,$2,'APPROVED',$3,$4) ON CONFLICT (item_id) DO NOTHING`,
+        [stableId('rvd', ['vessel-review', id]), id, input.comment ?? 'VESSEL_REVIEW_DELETED', actor.id],
+      );
+      await recordAudit({actor, action: 'VESSEL:REVIEW_DELETED', entity: 'review_item', entityId: id,
+        detail: {programId: item.target_ref}}, client);
+      return {id, state: 'APPROVED', programId: item.target_ref, deleted: true};
+    }
     if (decision === 'APPROVED') {
       if (!fields.motherVessel || !fields.lighterVessel || !fields.masterMobile) {
         const parsed = fieldsFrom(text, sourceTimestamp);
@@ -321,6 +350,7 @@ async function decideItem(actor: Actor, id: string, decision: string,
                   confirmation_sender_jid=COALESCE($14,confirmation_sender_jid),
                   confirmation_account_id=COALESCE($15,confirmation_account_id),
                   confirmation_timestamp=COALESCE($16::timestamptz,confirmation_timestamp),
+                  destination=$17, notes=$18,
                   revision=revision+1, updated_at=now()
             WHERE id=$1`,
           [programId, fields.motherVessel, fields.lighterVessel, fields.masterMobile,
@@ -331,7 +361,9 @@ async function decideItem(actor: Actor, id: string, decision: string,
             String(merged.sourceChatJid ?? '') || null,
             String(merged.senderJid ?? '') || null,
             String(merged.sourceAccountId ?? '') || null,
-            sourceTimestamp || null],
+            sourceTimestamp || null,
+            String(merged.destination ?? '') || null,
+            fields.notes || null],
         );
       } else {
         programId = stableId('prog', ['vessel-review', fields.motherVessel, fields.lighterVessel, date, shift]);
@@ -356,6 +388,21 @@ async function decideItem(actor: Actor, id: string, decision: string,
             String(merged.sourceChatJid ?? '') || null, String(merged.senderJid ?? '') || null,
             String(merged.sourceAccountId ?? '') || null, sourceTimestamp || null],
         );
+      }
+      if (fields.endDate) {
+        const endShift = fields.endShift || shift;
+        await client.query(
+          `UPDATE programs SET end_date=$2::date, end_shift=$3, updated_at=now() WHERE id=$1`,
+          [programId, fields.endDate, endShift],
+        );
+        if (escortMobile) {
+          await client.query(
+            `UPDATE program_assignments
+                SET end_date=$2::date, end_shift=$3
+              WHERE program_id=$1 AND end_date IS NULL`,
+            [programId, fields.endDate, endShift],
+          );
+        }
       }
       if (confirmed) {
         await client.query(

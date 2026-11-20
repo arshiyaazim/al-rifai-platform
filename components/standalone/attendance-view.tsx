@@ -71,7 +71,7 @@ async function readPayload(params: URLSearchParams): Promise<Payload> {
   return body as Payload;
 }
 
-export function AttendanceView({canManage = false}: {canManage?: boolean}) {
+export function AttendanceView({canManage = false, canSubmit = false}: {canManage?: boolean; canSubmit?: boolean}) {
   const thisMonth = monthBounds(0);
   const lastMonth = monthBounds(-1);
   const today = new Date().toISOString().slice(0, 10);
@@ -267,12 +267,12 @@ export function AttendanceView({canManage = false}: {canManage?: boolean}) {
                     </span>
                   </td>
                   <td>
-                    {row.source === 'NON_VESSEL' && canManage ? (
+                    {row.source === 'NON_VESSEL' && (canManage || canSubmit) ? (
                       <Button type="button" size="icon-sm" variant="ghost" aria-label={`Edit attendance ${row.source_id}`}
                         onClick={() => { setEditing(asRecord(row)); setFormOpen(true); }}>
                         <Eye className="size-4" />
                       </Button>
-                    ) : <span className="muted" title={row.source === 'NON_VESSEL' ? 'Edit requires attendance.manage' : 'Vessel duty is derived from the program'}>—</span>}
+                    ) : <span className="muted" title={row.source === 'NON_VESSEL' ? 'Edit requires attendance permission' : 'Vessel duty is derived from the program'}>—</span>}
                   </td>
                 </tr>
               ))}
@@ -305,6 +305,7 @@ export function AttendanceView({canManage = false}: {canManage?: boolean}) {
             <AttendanceForm
               key={editing?.id ?? 'new'}
               record={editing}
+              canDelete={Boolean(editing) && (canManage || canSubmit)}
               onCancel={() => setFormOpen(false)}
               onSaved={() => { setFormOpen(false); void load(); }}
             />

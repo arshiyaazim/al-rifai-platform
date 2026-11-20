@@ -65,6 +65,12 @@ export function CashTransactionSidebar({
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
+      if (body.pending) {
+        toast.success('Change submitted for admin review.');
+        setEditing(false);
+        onClose();
+        return;
+      }
       toast.success('Transaction updated.');
       setEditing(false);
       onUpdated?.(body.transaction as CashTransaction);
@@ -73,6 +79,39 @@ export function CashTransactionSidebar({
     } finally {
       setSaving(false);
     }
+  };
+
+  const remove = async () => {
+    if (!transaction) return;
+    if (!window.confirm('Delete this cash transaction? Posted cash must be reversed, not deleted.')) return;
+    setSaving(true);
+    try {
+      const token = await csrfToken();
+      const response = await fetch(`/api/cash/transactions/${encodeURIComponent(transaction.id)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: {'X-CSRF-Token': token},
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
+      toast.success(body.pending ? 'Delete request submitted for admin review.' : 'Transaction deleted.');
+      onClose();
+      if (!body.pending) onUpdated?.(body.transaction as CashTransaction);
+    } catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : 'Delete failed.', {duration: Infinity});
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const startEdit = () => {
+    if (!transaction) return;
+    setEdit({
+      designation: transaction.designation ?? '',
+      amount: (Number(transaction.amountMinor) / 100).toFixed(2),
+      notes: transaction.notes ?? '',
+    });
+    setEditing(true);
   };
 
   const startCorrection = () => {
@@ -210,7 +249,8 @@ export function CashTransactionSidebar({
         ) : (
           <>
             <Button type="button" size="sm" variant="outline" onClick={() => { setEditing(false); onClose(); }}>Close</Button>
-            <Button type="button" size="sm" onClick={() => setEditing(true)}>Edit</Button>
+            <Button type="button" size="sm" onClick={startEdit}>Edit</Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => void remove()} disabled={saving}>{saving ? 'Deleting…' : 'Delete'}</Button>
             {allTransactions}
           </>
         )

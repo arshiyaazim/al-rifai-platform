@@ -1,5 +1,18 @@
 # NEXT-HANDOFF
 
+## Open implementation (2026-11-20) — `feature/user-review-workflow`
+
+- Branch: `feature/user-review-workflow` (worktree
+  `/opt/al-rifai-platform-user-review`); base `25bf459` (`origin/main`).
+- Scope: USER Review Queue submissions, Review Delete in all four domains,
+  vessel/cash staging, cash typeahead + alias table, audit domain filters.
+- Status: implemented, typecheck/build/unit tests pass; **not deployed** and
+  **not run against a DB-backed staging stack** in this session.
+- CHANGELOG: `v3.3.20-review-workflow`. No migration.
+- Next: run the DB-backed standalone suites against staging, then browser QA
+  (`/review`, `/vessel`, `/cash`, `/employees`, `/attendance`) and only then
+  approve a production deploy.
+
 **Session ended:** 2026-11-20 — `v3.3.18-ui` is deployed; this file is the latest handoff.
 **Current state:** production app + sync run `local/al-rifai-platform:v3.3.18-ui`;
 schema `1.13.8`; no migration was needed. `main` history: `faa98ec` (application)

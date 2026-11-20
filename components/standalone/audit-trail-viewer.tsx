@@ -17,7 +17,7 @@ export type AuditPagePayload = {
 
 type Filters = {from: string; to: string; domain: string; action: string; actor: string; targetId: string};
 const EMPTY: Filters = {from: '', to: '', domain: '', action: '', actor: '', targetId: ''};
-const DOMAINS = ['ALL', 'CASH', 'VESSEL', 'REVIEW', 'AUTH', 'SYSTEM'];
+const DOMAINS = ['ALL', 'CASH', 'VESSEL', 'EMPLOYEE', 'ATTENDANCE', 'REVIEW', 'AUTH', 'SYSTEM'];
 const ACTIONS = ['ALL', 'CREATED', 'UPDATED', 'DELETED', 'CORRECTION', 'REVERSAL', 'REJECTED', 'APPROVED'];
 
 function dhaka(value: string) {

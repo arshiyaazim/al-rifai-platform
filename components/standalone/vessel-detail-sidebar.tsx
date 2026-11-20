@@ -127,7 +127,7 @@ export function VesselDetailSidebar({
 
   const remove = async () => {
     if (!detail) return;
-    if (!window.confirm(`Delete ${detail.program.mother_vessel} → ${detail.program.lighter_vessel}? The row is marked VOIDED, never hard-deleted.`)) return;
+    if (!window.confirm(`Delete ${detail.program.mother_vessel} → ${detail.program.lighter_vessel}? This request goes through review.`)) return;
     setDeleting(true);
     try {
       const token = await csrfToken();
@@ -139,7 +139,11 @@ export function VesselDetailSidebar({
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error ?? `HTTP_${response.status}`);
-      toast.success('Program voided.');
+      if (response.status === 202) {
+        toast.success('Delete request submitted for admin review.');
+      } else {
+        toast.success('Program voided.');
+      }
       onUpdated?.();
       onClose();
     } catch (cause) {
@@ -179,7 +183,7 @@ export function VesselDetailSidebar({
                 <Link href={program.escort_mobile ? `/vessel?escort_mobile=${encodeURIComponent(program.escort_mobile)}` : '/vessel'}>All Programs</Link>
               </Button>
             )}
-            {canCommand && program.state !== 'VOIDED' ? (
+            {(canSubmit || canCommand) && program.state !== 'VOIDED' ? (
               <Button type="button" size="sm" variant="outline" disabled={deleting} onClick={() => void remove()}>
                 {deleting ? 'Deleting…' : 'Delete'}
               </Button>

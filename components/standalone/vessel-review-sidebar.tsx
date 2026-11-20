@@ -63,10 +63,6 @@ export function VesselReviewSidebar({
 
   if (!row) return null;
 
-  const manualOnly = row.suggestedWorkflow === 'cash'
-    || row.suggestedWorkflow === 'confirmation'
-    || (row.kind === 'item' && row.suggestedWorkflow === 'release');
-
   async function post(body: Record<string, unknown>) {
     const token = await csrfToken();
     const response = await fetch('/api/review', {
@@ -99,10 +95,6 @@ export function VesselReviewSidebar({
 
   async function approve() {
     if (!row) return;
-    if (manualOnly) {
-      setError('This item needs manual matching. Use Save and Decline, or handle it after v3.3.5 matching is available.');
-      return;
-    }
     setBusy('approve');
     setError('');
     try {
@@ -117,6 +109,15 @@ export function VesselReviewSidebar({
     } finally {
       setBusy('');
     }
+  }
+
+  async function remove() {
+    if (!row || row.kind !== 'item') return;
+    if (!window.confirm('Delete this pending vessel submission permanently? If it targets an existing program, that program is deleted too.')) return;
+    setBusy('delete'); setError('');
+    try { await post({action: 'delete', kind: 'review_item', id: row.id}); onDone(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Delete failed.'); }
+    finally { setBusy(''); }
   }
 
   async function decline() {
@@ -150,12 +151,17 @@ export function VesselReviewSidebar({
           <Button type="button" size="sm" variant="outline" onClick={() => void save()} disabled={Boolean(busy)}>
             {busy === 'save' ? 'Saving…' : 'Save Edit'}
           </Button>
-          <Button type="button" size="sm" onClick={() => void approve()} disabled={Boolean(busy) || manualOnly}>
+          <Button type="button" size="sm" onClick={() => void approve()} disabled={Boolean(busy)}>
             {busy === 'approve' ? 'Approving…' : 'Approve'}
           </Button>
           <Button type="button" size="sm" variant="outline" onClick={() => void decline()} disabled={Boolean(busy)}>
             {busy === 'decline' ? 'Declining…' : 'Decline'}
           </Button>
+          {row.kind === 'item' ? (
+            <Button type="button" size="sm" variant="outline" onClick={() => void remove()} disabled={Boolean(busy)}>
+              {busy === 'delete' ? 'Deleting…' : 'Delete'}
+            </Button>
+          ) : null}
         </>
       ) : (
         <Button type="button" size="sm" variant="outline" onClick={onClose}>Close</Button>

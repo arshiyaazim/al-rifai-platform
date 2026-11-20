@@ -5,7 +5,7 @@ import {
   closeReconciliation, createReconciliation, getInstructionDetail, listReconciliations, reversePosting, setInstructionAccount,
   correctBusinessPaidEvent, reverseBusinessPaidEvent, getBusinessPaidEventDetail,
 } from '@/lib/standalone/finance';
-import {assertCapability} from '@/lib/standalone/authz';
+import {assertCapability, can} from '@/lib/standalone/authz';
 import {rows, takaToMinor} from '@/lib/standalone/db';
 import {cashDashboardSummary, listCashPayments, listBusinessPaidEvents} from '@/lib/standalone/cash-dashboard';
 
@@ -116,7 +116,16 @@ export async function POST(request: Request) {
     if (body.countedBalanceMinor === undefined && body.countedBalance !== undefined) {
       body.countedBalanceMinor = takaToMinor(body.countedBalance);
     }
-    if (action === 'instruction.create') return ok(await createInstruction(actor, body as never), 201);
+    if (action === 'instruction.create') {
+      // A USER payment is a request, not a transaction. It lands in the same
+      // Review Queue as every other USER submission; ADMIN keeps the direct
+      // create path (still REVIEW, never auto-posted).
+      if (!can(actor as never, 'cash.review')) {
+        const submitted = await submitCash(actor, body as never);
+        return ok({pending: true, ...submitted}, 202);
+      }
+      return ok(await createInstruction(actor, body as never), 201);
+    }
     if (action === 'instruction.approve') return ok(await approveInstruction(actor, String(body.id)));
     if (action === 'instruction.reject') return ok(await rejectInstruction(actor, String(body.id), String(body.reason ?? '')));
     if (action === 'instruction.account') return ok(await setInstructionAccount(actor, String(body.id), String(body.accountId ?? '')));
