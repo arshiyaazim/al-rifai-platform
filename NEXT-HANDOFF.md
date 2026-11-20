@@ -10,14 +10,16 @@ staging QA 6/6 + 8/8 + concurrent 1/1.
 **Cash status:** not frozen; protection is capability-based (`cash.post`,
 `cash.reverse`) plus immutable triggers and explicit posting. `PHASE3_PAID_EVENTS_ENABLED=0`
 only disables optional Business Paid reporting, not core Cash.
-**Next session state (2026-11-20):**
-- Current production release: `v3.3.19-next16.4.6` (app + sync, same tag).
-- Next.js 16.4.1 advisory: **RESOLVED by 16.4.6** (OSV 0; React 19.2.6 unchanged).
-- Staging E2E: **COMPLETED — 8/8 PASS**; Production unchanged; no deployment pending.
+**Next session state (2026-11-21):**
+- Current production release: `v3.3.21-review-workflow-next16.4.6` (app + sync, same tag).
+- Next.js advisory state: **RESOLVED by 16.4.6** (OSV 0; React 19.2.6 unchanged).
+- Staging E2E: **COMPLETED — 6/6 feature + 8/8 baseline + 1/1 concurrent PASS**.
+- Production: deployed and healthy; Owner completed a manual authenticated smoke
+  (domain visits + Review approval). Agent production smoke was limited to
+  health/login/auth-guard because the bootstrap admin credential returned 401.
 - Future Next.js advisories: re-check and plan separately; never disable the nudge.
 - Escort Release `/release`: **Not Started** (separate future project).
 - Home Search total vs Employee Profile `Total Paid`: **Owner Decision Pending**.
-- Production authenticated regression: **NOT VERIFIED** (staging E2E only).
 
 **Next session:** read the 2026-11-20 section below, then the Known issues.
 **Read first:** `AGENTS.md`, `docs/PROJECT_KNOWLEDGE.md`,
@@ -31,6 +33,70 @@ only disables optional Business Paid reporting, not core Cash.
 **Report language:** English only. Always state whether a finding is
 **implemented**, **clone-tested**, **production-deployed**, **live-verified**,
 **OWNER-CONFIRMED** or **BLOCKED**.
+
+---
+
+## High Priority Technical Debt & Future Fix Guidelines (2026-11-21)
+
+These are required follow-ups before the next feature or database change. They
+are ordered by urgency and must not be silently skipped.
+
+1. **Lint warnings (9 remaining).** `npm run lint` is 0 errors but still reports
+   9 warnings. The next session must fix all 9 first, before adding new UI
+   work: missing `load` dependencies in two history tables, an unused
+   `setDesignation`, an internal navigation warning, three unused-variable
+   warnings in application/script files, and two test-only unused variables.
+   Do not suppress them with blanket eslint-disable comments; fix the code.
+
+2. **Schema alignment (Staging 1.12.0 vs Production 1.13.8).** Both databases
+   have the same 28 migrations (latest 029) and the same core schema, but
+   Production has six extra diagnostic snapshot tables
+   (`program_assignments_snapshot`, `program_events_snapshot`,
+   `program_identity_snapshot`, `program_pay_snapshot`,
+   `program_source_messages_snapshot`, `vessel_draft_deliveries_snapshot`).
+   The app does not reference them. Before any database or migration work,
+   refresh Staging from a sanitized Production dump and prove schema parity.
+   Never run a migration against Staging while its `schema_meta` still says
+   1.12.0 without first confirming the real applied state.
+
+3. **Full DB suite execution rules.** Never run the full DB-backed suite against
+   live Production. Use a disposable clone (for example, create a temporary
+   database from the staging template), run the suite there, and drop the clone
+   afterwards. The Review 7/7 run in this session used a disposable clone for
+   exactly this reason. The full suite was not run because the staging seed
+   lacks the WhatsApp account fixtures required by unrelated tests.
+
+### Agent verification tools and lessons
+
+- Playwright MCP server and browser tools were installed/available, but the
+  automated runs in this session used **Dockerized Playwright v1.65 via CLI**.
+  The MCP browser-tool path was not exercised against this app; do not claim it
+  was. Next agent: try the MCP browser tools first for interactive verification;
+  if they are unavailable or cannot reach the TLS host, fall back to the
+  Dockerized Playwright suite and record which path was used.
+- Automated verification is mandatory before commit/deploy. A green
+  health/login check is not a substitute for authenticated domain QA. Production
+  authenticated smoke in this session was **OWNER-CONFIRMED manually**, not
+  agent-run; the agent saw 401 from the bootstrap credential.
+- Keep the Dockerized suites: baseline 8 tests, feature workflow 6 tests,
+  concurrent submissions 1 test, and Review DB 7 tests. Add a test for every new
+  USER/ADMIN workflow before merging.
+- Staging DB tests must use a clone; the reset helper truncates business data and
+  is not safe against a database whose data must be preserved.
+
+### Deployment and Git guardrails observed
+
+- Never deploy a feature branch built on an older Next.js after a security
+  merge. Build from `main` and verify `next`/React versions inside the image.
+- `feature/user-review-workflow` and `security/nextjs-upgrade` both tracked
+  `origin/main`; always push with an explicit refspec to avoid accidentally
+  updating `main` from the wrong branch.
+- Resolve CHANGELOG/NEXT-HANDOFF conflicts by preserving both sides; never drop
+  the security or feature section.
+- Use explicit `git add <file>` calls; do not use `git add .` or `git add -A`.
+- Remove temporary verification images and staging containers after QA; keep
+  the staging volume and rollback image unless the Owner explicitly approves
+  their removal.
 
 ---
 
