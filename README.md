@@ -143,7 +143,7 @@ its own administrator, accounts, rates, relay and authorized chats.
 | Runtime | Node.js ≥ 22.13 (tested 22.23.4) |
 | Package manager | pnpm 11.25.0 (or npm/npx) |
 | Database | PostgreSQL 16 (≥ 13 supported by the SQL used) |
-| Framework | Next.js 16.4.1 |
+| Framework | Next.js 16.4.6 |
 | Schema | fresh baseline `db/standalone/schema.sql` + additive migrations 002–011 (version **1.6.0**, 49 tables); no new migration is required by this branch |
 
 ---
