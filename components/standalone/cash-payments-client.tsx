@@ -172,14 +172,6 @@ export function CashPaymentsClient({initial, initialFilters, canManage = false}:
         ) : null}
 
         <div className="print-hidden" style={{display: 'flex', gap: 8, justifyContent: 'flex-end', marginBottom: 8}}>
-          {canManage ? (
-            <CsvImportDialog
-              title="Import Cash CSV"
-              endpoint="/api/cash/import"
-              templateHint="Required: Employee Mobile, Amount. Import posts through the normal approve/post services."
-              onImported={() => void load(filters, 1)}
-            />
-          ) : null}
           <TableExportControls
             title="Cash Transactions"
             filenamePrefix="cash_transactions"
@@ -191,6 +183,14 @@ export function CashPaymentsClient({initial, initialFilters, canManage = false}:
               filters.from && `From: ${filters.from}`,
               filters.to && `To: ${filters.to}`,
             ].filter(Boolean) as string[]}
+            importAction={canManage ? (
+              <CsvImportDialog
+                title="Import Cash CSV"
+                endpoint="/api/cash/import"
+                templateHint="Required: Employee Mobile, Amount. Import posts through the normal approve/post services."
+                onImported={() => void load(filters, 1)}
+              />
+            ) : undefined}
           />
         </div>
 

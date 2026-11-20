@@ -2,6 +2,7 @@
 
 import {useState} from 'react';
 import {toast} from 'sonner';
+import {Upload} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 
 type Mapping = {
@@ -106,7 +107,10 @@ export function CsvImportDialog({
 
   return (
     <>
-      <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>Import CSV</Button>
+      <Button type="button" size="icon-sm" variant="outline" className="action-icon-button"
+        onClick={() => setOpen(true)} aria-label={`Import CSV — ${title}`} title="Import CSV">
+        <Upload className="size-4" />
+      </Button>
       {open ? (
         <div role="dialog" aria-modal="true" style={{position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16}}
           onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setOpen(false); }}>

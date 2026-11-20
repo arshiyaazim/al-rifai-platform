@@ -447,7 +447,7 @@ export function VesselRegisterClient({
               <span>Running Month</span><strong>{thisMonthCount.toLocaleString()}</strong>
             </button>
             <button type="button" className="vessel-kpi vessel-kpi--clear" onClick={clearFilters}>
-              <span>Clear All Filters</span><strong>↺</strong>
+              <span>Clear Filters</span><strong>↺</strong>
             </button>
           </div>
         </div>

@@ -32,6 +32,9 @@ export type CashTransaction = {
   lastCorrectionId?: string | null;
   reversalOf?: string | null;
   totalPaidMinor: string;
+  /** All-time posted Cash balance up to and including this row (POSTED only). */
+  totalAmountMinor?: string;
+  payoutMobile?: string | null;
   method: string;
   state: string;
   source: string | null;
@@ -252,14 +255,6 @@ export function CashTransactionsTable({
             <h3>Cash Transactions ({data.total.toLocaleString()})</h3>
           </div>
           <span className="row-actions" style={{alignItems: 'center'}}>
-            {canManage ? (
-              <CsvImportDialog
-                title="Import Cash CSV"
-                endpoint="/api/cash/import"
-                templateHint="Required: Employee Mobile, Amount. Optional: Employee Name, Date, Description, Method. Import posts through the normal approve/post services."
-                onImported={() => void load(1, limit, appliedSearch, stateFilter, employeeFilter)}
-              />
-            ) : null}
             <RealtimeIndicator status={realtime.status} />
             <span className="muted" aria-live="polite">
               {loading ? 'Refreshing…' : updatedAt ? 'Updated just now' : 'Live data'}
@@ -275,11 +270,11 @@ export function CashTransactionsTable({
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search Employee ID or Name"
               aria-label="Search Employee ID or Name"
-              style={{minWidth: 240, maxWidth: 360}}
+              className="cash-search-input"
             />
             <Button type="submit" size="sm">Search</Button>
           </form>
-          <div className="row" style={{gap: 8, flexWrap: 'wrap'}}>
+          <div className="row cash-mobile-actions" style={{gap: 8, flexWrap: 'wrap'}}>
             <select
               value={stateFilter}
               onChange={(event) => changeState(event.target.value)}
@@ -306,6 +301,14 @@ export function CashTransactionsTable({
             exportHref={exportHref}
             filterSummary={filterSummary}
             disabled={loading}
+            importAction={canManage ? (
+              <CsvImportDialog
+                title="Import Cash CSV"
+                endpoint="/api/cash/import"
+                templateHint="Required: Employee Mobile, Amount. Optional: Employee Name, Date, Description, Method. Import posts through the normal approve/post services."
+                onImported={() => void load(1, limit, appliedSearch, stateFilter, employeeFilter)}
+              />
+            ) : undefined}
           />
         </div>
 

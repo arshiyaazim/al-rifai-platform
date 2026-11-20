@@ -1379,6 +1379,83 @@ a.ui-card:hover { border-color: #93c5fd; }
   .dashboard-cards-grid, .dashboard-quick-grid { grid-template-columns: 1fr; }
 }
 
+/* ── v3.3.18 homepage employee search (under the All Time cards) ─────────── */
+.home-emp-search {
+  position: relative;
+  margin-top: 10px;
+  min-width: 0;
+}
+.home-emp-search .cash-lookup { gap: 0; }
+.home-emp-search .lookup-input {
+  height: 40px;
+  min-height: 40px;
+  padding-right: 42px;
+  background: #fff;
+}
+.home-emp-search .cash-lookup__menu {
+  width: 100%;
+  max-height: min(60vh, 380px);
+  z-index: 45;
+}
+.home-emp-search .cash-lookup__head,
+.home-emp-search .cash-lookup__option {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+.home-emp-search .cash-lookup__option { min-height: 48px; }
+.home-emp-search .cash-lookup__stack { display: grid; gap: 1px; min-width: 0; }
+.home-emp-search .cash-lookup__name {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-emp-search .cash-lookup__sub {
+  overflow: hidden;
+  color: var(--muted, #64748b);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-emp-search .cash-lookup__total {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cash-lookup__clear {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #475569;
+  background: #eef2f7;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.cash-lookup__clear:hover { background: #e2e8f0; color: #0f172a; }
+.cash-lookup__clear:focus-visible { outline: 2px solid var(--accent, #f97316); outline-offset: 1px; }
+
+@media (max-width: 768px) {
+  .home-emp-search .lookup-input { height: 44px; min-height: 44px; }
+  .cash-lookup__clear { right: 5px; bottom: 6px; }
+}
+
+@media (max-width: 640px) {
+  .home-emp-search .cash-lookup__total { font-size: 14px; }
+}
+
 /* ---- A5/A6: responsive stat cards + unified palette ---------------------- */
 :root:not([data-theme="dark"]) {
   --bg: #ffffff;
@@ -1440,4 +1517,216 @@ a { color: #3b82f6; }
 @media (max-width: 768px) {
   .lookup-input { height: 44px; }
   .cash-lookup__icon { top: 13px; }
+}
+
+/* ── v3.3.18 card consistency ───────────────────────────────────────────────
+   Every card group keeps identical width (1fr tracks + min-width:0) and an
+   identical content box, so cards in different rows also share one height.
+   Labels/hints reserve a fixed line count and long values wrap inside the
+   card instead of spilling. Figures, labels, order and links are untouched. */
+.dashboard-card,
+.dashboard-quick-card,
+.dashboard-review-card,
+.ui-card,
+.cash-dashboard-card,
+.cash-employee-stats > .stat,
+.vessel-kpi {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Homepage period cards */
+.dashboard-card { min-height: 74px; }
+.dashboard-card__value {
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-card__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Homepage quick actions */
+.dashboard-quick-card { min-height: 66px; }
+.dashboard-quick-card > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Homepage review cards */
+.dashboard-review-card { min-height: 40px; }
+.dashboard-review-card__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Employees + Attendance metric cards (label already reserves two lines) */
+.ui-card__value {
+  min-height: 2.2em;
+  font-size: clamp(0.9rem, 1.1vw + 0.55rem, 1.375rem);
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+.ui-card__value--missing { font-size: 12px; min-height: 0; }
+
+/* Cash summary cards */
+.cash-dashboard-card .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cash-dashboard-card .value {
+  min-height: 2.5em;
+  font-size: clamp(0.9rem, 1vw + 0.55rem, 1.45rem);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.cash-dashboard-card .hint {
+  display: -webkit-box;
+  min-height: 2.7em;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* Employee profile statement group */
+.cash-employee-stats > .stat {
+  display: flex;
+  flex-direction: column;
+}
+.cash-employee-stats .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cash-employee-stats .value {
+  display: -webkit-box;
+  min-height: 54px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  line-height: 1.2;
+}
+
+/* Vessel filter KPI cards */
+.vessel-kpi { min-height: 58px; }
+.vessel-kpi span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vessel-kpi strong { white-space: nowrap; }
+
+@media (max-width: 640px) {
+  .dashboard-card { min-height: 70px; }
+  .ui-card__value,
+  .cash-dashboard-card .value { font-size: 14px; }
+}
+
+/* ── v3.3.19 mobile Home cards, compact action icons, cash mobile toolbar ── */
+@media (max-width: 640px) {
+  .dashboard-cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .dashboard-card {
+    min-height: 64px;
+    padding: 10px;
+    column-gap: 8px;
+    border-radius: 10px;
+  }
+  .dashboard-card__icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+  .dashboard-card__icon svg { width: 16px; height: 16px; }
+  .dashboard-card__value { font-size: 18px; }
+  .dashboard-card__label {
+    display: -webkit-box;
+    min-height: 2.4em;
+    overflow: hidden;
+    font-size: 11px;
+    line-height: 1.2;
+    text-overflow: clip;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+}
+
+/* One aligned, equal-size Import / Export / Print group. */
+.action-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+.export-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.export-actions > button,
+.export-actions > .action-icon-button {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+
+/* Cash mobile filter + Add New Payment: equal height, clear spacing. */
+.cash-mobile-actions { gap: 8px; align-items: center; }
+@media (max-width: 768px) {
+  .cash-mobile-actions { width: 100%; }
+  .cash-mobile-actions > select {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 44px;
+    min-height: 44px;
+  }
+  .cash-mobile-actions > button {
+    height: 44px;
+    min-height: 44px;
+  }
+  .action-icon-button,
+  .export-actions > button,
+  .export-actions > .action-icon-button {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+}
+
+/* Cash Lookup: wrap instead of overflowing; keep the submit button compact. */
+.table-toolbar form.form.compact { flex-wrap: wrap; }
+.cash-search-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 360px;
+}
+.table-toolbar form > button[type="submit"] {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 34px;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+@media (max-width: 768px) {
+  .cash-search-input { max-width: none; }
+  .table-toolbar form > button[type="submit"] {
+    width: auto;
+    min-height: 44px;
+  }
 }

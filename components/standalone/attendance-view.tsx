@@ -179,10 +179,10 @@ export function AttendanceView({canManage = false}: {canManage?: boolean}) {
         <MetricCard label="Today Absent" value={plain(todayAbsent)} />
         <MetricCard label="This Month" value={plain(monthSummary.totalDays)} />
         <MetricCard label="Last Month" value={plain(lastMonthSummary.totalDays)} />
-        <MetricCard label="Vessel" value={plain(monthSummary.vesselDays)} />
-        <MetricCard label="Security" value={plain(monthSummary.securityDays)} />
-        <MetricCard label="Employees Present This Month" value={plain(presentThisMonth)} />
-        <MetricCard label="Manual Entries This Month" value={plain(manualThisMonth)} />
+        <MetricCard label="Vessel Days" value={plain(monthSummary.vesselDays)} />
+        <MetricCard label="Security Days" value={plain(monthSummary.securityDays)} />
+        <MetricCard label="Monthly Present" value={plain(presentThisMonth)} />
+        <MetricCard label="Monthly Manual" value={plain(manualThisMonth)} />
       </div>
 
       <section className="card" style={{marginBottom: 14, padding: 14}}>

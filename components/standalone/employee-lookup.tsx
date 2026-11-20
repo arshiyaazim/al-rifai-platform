@@ -2,8 +2,8 @@
 
 import {displayMobile} from '@/lib/display-mobile';
 import {isConfidentMatch} from '@/lib/standalone/ai-assistant-functions';
-import {Search} from 'lucide-react';
-import {useEffect, useRef, useState} from 'react';
+import {Search, X} from 'lucide-react';
+import {useEffect, useRef, useState, type ReactNode} from 'react';
 
 export type EmployeeSuggestion = {
   employee_mobile: string;
@@ -35,6 +35,14 @@ type Props = {
   /** Draw a magnifying glass inside the input (compact search bar). */
   showIcon?: boolean;
   inputClassName?: string;
+  /** Minimum characters before suggestions are requested (default 1). */
+  minLength?: number;
+  /** Show an inline × control that clears the field and its results. */
+  showClear?: boolean;
+  /** Render a right-hand column for a suggestion (e.g. the Cash total). */
+  asideFor?: (employee: EmployeeSuggestion | RankedResult) => ReactNode;
+  /** Keep Enter-to-ranked-search; disable it when a caller renders its own data. */
+  rankedOnEnter?: boolean;
 };
 
 /**
@@ -42,7 +50,10 @@ type Props = {
  * suggestions; this component only projects those results and never invents an
  * identifier. The verified identifier is `employees.employee_mobile`.
  */
-export function EmployeeLookup({id, label, placeholder, value, onChange, onSelect, required, hideLabel = false, showIcon = false, inputClassName = ''}: Props) {
+export function EmployeeLookup({
+  id, label, placeholder, value, onChange, onSelect, required, hideLabel = false, showIcon = false,
+  inputClassName = '', minLength = 1, showClear = false, asideFor, rankedOnEnter = true,
+}: Props) {
   const [suggestions, setSuggestions] = useState<EmployeeSuggestion[]>([]);
   const [ranked, setRanked] = useState<RankedResult[] | null>(null);
   const [didYouMean, setDidYouMean] = useState<{mobile: string; name: string} | null>(null);
@@ -93,7 +104,7 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
     setDidYouMean(null);
     if (timer.current) clearTimeout(timer.current);
     const query = next.trim();
-    if (!query) {
+    if (query.length < minLength) {
       request.current += 1;
       setSuggestions([]);
       setOpen(false);
@@ -102,6 +113,19 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
       return;
     }
     timer.current = setTimeout(() => { void load(query); }, 200);
+  }
+
+  /** Clear the field and every projected result (homepage search control). */
+  function clear() {
+    if (timer.current) clearTimeout(timer.current);
+    request.current += 1;
+    onChange('');
+    setSuggestions([]);
+    setRanked(null);
+    setDidYouMean(null);
+    setOpen(false);
+    setActive(-1);
+    setLoading(false);
   }
 
   function select(employee: EmployeeSuggestion) {
@@ -172,7 +196,7 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
         return;
       }
       // Empty/short input keeps the browser default so forms still submit.
-      if (value.trim().length >= 2) {
+      if (rankedOnEnter && value.trim().length >= 2) {
         event.preventDefault();
         void runRanked();
       }
@@ -205,10 +229,15 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
         aria-controls={listId}
         aria-activedescendant={active >= 0 ? `${listId}-${active}` : undefined}
       />
+      {showClear && value ? (
+        <button type="button" className="cash-lookup__clear" aria-label="Clear search" onClick={clear}>
+          <X aria-hidden="true" size={16} />
+        </button>
+      ) : null}
       {open ? (
         <div className="cash-lookup__menu" id={listId} role="listbox" aria-label="Employee suggestions">
           <div className="cash-lookup__head" aria-hidden="true">
-            <span>Name</span><span>Mobile / Employee ID</span>
+            {asideFor ? <><span>Employee</span><span>Cash Total</span></> : <><span>Name</span><span>Mobile / Employee ID</span></>}
           </div>
           {didYouMean ? (
             <div className="cash-lookup__empty">
@@ -228,18 +257,30 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
                   onClick={() => select({...employee, name_aliases: [], state: 'ACTIVE'})}
                   onMouseEnter={() => setActive(index)}
                 >
-                  <span className="cash-lookup__name">
-                    {employee.preferred_name}
-                    {employee.designation ? <small>{employee.designation}</small> : null}
-                  </span>
-                  <span className="cash-lookup__mobile">
-                    {displayMobile(employee.employee_mobile)}{' '}
-                    <small>
-                      {employee.match_type === 'mobile_exact'
-                        ? 'Exact match'
-                        : `${Number(employee.similarity_score) >= 0.95 ? '★' : '~'}${Math.round(Number(employee.similarity_score) * 100)}%`}
-                    </small>
-                  </span>
+                  {asideFor ? (
+                    <>
+                      <span className="cash-lookup__stack">
+                        <span className="cash-lookup__name">{employee.preferred_name}</span>
+                        <span className="cash-lookup__sub">{displayMobile(employee.employee_mobile)}</span>
+                      </span>
+                      <span className="cash-lookup__total">{asideFor(employee)}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="cash-lookup__name">
+                        {employee.preferred_name}
+                        {employee.designation ? <small>{employee.designation}</small> : null}
+                      </span>
+                      <span className="cash-lookup__mobile">
+                        {displayMobile(employee.employee_mobile)}{' '}
+                        <small>
+                          {employee.match_type === 'mobile_exact'
+                            ? 'Exact match'
+                            : `${Number(employee.similarity_score) >= 0.95 ? '★' : '~'}${Math.round(Number(employee.similarity_score) * 100)}%`}
+                        </small>
+                      </span>
+                    </>
+                  )}
                 </button>
               ))
             : suggestions.map((employee, index) => (
@@ -254,11 +295,23 @@ export function EmployeeLookup({id, label, placeholder, value, onChange, onSelec
                   onClick={() => select(employee)}
                   onMouseEnter={() => setActive(index)}
                 >
-                  <span className="cash-lookup__name">
-                    {employee.preferred_name}
-                    {employee.designation ? <small>{employee.designation}</small> : null}
-                  </span>
-                  <span className="cash-lookup__mobile">{displayMobile(employee.employee_mobile)}</span>
+                  {asideFor ? (
+                    <>
+                      <span className="cash-lookup__stack">
+                        <span className="cash-lookup__name">{employee.preferred_name}</span>
+                        <span className="cash-lookup__sub">{displayMobile(employee.employee_mobile)}</span>
+                      </span>
+                      <span className="cash-lookup__total">{asideFor(employee)}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="cash-lookup__name">
+                        {employee.preferred_name}
+                        {employee.designation ? <small>{employee.designation}</small> : null}
+                      </span>
+                      <span className="cash-lookup__mobile">{displayMobile(employee.employee_mobile)}</span>
+                    </>
+                  )}
                 </button>
               ))}
           {!suggestions.length && !ranked?.length ? (

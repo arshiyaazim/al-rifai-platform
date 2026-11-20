@@ -1,7 +1,7 @@
 'use client';
 
-import {Download, MoreHorizontal, Printer} from 'lucide-react';
-import {useState} from 'react';
+import {Download, Printer} from 'lucide-react';
+import {useState, type ReactNode} from 'react';
 import {toast} from 'sonner';
 import {Button} from '@/components/ui/button';
 import {
@@ -19,10 +19,12 @@ type Props<T> = {
   exportHref?: string;
   filterSummary?: Array<string | null | undefined>;
   disabled?: boolean;
+  /** Optional Import control rendered first, inside the same icon group. */
+  importAction?: ReactNode;
 };
 
 export function TableExportControls<T>({
-  title, filenamePrefix, columns, rows, fetchAll, exportHref, filterSummary = [], disabled = false,
+  title, filenamePrefix, columns, rows, fetchAll, exportHref, filterSummary = [], disabled = false, importAction,
 }: Props<T>) {
   const [exportAll, setExportAll] = useState(false);
   const [busy, setBusy] = useState<'csv' | 'print' | null>(null);
@@ -68,25 +70,19 @@ export function TableExportControls<T>({
           />
           Export all pages
         </label>
-        <div className="export-actions export-desktop">
-          <Button type="button" size="sm" variant="outline" onClick={() => void exportCsv()} disabled={disabled || busy !== null}>
-            <Download className="size-4" /> {busy === 'csv' ? 'Preparing…' : 'Export CSV'}
+        <div className="export-actions">
+          {importAction}
+          <Button type="button" size="icon-sm" variant="outline" className="action-icon-button"
+            onClick={() => void exportCsv()} disabled={disabled || busy !== null}
+            aria-label={busy === 'csv' ? 'Preparing CSV export' : 'Export CSV'} title="Export CSV">
+            <Download className="size-4" />
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={printTable} disabled={disabled || busy !== null}>
-            <Printer className="size-4" /> Print
+          <Button type="button" size="icon-sm" variant="outline" className="action-icon-button"
+            onClick={printTable} disabled={disabled || busy !== null}
+            aria-label="Print" title="Print">
+            <Printer className="size-4" />
           </Button>
         </div>
-        <details className="export-mobile">
-          <summary aria-label="Export and print options"><MoreHorizontal className="size-4" /></summary>
-          <div className="export-mobile__menu">
-            <button type="button" onClick={() => void exportCsv()} disabled={disabled || busy !== null}>
-              <Download className="size-4" /> {busy === 'csv' ? 'Preparing CSV…' : 'Export CSV'}
-            </button>
-            <button type="button" onClick={printTable} disabled={disabled || busy !== null}>
-              <Printer className="size-4" /> Print
-            </button>
-          </div>
-        </details>
       </div>
       <div className="print-only print-heading">
         <strong>{heading}</strong>

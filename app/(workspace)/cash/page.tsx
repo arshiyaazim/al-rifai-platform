@@ -73,14 +73,14 @@ export default async function CashPage({searchParams}: {searchParams: Promise<{
       </div>
 
       <div className="cash-dashboard-grid">
-        <SummaryCard label="Total Paid Amount" value={money(summary.totalPaidMinor)} hint={paidBasis ? 'Business Paid Events' : 'Posted payments'} href={cashDetailPath} />
-        <SummaryCard label="Current Month Paid" value={money(summary.currentMonthPaidMinor)} hint={paidBasis ? 'Business paid this month' : 'Posted this month'} href={rangeHref(monthRange)} />
-        <SummaryCard label="Today's Paid Amount" value={money(summary.todayPaidMinor)} hint={paidBasis ? 'Business paid today' : 'Posted today'} href={dateHref(summary.asOfDate)} />
+        <SummaryCard label="Total Paid" value={money(summary.totalPaidMinor)} hint={paidBasis ? 'Business Paid Events' : 'Posted payments'} href={cashDetailPath} />
+        <SummaryCard label="This Month" value={money(summary.currentMonthPaidMinor)} hint={paidBasis ? 'Business paid this month' : 'Posted this month'} href={rangeHref(monthRange)} />
+        <SummaryCard label="Today Paid" value={money(summary.todayPaidMinor)} hint={paidBasis ? 'Business paid today' : 'Posted today'} href={dateHref(summary.asOfDate)} />
         <SummaryCard label="Yesterday Paid" value={money(summary.yesterdayPaidMinor)} hint={paidBasis ? 'Business paid yesterday' : 'Posted yesterday'} href={dateHref(shiftIsoDate(summary.asOfDate, -1))} />
-        <SummaryCard label="Paid Via WA" value={money(summary.viaWhatsAppPaidMinor)} hint={paidBasis ? 'Business paid from WhatsApp' : 'Posted from WhatsApp source'} href={`${cashDetailPath}?source=WHATSAPP`} />
-        <SummaryCard label="Paid By Office" value={money(summary.byOfficePaidMinor)} hint={paidBasis ? 'Business paid via Office' : 'Posted non-WhatsApp payments'} href={`${cashDetailPath}?source=OFFICE`} />
-        <SummaryCard label="Number of Employee" value={String(summary.employeeCount)} hint="Employees on record" href="/employees" />
-        <SummaryCard label="Last Month Paid" value={money(summary.lastMonthPaidMinor)} hint={paidBasis ? 'Business paid last month' : 'Posted last month'} href={rangeHref(lastMonthRange)} />
+        <SummaryCard label="Paid Via WA" value={money(summary.viaWhatsAppPaidMinor)} hint="Source: WA" href={`${cashDetailPath}?source=WHATSAPP`} />
+        <SummaryCard label="Office Paid" value={money(summary.byOfficePaidMinor)} hint={paidBasis ? 'Business paid via Office' : 'Posted non-WhatsApp payments'} href={`${cashDetailPath}?source=OFFICE`} />
+        <SummaryCard label="Employees" value={String(summary.employeeCount)} hint="Employees on record" href="/employees" />
+        <SummaryCard label="Last Month" value={money(summary.lastMonthPaidMinor)} hint={paidBasis ? 'Business paid last month' : 'Posted last month'} href={rangeHref(lastMonthRange)} />
       </div>
 
       <CashTransactionsTable canManage={user.role === 'ADMIN' && canReview} canSubmit={canSubmit} initialPaymentOpen={paymentOpen}

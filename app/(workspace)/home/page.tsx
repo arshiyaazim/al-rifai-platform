@@ -14,6 +14,7 @@ import {unifiedAttendance} from '@/lib/standalone/attendance-records';
 import {cashTransactionView, countCashTransactions, listCashTransactions} from '@/lib/standalone/finance';
 import {countPrograms, listPrograms} from '@/lib/standalone/programs';
 import {RealtimeRefresher} from '@/components/standalone/realtime-refresher';
+import {HomeEmployeeSearch} from '@/components/standalone/home-employee-search';
 import {
   DashboardAttendanceTable, DashboardCashTable, DashboardEmployeesTable,
   DashboardPagination, DashboardVesselTable, type DashboardAttendanceRow,
@@ -44,37 +45,37 @@ const CARD_ROWS: Array<{label: string; cards: CardDef[]}> = [
   {
     label: 'Last Month',
     cards: [
-      {domain: 'employees', period: 'last_month', label: 'Joined Last Month', countKey: 'employeesLastMonth', icon: UserPlus},
-      {domain: 'attendance', period: 'last_month', label: 'Attendance Last Month', countKey: 'attendanceLastMonth', icon: CalendarDays},
-      {domain: 'cash', period: 'last_month', label: 'Paid Last Month', countKey: 'paymentsLastMonth', icon: Banknote},
-      {domain: 'vessel', period: 'last_month', label: 'Vessels Last Month', countKey: 'vesselsLastMonth', icon: Anchor},
+      {domain: 'employees', period: 'last_month', label: 'New Employees', countKey: 'employeesLastMonth', icon: UserPlus},
+      {domain: 'attendance', period: 'last_month', label: 'Attendance', countKey: 'attendanceLastMonth', icon: CalendarDays},
+      {domain: 'cash', period: 'last_month', label: 'Payments', countKey: 'paymentsLastMonth', icon: Banknote},
+      {domain: 'vessel', period: 'last_month', label: 'Vessels', countKey: 'vesselsLastMonth', icon: Anchor},
     ],
   },
   {
     label: 'This Month',
     cards: [
-      {domain: 'employees', period: 'this_month', label: 'Joined This Month', countKey: 'employeesThisMonth', icon: UserPlus},
-      {domain: 'attendance', period: 'this_month', label: 'Attendance This Month', countKey: 'attendanceThisMonth', icon: CalendarDays},
-      {domain: 'cash', period: 'this_month', label: 'Payments This Month', countKey: 'paymentsThisMonth', icon: Wallet},
-      {domain: 'vessel', period: 'this_month', label: 'Vessels This Month', countKey: 'vesselsThisMonth', icon: Ship},
+      {domain: 'employees', period: 'this_month', label: 'New Employees', countKey: 'employeesThisMonth', icon: UserPlus},
+      {domain: 'attendance', period: 'this_month', label: 'Attendance', countKey: 'attendanceThisMonth', icon: CalendarDays},
+      {domain: 'cash', period: 'this_month', label: 'Payments', countKey: 'paymentsThisMonth', icon: Wallet},
+      {domain: 'vessel', period: 'this_month', label: 'Vessels', countKey: 'vesselsThisMonth', icon: Ship},
     ],
   },
   {
     label: 'Yesterday',
     cards: [
-      {domain: 'employees', period: 'yesterday', label: 'Joined Yesterday', countKey: 'employeesYesterday', icon: UserPlus},
-      {domain: 'attendance', period: 'yesterday', label: 'Attendance Yesterday', countKey: 'attendanceYesterday', icon: CalendarClock},
-      {domain: 'cash', period: 'yesterday', label: 'Payments Yesterday', countKey: 'paymentsYesterday', icon: Wallet},
-      {domain: 'vessel', period: 'yesterday', label: 'Vessels Yesterday', countKey: 'vesselsYesterday', icon: Ship},
+      {domain: 'employees', period: 'yesterday', label: 'New Employees', countKey: 'employeesYesterday', icon: UserPlus},
+      {domain: 'attendance', period: 'yesterday', label: 'Attendance', countKey: 'attendanceYesterday', icon: CalendarClock},
+      {domain: 'cash', period: 'yesterday', label: 'Payments', countKey: 'paymentsYesterday', icon: Wallet},
+      {domain: 'vessel', period: 'yesterday', label: 'Vessels', countKey: 'vesselsYesterday', icon: Ship},
     ],
   },
   {
     label: 'Today',
     cards: [
-      {domain: 'employees', period: 'today', label: 'Joined Today', countKey: 'employeesToday', icon: UserPlus},
-      {domain: 'attendance', period: 'today', label: 'Attendance Today', countKey: 'attendanceToday', icon: CalendarCheck},
-      {domain: 'cash', period: 'today', label: 'Payments Today', countKey: 'paymentsToday', icon: Wallet},
-      {domain: 'vessel', period: 'today', label: 'Vessels Today', countKey: 'vesselsToday', icon: Ship},
+      {domain: 'employees', period: 'today', label: 'New Employees', countKey: 'employeesToday', icon: UserPlus},
+      {domain: 'attendance', period: 'today', label: 'Attendance', countKey: 'attendanceToday', icon: CalendarCheck},
+      {domain: 'cash', period: 'today', label: 'Payments', countKey: 'paymentsToday', icon: Wallet},
+      {domain: 'vessel', period: 'today', label: 'Vessels', countKey: 'vesselsToday', icon: Ship},
     ],
   },
 ];
@@ -95,17 +96,17 @@ const DOMAIN_HREFS: Record<DashboardDomain, string> = {
 
 const QUICK_ACTIONS = [
   {href: '/employees', label: 'Add Employee', icon: UserPlus},
-  {href: '/vessel', label: 'New Vessel Program', icon: Ship},
+  {href: '/vessel', label: 'New Vessel', icon: Ship},
   {href: '/cash', label: 'Record Cash', icon: Wallet},
-  {href: '/review', label: 'Open Review Queue', icon: ClipboardList},
+  {href: '/review', label: 'Review Queue', icon: ClipboardList},
 ];
 
 const ADMIN_REVIEW_CARDS = [
-  {category: 'AMBIGUOUS_VESSEL_CONFIRMATION', label: 'Ambiguous vessel confirmation', icon: TriangleAlert},
-  {category: 'EXTRACTION_FAILED', label: 'Extraction failed', icon: FileWarning},
-  {category: 'INCOMPLETE_VESSEL_ORDER', label: 'Incomplete vessel order', icon: ClipboardList},
-  {category: 'PROCESSING_ERROR', label: 'Processing error', icon: TriangleAlert},
-  {category: 'UNMATCHED_VESSEL_ASSIGNMENT', label: 'Unmatched vessel assignment', icon: FileWarning},
+  {category: 'AMBIGUOUS_VESSEL_CONFIRMATION', label: 'Ambiguous Vessel', icon: TriangleAlert},
+  {category: 'EXTRACTION_FAILED', label: 'Extraction Failed', icon: FileWarning},
+  {category: 'INCOMPLETE_VESSEL_ORDER', label: 'Incomplete Order', icon: ClipboardList},
+  {category: 'PROCESSING_ERROR', label: 'Processing Error', icon: TriangleAlert},
+  {category: 'UNMATCHED_VESSEL_ASSIGNMENT', label: 'Unmatched Vessel', icon: FileWarning},
 ];
 
 const DOMAINS: DashboardDomain[] = ['employees', 'attendance', 'cash', 'vessel'];
@@ -195,6 +196,7 @@ export default async function HomePage({searchParams}: {searchParams: SearchPara
                 );
               })}
             </div>
+            {row.label === 'All Time' ? <HomeEmployeeSearch /> : null}
           </div>
         ))}
       </div>

@@ -159,8 +159,9 @@ export function EmployeeStatementExport({
   return (
     <div className="statement-export print-hidden">
       <details>
-        <summary className="statement-export__trigger">
-          <Download className="size-4" /> Download Statement
+        <summary className="statement-export__trigger action-icon-button" aria-label="Export statement" title="Export statement">
+          <Download className="size-4" />
+          <span className="sr-only">Download statement</span>
         </summary>
         <div className="statement-export__menu">
           <button type="button" onClick={() => void exportCsv()} disabled={busy !== null}>

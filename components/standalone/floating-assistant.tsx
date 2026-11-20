@@ -122,6 +122,72 @@ export function FloatingAssistant() {
   const wasVisible = useRef(false);
   const hintShown = useRef(false);
   const contextRef = useRef<string | null>(null);
+  const [fab, setFab] = useState<{x: number; y: number} | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{px: number; py: number; x: number; y: number; moved: boolean} | null>(null);
+  const suppressClick = useRef(false);
+
+  function clampFab(x: number, y: number, width: number, height: number) {
+    const margin = 8;
+    const maxX = Math.max(margin, window.innerWidth - width - margin);
+    const maxY = Math.max(margin, window.innerHeight - height - margin);
+    return {x: Math.min(Math.max(margin, x), maxX), y: Math.min(Math.max(margin, y), maxY)};
+  }
+
+  function fabPointerDown(event: React.PointerEvent<HTMLButtonElement>) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    dragRef.current = {px: event.clientX, py: event.clientY, x: rect.left, y: rect.top, moved: false};
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging(true);
+  }
+
+  function fabPointerMove(event: React.PointerEvent<HTMLButtonElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const dx = event.clientX - drag.px;
+    const dy = event.clientY - drag.py;
+    if (!drag.moved && Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+    drag.moved = true;
+    suppressClick.current = true;
+    setFab(clampFab(drag.x + dx, drag.y + dy, event.currentTarget.offsetWidth, event.currentTarget.offsetHeight));
+  }
+
+  function fabPointerUp(event: React.PointerEvent<HTMLButtonElement>) {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    setDragging(false);
+    if (!drag || !drag.moved) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const next = clampFab(rect.left, rect.top, rect.width, rect.height);
+    setFab(next);
+    try {
+      window.localStorage.setItem('alrifai:assistant-fab', JSON.stringify(next));
+    } catch { /* private mode */ }
+  }
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem('alrifai:assistant-fab');
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as {x?: unknown; y?: unknown};
+      if (typeof parsed.x !== 'number' || typeof parsed.y !== 'number') return;
+      const button = launcherRef.current;
+      const width = button?.offsetWidth || 110;
+      const height = button?.offsetHeight || 40;
+      setFab(clampFab(parsed.x, parsed.y, width, height));
+    } catch { /* ignore malformed state */ }
+  }, []);
+
+  useEffect(() => {
+    const onResize = () => setFab((current) => {
+      if (!current) return current;
+      const button = launcherRef.current;
+      return clampFab(current.x, current.y, button?.offsetWidth || 110, button?.offsetHeight || 40);
+    });
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   useEffect(() => {
     if (!visible || messages.length) return;
@@ -574,16 +640,28 @@ export function FloatingAssistant() {
         </section>
       ) : (
         <div style={{
-          position: 'fixed', right: 'calc(16px + env(safe-area-inset-right))',
-          bottom: 'calc(16px + env(safe-area-inset-bottom))', zIndex: 80,
+          position: 'fixed', zIndex: 80,
+          ...(fab
+            ? {left: fab.x, top: fab.y}
+            : {right: 'calc(16px + env(safe-area-inset-right))', bottom: 'calc(16px + env(safe-area-inset-bottom))'}),
           display: 'flex', alignItems: 'center', gap: 8, maxWidth: 'calc(100vw - 24px)',
+          touchAction: 'none',
         }}>
-          <button ref={launcherRef} type="button" className="alrifai-fab" onClick={() => windowAction('open')}
-            aria-label="Open Al-Rifa'i assistant" aria-expanded={false} title="Open assistant"
+          <button ref={launcherRef} type="button" className="alrifai-fab"
+            onPointerDown={fabPointerDown}
+            onPointerMove={fabPointerMove}
+            onPointerUp={fabPointerUp}
+            onPointerCancel={() => { dragRef.current = null; setDragging(false); }}
+            onClick={() => {
+              if (suppressClick.current) { suppressClick.current = false; return; }
+              windowAction('open');
+            }}
+            aria-label="Open Al-Rifa'i assistant (drag to move)" aria-expanded={false} title="Open assistant — drag to move"
             style={{
-              padding: '10px 20px', borderRadius: 999, border: 0, cursor: 'pointer', flexShrink: 0,
+              padding: '10px 20px', borderRadius: 999, border: 0, cursor: dragging ? 'grabbing' : 'grab',
+              flexShrink: 0, touchAction: 'none', userSelect: 'none',
               background: '#F97316', color: '#fff', fontWeight: 700, fontSize: 14,
-              letterSpacing: '.02em', transition: 'transform .15s ease',
+              letterSpacing: '.02em', transition: dragging ? 'none' : 'transform .15s ease',
               boxShadow: '0 8px 24px rgba(249, 115, 22, .35)',
             }}>Ask</button>
         </div>

@@ -678,6 +678,8 @@ export type CashTransactionRow = {
   original_amount_minor: string;
   adjustment_minor: string;
   total_paid_minor: string;
+  posted_balance_minor: string;
+  payout_mobile: string | null;
   correction_count: number;
   last_correction_id: string | null;
   reversal_of: string | null;
@@ -710,12 +712,16 @@ export async function listCashTransactions(filters: CashTransactionFilters = {})
   const where: string[] = [];
   if (filters.q) {
     const like = bind(`%${filters.q.trim()}%`);
+    // Partial mobile / Employee ID: compare the last 11 digits with a substring
+    // match so typing 3-10 digits still finds the employee. Full 11 digits and
+    // exact values keep matching as before.
+    const digits = bind((filters.q.match(/\d/g) ?? []).join(''));
     where.push(`(coalesce(i.employee_mobile,'') ILIKE ${like}
       OR i.employee_name ILIKE ${like}
       OR coalesce(e.preferred_name,'') ILIKE ${like}
       OR EXISTS (SELECT 1 FROM unnest(e.name_aliases) AS alias WHERE alias ILIKE ${like})
-      OR right(regexp_replace(coalesce(i.employee_mobile,''), '\\D', '', 'g'), 11)
-         = right(regexp_replace(${bind(filters.q)}, '\\D', '', 'g'), 11))`);
+      OR (${digits} <> '' AND right(regexp_replace(coalesce(i.employee_mobile,''), '\\D', '', 'g'), 11)
+         LIKE '%' || ${digits} || '%'))`);
   }
   if (filters.state) {
     const requested = filters.state;
@@ -766,7 +772,12 @@ export async function listCashTransactions(filters: CashTransactionFilters = {})
                 PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
                 ORDER BY i.event_at, i.id
                 ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-              )::text AS total_paid_minor
+              )::text AS total_paid_minor,
+              sum(CASE WHEN i.state = 'POSTED' THEN i.effective_amount_minor ELSE 0 END) OVER (
+                PARTITION BY coalesce(i.employee_mobile, lower(i.employee_name))
+                ORDER BY i.event_at, i.id
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+              )::text AS posted_balance_minor
          FROM adjusted i
      )
      SELECT i.id,
@@ -779,6 +790,8 @@ export async function listCashTransactions(filters: CashTransactionFilters = {})
             i.amount_minor::text AS original_amount_minor,
             i.adjustment_minor::text AS adjustment_minor,
             i.total_paid_minor,
+            i.posted_balance_minor,
+            i.payout_mobile,
             i.correction_count,
             i.last_correction_id,
             i.reversal_of,
@@ -817,6 +830,8 @@ export function cashTransactionView(row: CashTransactionRow) {
     totalPaid: row.total_paid_minor,
     amountMinor: row.amount_minor,
     totalPaidMinor: row.total_paid_minor,
+    totalAmountMinor: row.posted_balance_minor,
+    payoutMobile: row.payout_mobile,
     method: row.method,
     state: row.state,
     source: row.source_channel,
@@ -833,12 +848,16 @@ export async function countCashTransactions(filters: Omit<CashTransactionFilters
   const where: string[] = [filters.state === 'REJECTED' ? `i.state <> 'VOID'` : `i.state NOT IN ('VOID','REJECTED')`];
   if (filters.q) {
     const like = bind(`%${filters.q.trim()}%`);
+    // Partial mobile / Employee ID: compare the last 11 digits with a substring
+    // match so typing 3-10 digits still finds the employee. Full 11 digits and
+    // exact values keep matching as before.
+    const digits = bind((filters.q.match(/\d/g) ?? []).join(''));
     where.push(`(coalesce(i.employee_mobile,'') ILIKE ${like}
       OR i.employee_name ILIKE ${like}
       OR coalesce(e.preferred_name,'') ILIKE ${like}
       OR EXISTS (SELECT 1 FROM unnest(e.name_aliases) AS alias WHERE alias ILIKE ${like})
-      OR right(regexp_replace(coalesce(i.employee_mobile,''), '\\D', '', 'g'), 11)
-         = right(regexp_replace(${bind(filters.q)}, '\\D', '', 'g'), 11))`);
+      OR (${digits} <> '' AND right(regexp_replace(coalesce(i.employee_mobile,''), '\\D', '', 'g'), 11)
+         LIKE '%' || ${digits} || '%'))`);
   }
   if (filters.state) {
     const requested = filters.state;

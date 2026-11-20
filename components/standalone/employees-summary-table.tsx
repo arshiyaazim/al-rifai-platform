@@ -181,12 +181,12 @@ export function EmployeesSummaryTable({canManage}: {canManage: boolean}) {
   return (
     <>
       <div className="ui-cards">
-        <MetricCard label="Total Employee" value={rows.length.toLocaleString()} href="/employees" />
-        <MetricCard label="New Join: Last Month" value={joinedIn(lastMonth).toLocaleString()} />
-        <MetricCard label="New Join: This Month" value={joinedIn(thisMonth).toLocaleString()} />
+        <MetricCard label="Total Employees" value={rows.length.toLocaleString()} href="/employees" />
+        <MetricCard label="Last-month Joins" value={joinedIn(lastMonth).toLocaleString()} />
+        <MetricCard label="This-month Joins" value={joinedIn(thisMonth).toLocaleString()} />
         <MetricCard label="Today Joined" value={joinedToday.toLocaleString()} />
-        <MetricCard label="Total Attendance: Vessel" value={attendance(vesselDays)} />
-        <MetricCard label="Total Attendance: Security" value={attendance(securityDays)} />
+        <MetricCard label="Vessel Attendance" value={attendance(vesselDays)} />
+        <MetricCard label="Security Attendance" value={attendance(securityDays)} />
         <MetricCard label="Total Salary" value={money(salaryTotal)} />
         <MetricCard label="Total Paid" value={money(paidTotal)} href="/cash" />
       </div>
