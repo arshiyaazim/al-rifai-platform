@@ -1,5 +1,33 @@
 # Changelog
 
+## v3.3.18-ui — Home search, mobile cards, cash lookup/icons, draggable assistant (2026-11-20)
+
+- Home: employee search below the All Time cards (name / alias / partial mobile,
+  two-column suggestions with the posted Cash total, clear control, profile
+  navigation); dashboard cards are two per row on 320–390 px with compact type.
+- Employees / Attendance: card labels trimmed to two words; values wrap inside
+  the card; the two-line label rule is preserved.
+- Cash: `Paid Via WA` card with `Source: WA`; partial mobile/Employee ID Lookup
+  fixed in both list and count queries; compact Search submit; aligned
+  Import/Export/Print icon group; mobile state filter and Add New Payment at a
+  common 44 px height.
+- Employee profile cash statement: `Total Amount` (POSTED running balance) and
+  `Payout Mobile` columns; `State` / `Source` hidden from the table only; Export
+  and Print icons; profile/attendance forms unchanged (side-by-side above
+  1000 px, stacked at or below).
+- Floating AI assistant is draggable by mouse/touch, clamped to the viewport,
+  remembers its position in localStorage, and a drag no longer opens the panel.
+- Card groups keep equal heights and contain long values/labels.
+- Commit `faa98ec`; image `local/al-rifai-platform:v3.3.18-ui`; app+sync deployed
+  2026-11-20; schema unchanged (1.13.8), no migration. Docker build exit 0
+  (agent-shell builds stop at Next's security nudge after successful compile).
+- Verification: typecheck 0, unit suite 201/201, Docker build 0, /api/health ok.
+  Browser QA at 320/375/768/1024/1366 px is OWNER-CONFIRMED (reported OK by the
+  Owner; not executed by the agent).
+- Known: home-search totals use the POSTED employee summary while the profile
+  header `Total Paid` is instruction-based (can differ where REVIEW rows exist).
+  `/release` untouched. Next.js security upgrade deferred by Owner decision.
+
 ## v3.3.13-ai-assistant — Phase E2 fuzzy search + assistant intelligence (2026-11-16)
 
 - Fuzzy employee search with PostgreSQL pg_trgm: exact mobile, exact/alias name,

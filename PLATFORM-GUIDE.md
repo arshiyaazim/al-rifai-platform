@@ -1,6 +1,6 @@
 # PLATFORM-GUIDE — AL-RIFA'I
 
-> Single source of truth for the running platform. Generated **2026-11-16** from
+> Single source of truth for the running platform. Generated **2026-11-20** from
 > the live server (docker ps/inspect, psql, filesystem, systemd). No secrets are
 > included. Update this file at the end of every deploy batch.
 
@@ -9,7 +9,7 @@
 - **Project:** AL-RIFA'I Integrated Services — business platform for employees, vessel programmes, cash, attendance, payroll, reports and an in-app AI assistant.
 - **Primary URL:** `https://app.alrifai.iamazim.com` (TLS certificate CN is `app.al-rifai.iamazim.com`; `alrifai.iamazim.com` also resolves to this host).
 - **Server:** `5.189.131.48` (IPv6 `2a02:c207:2311:7764::1`), Ubuntu 22.04.5 LTS, kernel `5.15.0-202-generic`, 8 vCPU, 23 GiB RAM (18 GiB available), 194 GB disk (60 GB used, 135 GB free, 31%).
-- **Current release:** `v3.3.17-final` (app + sync, same tag).
+- **Current release:** `v3.3.18-ui` (app + sync, same tag; deployed 2026-11-20).
 
 ## 2. Repository Map
 
@@ -23,7 +23,7 @@
 
 | Container | Image | Ports | Network | Key volumes | Purpose |
 |---|---|---|---|---|---|
-| al-rifai-phase3-app-1 | `local/al-rifai-platform:v3.3.17-final` | `0.0.0.0:443→3443` (TLS entry) | vps-backend | `/var/lib/vps/al-rifai/media`, `/opt/al-rifai-platform/uploads/employees`, WA-01 control token, TLS cert/key (ro) | Next.js app |
+| al-rifai-phase3-app-1 | `local/al-rifai-platform:v3.3.18-ui` | `0.0.0.0:443→3443` (TLS entry) | vps-backend | `/var/lib/vps/al-rifai/media`, `/opt/al-rifai-platform/uploads/employees`, WA-01 control token, TLS cert/key (ro) | Next.js app |
 | al-rifai-phase3-sync-1 | same | none | vps-backend | media + WA-01/WA-02 bridge stores | WhatsApp mirror worker (`--mode=tail`) |
 | vps-infra-postgres-1 | `postgres:16-alpine` | none published (5432 internal) | vps-backend | `/var/lib/vps/postgres`, admin password secret | Main database |
 | ollama | `ollama/ollama` | `127.0.0.1:11434→11434` | bridge + vps-backend | `ollama_data` volume | Local LLM/vision |
@@ -189,7 +189,7 @@ All under `/api/*`; unauthenticated calls return JSON `401`. "Auth" shows the ca
 
 ## 9. Backup & Recovery
 
-- **Rollback images (`local/al-rifai-platform`):** `v3.3.17-final` (live), `v3.3.16-smart-sql`, `v3.3.15-pre-nl2sql`, `v3.3.15-smart-assistant`, `v3.3.14-pre-smart`, `v3.3.14-assistant-ux`, `v3.3.13-pre-assistant-ux`, `v3.3.17-final`, `v3.3.12-pre-assistant`, `v3.3.12-hotfix`, `v3.3.11-employees`, `v3.3.11-pre-hotfix`, `v3.3.10-ui-cleanup`, `v3.3.10-pre-employees`, `v3.3.9-fixes`, `v3.3.9-pre-ui`, `v3.3.8-ai-full`, `v3.3.8-pre-fixes`, `v3.3.7-ai-routing`, `v3.3.7-pre-full`, `v3.3.6`, `v3.3.6-preai`.
+- **Rollback images (`local/al-rifai-platform`):** `v3.3.18-ui` (live), `v3.3.17-final` (rollback), `v3.3.16-smart-sql`, `v3.3.15-pre-nl2sql`, `v3.3.15-smart-assistant`, `v3.3.14-pre-smart`, `v3.3.14-assistant-ux`, `v3.3.13-pre-assistant-ux`, `v3.3.12-pre-assistant`, `v3.3.12-hotfix`, `v3.3.11-employees`, `v3.3.11-pre-hotfix`, `v3.3.10-ui-cleanup`, `v3.3.10-pre-employees`, `v3.3.9-fixes`, `v3.3.9-pre-ui`, `v3.3.8-ai-full`, `v3.3.8-pre-fixes`, `v3.3.7-ai-routing`, `v3.3.7-pre-full`, `v3.3.6`, `v3.3.6-preai`.
 - **Recruitment images:** `0.1.12-flow` (live), `0.1.11-final`, `0.1.10-hardened`, `0.1.9-hardened`.
 - **`.env` backups:** 9 files `/opt/al-rifai-platform/.env.bak.*` (latest `1794855732`, 2026-11-16).
 - **Nightly recovery:** `alrifai-recovery.timer` → `scripts/operations/recovery.py --rehearse` at 03:15. Last run 2026-11-16: **PASS**, 66 tables verified, GPG-encrypted archive in `/var/backups/vps/al-rifai/`, `offHost: NOT_CONFIGURED`.
@@ -212,7 +212,12 @@ All under `/api/*`; unauthenticated calls return JSON `401`. "Auth" shows the ca
 | API key management + model test | Live | v3.3.7–3.3.8 | encrypted except recruitment |
 | Recruitment AI (separate app) | Live | 0.1.12-flow | separate deploy |
 | Release OCR | Live | v3.3.x | Ollama vision + fallback |
-| Home dashboard (5×4 cards) | Live | v3.3.6 | |
+| Home dashboard (5×4 cards) | Live | v3.3.6 | mobile two-per-row from v3.3.18-ui |
+| Home employee search (name / alias / mobile) | Live | v3.3.18-ui | two-column suggestion with posted Cash total |
+| Cash partial mobile/ID lookup | Live | v3.3.18-ui | last-11-digit substring match (list + count) |
+| Cash Import/Export/Print icon group | Live | v3.3.18-ui | shared export controls; profile has Export + Print only |
+| Employee cash statement Total Amount / Payout Mobile | Live | v3.3.18-ui | POSTED running balance; State/Source hidden from table |
+| Draggable floating assistant | Live | v3.3.18-ui | pointer drag, viewport clamp, localStorage position |
 | Review queue (domain tables) | Live | v3.3.5+ | |
 | Cash paid-events API/UI | Live (feature-flagged) | Phase 3 | `PHASE3_PAID_EVENTS_ENABLED` default 0 |
 | Vessel draft delivery worker | Disabled by default | Phase 3 | 3 gates required |
@@ -222,7 +227,9 @@ All under `/api/*`; unauthenticated calls return JSON `401`. "Auth" shows the ca
 - Explicit date-range parsing (e.g. "15 August – 23 September") is not implemented; the assistant refuses rather than showing an all-time total.
 - LLM transport has no tool-calling channel; functions are declared schemas run by a deterministic planner + browser executor.
 - Bengali transliteration is a character map, not phonetic; inherent vowels are not inserted (`রহিম → rhim`).
-- No browser or UI test library on the server → no screenshot/E2E verification possible.
+- No browser or UI test library on the server → no screenshot/E2E verification possible. Browser QA for v3.3.18-ui is **OWNER-CONFIRMED** (reported OK by the Owner, not executed by the agent).
+- Home search totals use `/api/employees/summary` (POSTED postings); the employee-profile `Total Paid` header is instruction-based, so the two can differ where REVIEW rows exist.
+- v3.3.18-ui kept the 1000 px profile breakpoint by Owner decision (1024 px stays side-by-side); Employee Profile has no CSV import by Owner decision. `/release` remains out of scope.
 - Offsite backup not configured (`offHost: NOT_CONFIGURED`); TLS renewal has no automated timer.
 - No monitoring/alerting stack (no Prometheus, uptime agent or log aggregation).
 - `README.md` is stale (v3.3.6 / 1.13.7 / 25 migrations) — this guide supersedes it for current state.
@@ -237,10 +244,10 @@ All commands run on the host as root; Node 22 is required (`/opt/node22/bin/node
 ```bash
 # Build (current tag)
 cd /opt/al-rifai-platform
-docker build -t local/al-rifai-platform:v3.3.17-final .
+docker build -t local/al-rifai-platform:v3.3.18-ui .
 
 # Deploy (only ALRIFAI_TAG may change in .env)
-sed -i 's/^ALRIFAI_TAG=.*/ALRIFAI_TAG=v3.3.17-final/' .env
+sed -i 's/^ALRIFAI_TAG=.*/ALRIFAI_TAG=v3.3.18-ui/' .env
 docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml config >/dev/null
 docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync
 
@@ -257,7 +264,7 @@ cd /opt/al-rifai-platform
   tests/standalone/ai-policy.test.mjs tests/standalone/ai-worker.test.mjs
 
 # Rollback (image tag only)
-sed -i 's/^ALRIFAI_TAG=.*/ALRIFAI_TAG=v3.3.12-hotfix/' .env
+sed -i 's/^ALRIFAI_TAG=.*/ALRIFAI_TAG=v3.3.17-final/' .env
 docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync
 
 # Post-reboot / health check

@@ -5,9 +5,9 @@
 - **App:** AL-RIFA'I Integrated Services business platform — employees, vessel orders/releases, cash & accounts, attendance, payroll, reports, admin.
 - **Source:** `/opt/al-rifai-platform`
 - **Repo:** `git@github.com:arshiyaazim/al-rifai-platform.git`
-- **Branch:** `main` @ `1e68ff1` (2026-11-13)
-- **Current version:** `v3.3.17-final`
-- **Current image:** `local/al-rifai-platform:v3.3.17-final` (app + sync, same tag)
+- **Branch:** `main` @ `faa98ec` (2026-11-20)
+- **Current version:** `v3.3.18-ui`
+- **Current image:** `local/al-rifai-platform:v3.3.18-ui` (app + sync, same tag)
 - **Schema:** `1.13.8` — 29 migration files (002–029; 28 ledger rows), 67 public tables
 - **Web URL:** `https://app.al-rifai.iamazim.com` (also `alrifai.iamazim.com`, `al-rifai.iamazim.com`)
 
@@ -40,11 +40,19 @@ UI routes under `app/(workspace)/`: `/home`, `/insights`, `/assistant`, `/employ
 ```bash
 cd /opt/al-rifai-platform
 docker build -t local/al-rifai-platform:<tag> .
-# set ALRIFAI_TAG=<tag> in BOTH .env files
+# change only ALRIFAI_TAG=<tag> in .env
 docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync
 ```
 
 **App and sync always deploy together on the same tag.**
+
+- Build inside Docker. In an agent shell, `next build` exits 1 at the end with
+  `SecurityFatalError` after "Compiled successfully" because Next detects the
+  agent and stops for its security nudge; the Docker build does not see those
+  agent variables and exits 0. Do not disable the nudge or upgrade Next just to
+  silence it.
+- Rollback is image-tag only: set `ALRIFAI_TAG=v3.3.17-final` and repeat the
+  `up -d --no-deps app sync` command (no migration; schema unchanged).
 
 ## Database
 

@@ -1,8 +1,9 @@
 # NEXT-HANDOFF
 
-**Session ended:** 2026-11-08
-**ACTIVE GOAL (unchanged): Authenticated Production UI Verification — status
-BLOCKED, not complete.** A README or source change does not complete it.
+**Session ended:** 2026-11-20 — `v3.3.18-ui` is deployed; this file is the latest handoff.
+**Current state:** `main` = `origin/main` = `faa98ec`; production app + sync run
+`local/al-rifai-platform:v3.3.18-ui`; schema `1.13.8`; no migration was needed.
+**Next session:** read the 2026-11-20 section below, then the Known issues.
 **Read first:** `AGENTS.md`, `docs/PROJECT_KNOWLEDGE.md`,
 `docs/VESSEL_ORDER_DRAFT.md`, `docs/LEGACY_PHASE3_COMPARISON.md`,
 `docs/PRODUCTION_URLS.md`, `docs/PRODUCTION_UI_VERIFICATION_MATRIX.md`,
@@ -14,6 +15,69 @@ BLOCKED, not complete.** A README or source change does not complete it.
 **Report language:** English only. Always state whether a finding is
 **implemented**, **clone-tested**, **production-deployed**, **live-verified**,
 **OWNER-CONFIRMED** or **BLOCKED**.
+
+---
+
+## 2026-11-20 — v3.3.18-ui: home search, mobile cards, cash lookup/icons, draggable assistant
+
+**Status:** implemented, committed, production-deployed, and browser QA is
+**OWNER-CONFIRMED OK** (reported by the Owner; the agent did not run a browser).
+
+**Commit:** `faa98ec785b83474e5f6ce2ea60d699f42d65ebe` —
+`feat(ui): home search, cash lookup/icons, mobile cards, draggable assistant`
+(18 files). Local `main` = `origin/main` = `faa98ec`.
+
+**Image:** `local/al-rifai-platform:v3.3.18-ui`
+(`sha256:d100317a01cc66ae6f74a65e30508f87f0b018dab9bf95dde4875a444d8d22ad`),
+built from the `faa98ec` tree; Docker build exit 0. The image was verified before
+deploy: the 18 changed files predate the image build, its compiled output carries
+the new strings, and copied `db/standalone/schema.sql` / `scripts/sync-worker.mjs`
+hashes match the commit.
+
+**Deployed:** 2026-11-20 08:13:50Z — app + sync only, no migration, no database
+change. `/api/health` = `{status: ok, database: ok, schemaVersion: 1.13.8}`.
+
+**Rollback:** image tag only — set `ALRIFAI_TAG=v3.3.17-final` and run
+`docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync`
+(the old image is retained; no schema rollback).
+
+**Delivered**
+- `/home`: employee search below the All Time cards (name / alias / partial mobile;
+  two-column suggestion with the posted Cash total; clear; opens the profile);
+  dashboard cards two per row at 320/375/390 px with compact type.
+- `/employees`, `/attendance`: two-word card labels; values wrap inside the card;
+  two-line label handling preserved.
+- `/cash`: `Paid Via WA` card with third line `Source: WA`; partial mobile/Employee
+  ID Lookup fixed in both list and count SQL; compact Search submit; Import /
+  Export / Print icon group; mobile state filter and Add New Payment aligned at
+  44 px.
+- `/employees/[mobile]` (and `/cash/employee/[id]`): cash statement shows
+  `Total Amount` (POSTED running balance) and `Payout Mobile`; `State` / `Source`
+  hidden from the table only (data still in API); Export + Print icons. Profile
+  and attendance forms remain side-by-side above 1000 px and stacked at/below.
+- Floating assistant: pointer drag (mouse/touch), viewport clamp, position in
+  `localStorage`, drag no longer opens the panel.
+- Card groups: equal heights, overflow guards; approved clamps only.
+
+**Verification**
+- Typecheck 0; unit suite 201/201; `git diff --check` clean.
+- Docker build exit 0; image/production image IDs match.
+- Production health ok; login page 200; live CSS hash matches the image.
+- Browser viewports: OWNER-CONFIRMED OK (agent has no browser on the host).
+
+**Known issues / next steps**
+1. Home-search totals use `/api/employees/summary` (POSTED postings); the profile
+   header `Total Paid` is instruction-based. At audit time 6 employees differed by
+   ৳7,299 (their 6 REVIEW rows). Not changed — decide the authoritative basis.
+2. 1024 px keeps the profile forms side-by-side (1000 px breakpoint, Owner decision).
+3. Employee Profile has no CSV import (Owner decision: Export + Print only).
+4. `/release` (Escort Release) remains untouched; separate future project.
+5. Next.js 16.4.1 has an open security advisory; upgrade deferred by Owner. Agent-shell
+   builds stop at the Next security nudge after "Compiled successfully"; Docker
+   builds exit 0. Do not disable the nudge or upgrade just to silence it.
+6. The application tree was clean at deploy time; this handoff (with AGENTS.md,
+   PLATFORM-GUIDE.md and CHANGELOG.md) is committed in the session-closure
+   documentation commit.
 
 ---
 
