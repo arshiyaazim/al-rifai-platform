@@ -54,11 +54,14 @@ export function EmployeeDetailCard({mobile, onClose}: {mobile: string; onClose?:
 
   useEffect(() => {
     const controller = new AbortController();
-    setError('');
     fetch(`/api/employees?mobile=${encodeURIComponent(mobile)}`,
       {headers: {accept: 'application/json'}, signal: controller.signal, cache: 'no-store'})
       .then((response) => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
-      .then((payload: EmployeeDetailPayload) => { if (!controller.signal.aborted) setDetail(payload); })
+      .then((payload: EmployeeDetailPayload) => {
+        if (controller.signal.aborted) return;
+        setError('');
+        setDetail(payload);
+      })
       .catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Load failed.'); });
     return () => controller.abort();
   }, [mobile, reloadKey]);

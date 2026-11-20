@@ -1,6 +1,6 @@
 'use client';
 
-import {useEffect, useState} from 'react';
+import {useCallback, useEffect, useState} from 'react';
 import {Button} from '@/components/ui/button';
 
 type AttendanceRow = {
@@ -47,8 +47,7 @@ export function EmployeeSubTables({mobile, from, to}: {mobile: string; from: str
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
 
-  useEffect(() => {
-    const controller = new AbortController();
+  const load = useCallback((signal: AbortSignal) => {
     // Empty strings must be dropped: `''::date` is invalid in Postgres and the
     // attendance/vessel filters would return 500 instead of "all dates".
     const query = (params: Record<string, string>) =>
@@ -58,23 +57,28 @@ export function EmployeeSubTables({mobile, from, to}: {mobile: string; from: str
     const range = {from, to};
     Promise.all([
       fetch(`/api/attendance?${query({employee_mobile: mobile, date_from: from, date_to: to, limit: '1000'})}`,
-        {signal: controller.signal, cache: 'no-store'}).then((r) => r.ok ? r.json() : Promise.reject(new Error(`attendance ${r.status}`))),
+        {signal, cache: 'no-store'}).then((r) => r.ok ? r.json() : Promise.reject(new Error(`attendance ${r.status}`))),
       fetch(`/api/cash/transactions?${query({employee_mobile: mobile, ...range, limit: '1000'})}`,
-        {signal: controller.signal, cache: 'no-store'}).then((r) => r.ok ? r.json() : Promise.reject(new Error(`cash ${r.status}`))),
+        {signal, cache: 'no-store'}).then((r) => r.ok ? r.json() : Promise.reject(new Error(`cash ${r.status}`))),
       fetch(`/api/vessel?${query({escort_mobile: mobile, ...range, limit: '1000'})}`,
-        {signal: controller.signal, cache: 'no-store'}).then((r) => r.ok ? r.json() : Promise.reject(new Error(`vessel ${r.status}`))),
+        {signal, cache: 'no-store'}).then((r) => r.ok ? r.json() : Promise.reject(new Error(`vessel ${r.status}`))),
     ])
       .then(([att, cas, ves]) => {
-        if (controller.signal.aborted) return;
+        if (signal.aborted) return;
         setAttendance((att.rows ?? []) as AttendanceRow[]);
         setCash((cas.transactions ?? []) as CashRow[]);
         setVessel((ves.rows ?? []) as VesselRow[]);
         setPages({attendance: 1, cash: 1, vessel: 1});
       })
-      .catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Load failed.'); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+      .catch((cause) => { if (!signal.aborted) setError(cause instanceof Error ? cause.message : 'Load failed.'); })
+      .finally(() => { if (!signal.aborted) setLoading(false); });
+  }, [mobile, from, to]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    queueMicrotask(() => load(controller.signal));
     return () => controller.abort();
-  }, [mobile, from, to, reload]);
+  }, [load, reload]);
 
   const slice = <T,>(rows: T[]) => {
     const page = pages[tab];
