@@ -23,6 +23,11 @@
   migrations (latest 029). Dump comparison shows identical core schema; only
   six production-only diagnostic snapshot tables differ and the app does not
   reference them. No migration was run.
+- Production deploy: image
+  `local/al-rifai-platform:v3.3.21-review-workflow-next16.4.6`; app+sync
+  recreated 2026-11-20; `/api/health` = `{status: ok, database: ok,
+  schemaVersion: 1.13.8}`; runtime Next 16.4.6; no migration. Rollback tag:
+  `v3.3.19-next16.4.6`.
 
 ## v3.3.20-review-workflow — USER submissions, review delete, cash aliases (2026-11-20)
 

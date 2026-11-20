@@ -1,11 +1,15 @@
 # NEXT-HANDOFF
 
-**Session ended:** 2026-11-20 — `v3.3.21-review-workflow` is merged to `main`; final production deploy is in progress.
+**Session ended:** 2026-11-20 — `v3.3.21-review-workflow-next16.4.6` is deployed (app + sync, same tag).
 **Current state:** `main` contains the security update (`c3f312c`) plus the USER
-review workflow; Next.js `16.4.6`, React/React DOM `19.2.6`; schema `1.13.8`;
-no migration. Production deploy and post-deploy smoke are the final step.
+review workflow (`d8a9fd3`); Next.js `16.4.6`, React/React DOM `19.2.6`; schema
+`1.13.8`; no migration. Health ok; runtime Next 16.4.6. Rollback tag:
+`v3.3.19-next16.4.6`.
 **Feature status:** merged (no rebase); lint 0 errors, typecheck 0, unit 201/201;
 staging QA 6/6 + 8/8 + concurrent 1/1.
+**Cash status:** not frozen; protection is capability-based (`cash.post`,
+`cash.reverse`) plus immutable triggers and explicit posting. `PHASE3_PAID_EVENTS_ENABLED=0`
+only disables optional Business Paid reporting, not core Cash.
 **Next session state (2026-11-20):**
 - Current production release: `v3.3.19-next16.4.6` (app + sync, same tag).
 - Next.js 16.4.1 advisory: **RESOLVED by 16.4.6** (OSV 0; React 19.2.6 unchanged).

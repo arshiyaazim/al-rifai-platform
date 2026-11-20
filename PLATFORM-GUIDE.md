@@ -9,7 +9,7 @@
 - **Project:** AL-RIFA'I Integrated Services — business platform for employees, vessel programmes, cash, attendance, payroll, reports and an in-app AI assistant.
 - **Primary URL:** `https://app.alrifai.iamazim.com` (TLS certificate CN is `app.al-rifai.iamazim.com`; `alrifai.iamazim.com` also resolves to this host).
 - **Server:** `5.189.131.48` (IPv6 `2a02:c207:2311:7764::1`), Ubuntu 22.04.5 LTS, kernel `5.15.0-202-generic`, 8 vCPU, 23 GiB RAM (18 GiB available), 194 GB disk (60 GB used, 135 GB free, 31%).
-- **Current release:** `v3.3.19-next16.4.6` (app + sync, same tag; deployed 2026-11-20).
+- **Current release:** `v3.3.21-review-workflow-next16.4.6` (app + sync, same tag; deployed 2026-11-20).
 
 ## 2. Repository Map
 
@@ -23,7 +23,7 @@
 
 | Container | Image | Ports | Network | Key volumes | Purpose |
 |---|---|---|---|---|---|
-| al-rifai-phase3-app-1 | `local/al-rifai-platform:v3.3.19-next16.4.6` | `0.0.0.0:443→3443` (TLS entry) | vps-backend | `/var/lib/vps/al-rifai/media`, `/opt/al-rifai-platform/uploads/employees`, WA-01 control token, TLS cert/key (ro) | Next.js app |
+| al-rifai-phase3-app-1 | `local/al-rifai-platform:v3.3.21-review-workflow-next16.4.6` | `0.0.0.0:443→3443` (TLS entry) | vps-backend | `/var/lib/vps/al-rifai/media`, `/opt/al-rifai-platform/uploads/employees`, WA-01 control token, TLS cert/key (ro) | Next.js app |
 | al-rifai-phase3-sync-1 | same | none | vps-backend | media + WA-01/WA-02 bridge stores | WhatsApp mirror worker (`--mode=tail`) |
 | vps-infra-postgres-1 | `postgres:16-alpine` | none published (5432 internal) | vps-backend | `/var/lib/vps/postgres`, admin password secret | Main database |
 | ollama | `ollama/ollama` | `127.0.0.1:11434→11434` | bridge + vps-backend | `ollama_data` volume | Local LLM/vision |
@@ -189,7 +189,7 @@ All under `/api/*`; unauthenticated calls return JSON `401`. "Auth" shows the ca
 
 ## 9. Backup & Recovery
 
-- **Rollback images (`local/al-rifai-platform`):** `v3.3.19-next16.4.6` (live), `v3.3.18-ui` (rollback), `v3.3.16-smart-sql`, `v3.3.15-pre-nl2sql`, `v3.3.15-smart-assistant`, `v3.3.14-pre-smart`, `v3.3.14-assistant-ux`, `v3.3.13-pre-assistant-ux`, `v3.3.12-pre-assistant`, `v3.3.12-hotfix`, `v3.3.11-employees`, `v3.3.11-pre-hotfix`, `v3.3.10-ui-cleanup`, `v3.3.10-pre-employees`, `v3.3.9-fixes`, `v3.3.9-pre-ui`, `v3.3.8-ai-full`, `v3.3.8-pre-fixes`, `v3.3.7-ai-routing`, `v3.3.7-pre-full`, `v3.3.6`, `v3.3.6-preai`.
+- **Rollback images (`local/al-rifai-platform`):** `v3.3.21-review-workflow-next16.4.6` (live), `v3.3.19-next16.4.6` (previous), `v3.3.18-ui` (rollback), `v3.3.16-smart-sql`, `v3.3.15-pre-nl2sql`, `v3.3.15-smart-assistant`, `v3.3.14-pre-smart`, `v3.3.14-assistant-ux`, `v3.3.13-pre-assistant-ux`, `v3.3.12-pre-assistant`, `v3.3.12-hotfix`, `v3.3.11-employees`, `v3.3.11-pre-hotfix`, `v3.3.10-ui-cleanup`, `v3.3.10-pre-employees`, `v3.3.9-fixes`, `v3.3.9-pre-ui`, `v3.3.8-ai-full`, `v3.3.8-pre-fixes`, `v3.3.7-ai-routing`, `v3.3.7-pre-full`, `v3.3.6`, `v3.3.6-preai`.
 - **Recruitment images:** `0.1.15-lid-filter` (live), `0.1.14-kb-overhaul`, `0.1.13-kb-voice`, `0.1.12-flow`, `0.1.11-final`, `0.1.10-hardened`, `0.1.9-hardened`.
 - **`.env` backups:** 15 files `/opt/al-rifai-platform/.env.bak.*` (latest `1795178732`, 2026-11-20, pre-tag-change).
 - **Nightly recovery:** `alrifai-recovery.timer` → `scripts/operations/recovery.py --rehearse` at 03:15. Last run 2026-11-16: **PASS**, 66 tables verified, GPG-encrypted archive in `/var/backups/vps/al-rifai/`, `offHost: NOT_CONFIGURED`.
@@ -213,7 +213,7 @@ All under `/api/*`; unauthenticated calls return JSON `401`. "Auth" shows the ca
 | Recruitment AI (separate app) | Live | 0.1.15-lid-filter | separate deploy |
 | Release OCR | Live | v3.3.x | Ollama vision + fallback |
 | Home dashboard (5×4 cards) | Live | v3.3.6 | mobile two-per-row from v3.3.18-ui |
-| Next.js 16.4.6 security patch | Live | v3.3.19-next16.4.6 | OSV 0; React 19.2.6 unchanged |
+| Next.js 16.4.6 security patch | Live | v3.3.21-review-workflow-next16.4.6 | OSV 0; React 19.2.6 unchanged |
 | Home employee search (name / alias / mobile) | Live | v3.3.18-ui | two-column suggestion with posted Cash total |
 | Cash partial mobile/ID lookup | Live | v3.3.18-ui | last-11-digit substring match (list + count) |
 | Cash Import/Export/Print icon group | Live | v3.3.18-ui | shared export controls; profile has Export + Print only |
@@ -263,10 +263,10 @@ All commands run on the host as root; Node 22 is required (`/opt/node22/bin/node
 ```bash
 # Build (current tag)
 cd /opt/al-rifai-platform
-docker build -t local/al-rifai-platform:v3.3.19-next16.4.6 .
+docker build -t local/al-rifai-platform:v3.3.21-review-workflow-next16.4.6 .
 
 # Deploy (only ALRIFAI_TAG may change in .env)
-sed -i 's/^ALRIFAI_TAG=.*/ALRIFAI_TAG=v3.3.19-next16.4.6/' .env
+sed -i 's/^ALRIFAI_TAG=.*/ALRIFAI_TAG=v3.3.21-review-workflow-next16.4.6/' .env
 docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml config >/dev/null
 docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync
 
