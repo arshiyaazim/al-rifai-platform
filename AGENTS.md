@@ -51,6 +51,10 @@ docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d -
   agent and stops for its security nudge; the Docker build does not see those
   agent variables and exits 0. Do not disable the nudge or upgrade Next just to
   silence it.
+- Next.js `16.4.1` carries an **OPEN security advisory** (Owner review
+  2026-11-20). The upgrade is **DEFERRED** by Owner decision; no patch or version
+  change has been applied and `package.json` / `pnpm-lock.yaml` are unchanged.
+  A successful Docker build is not a security fix.
 - Rollback is image-tag only: set `ALRIFAI_TAG=v3.3.17-final` and repeat the
   `up -d --no-deps app sync` command (no migration; schema unchanged).
 

@@ -1,8 +1,19 @@
 # NEXT-HANDOFF
 
 **Session ended:** 2026-11-20 — `v3.3.18-ui` is deployed; this file is the latest handoff.
-**Current state:** `main` = `origin/main` = `faa98ec`; production app + sync run
-`local/al-rifai-platform:v3.3.18-ui`; schema `1.13.8`; no migration was needed.
+**Current state:** production app + sync run `local/al-rifai-platform:v3.3.18-ui`;
+schema `1.13.8`; no migration was needed. `main` history: `faa98ec` (application)
+→ `10fbf6c` (handoff) → this documentation commit.
+**Next session state (2026-11-20):**
+- Current production release: `v3.3.18-ui` (app + sync, same tag).
+- `main`: `10fbf6c` (application) plus the documentation commit that contains
+  this handoff.
+- Next.js 16.4.1 security advisory: **OPEN / DEFERRED** (no upgrade applied).
+- Next.js upgrade: plan in a **separate worktree/branch**; never disable the
+  build nudge or upgrade just to make a build pass.
+- Escort Release `/release`: **Not Started** (separate future project).
+- Home Search total vs Employee Profile `Total Paid`: **Owner Decision Pending**.
+
 **Next session:** read the 2026-11-20 section below, then the Known issues.
 **Read first:** `AGENTS.md`, `docs/PROJECT_KNOWLEDGE.md`,
 `docs/VESSEL_ORDER_DRAFT.md`, `docs/LEGACY_PHASE3_COMPARISON.md`,

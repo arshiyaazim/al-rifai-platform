@@ -1,6 +1,6 @@
 # PLATFORM-GUIDE — AL-RIFA'I
 
-> Single source of truth for the running platform. Generated **2026-11-20** from
+> Single source of truth for the running platform. Updated **2026-11-20** from
 > the live server (docker ps/inspect, psql, filesystem, systemd). No secrets are
 > included. Update this file at the end of every deploy batch.
 
@@ -190,8 +190,8 @@ All under `/api/*`; unauthenticated calls return JSON `401`. "Auth" shows the ca
 ## 9. Backup & Recovery
 
 - **Rollback images (`local/al-rifai-platform`):** `v3.3.18-ui` (live), `v3.3.17-final` (rollback), `v3.3.16-smart-sql`, `v3.3.15-pre-nl2sql`, `v3.3.15-smart-assistant`, `v3.3.14-pre-smart`, `v3.3.14-assistant-ux`, `v3.3.13-pre-assistant-ux`, `v3.3.12-pre-assistant`, `v3.3.12-hotfix`, `v3.3.11-employees`, `v3.3.11-pre-hotfix`, `v3.3.10-ui-cleanup`, `v3.3.10-pre-employees`, `v3.3.9-fixes`, `v3.3.9-pre-ui`, `v3.3.8-ai-full`, `v3.3.8-pre-fixes`, `v3.3.7-ai-routing`, `v3.3.7-pre-full`, `v3.3.6`, `v3.3.6-preai`.
-- **Recruitment images:** `0.1.12-flow` (live), `0.1.11-final`, `0.1.10-hardened`, `0.1.9-hardened`.
-- **`.env` backups:** 9 files `/opt/al-rifai-platform/.env.bak.*` (latest `1794855732`, 2026-11-16).
+- **Recruitment images:** `0.1.15-lid-filter` (live), `0.1.14-kb-overhaul`, `0.1.13-kb-voice`, `0.1.12-flow`, `0.1.11-final`, `0.1.10-hardened`, `0.1.9-hardened`.
+- **`.env` backups:** 14 files `/opt/al-rifai-platform/.env.bak.*` (latest `1795162416`, 2026-11-20, pre-tag-change).
 - **Nightly recovery:** `alrifai-recovery.timer` → `scripts/operations/recovery.py --rehearse` at 03:15. Last run 2026-11-16: **PASS**, 66 tables verified, GPG-encrypted archive in `/var/backups/vps/al-rifai/`, `offHost: NOT_CONFIGURED`.
 - **Offsite:** not configured. Manual dumps exist in `/var/backups/al-rifai/` (2026-11-08 vessel activation).
 - **Recovery:** set `ALRIFAI_TAG=<rollback tag>` in `.env`, then `docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync`; DB restore only into a `alrifai_restore_validation_*` database.
@@ -210,7 +210,7 @@ All under `/api/*`; unauthenticated calls return JSON `401`. "Auth" shows the ca
 | Mobile chat (375 px, safe-area) | Live | v3.3.13 | CSS-level; browser QA pending |
 | URL registry | Live | v3.3.13 | real params; `/cash` has no date filters |
 | API key management + model test | Live | v3.3.7–3.3.8 | encrypted except recruitment |
-| Recruitment AI (separate app) | Live | 0.1.12-flow | separate deploy |
+| Recruitment AI (separate app) | Live | 0.1.15-lid-filter | separate deploy |
 | Release OCR | Live | v3.3.x | Ollama vision + fallback |
 | Home dashboard (5×4 cards) | Live | v3.3.6 | mobile two-per-row from v3.3.18-ui |
 | Home employee search (name / alias / mobile) | Live | v3.3.18-ui | two-column suggestion with posted Cash total |
@@ -230,6 +230,7 @@ All under `/api/*`; unauthenticated calls return JSON `401`. "Auth" shows the ca
 - No browser or UI test library on the server → no screenshot/E2E verification possible. Browser QA for v3.3.18-ui is **OWNER-CONFIRMED** (reported OK by the Owner, not executed by the agent).
 - Home search totals use `/api/employees/summary` (POSTED postings); the employee-profile `Total Paid` header is instruction-based, so the two can differ where REVIEW rows exist.
 - v3.3.18-ui kept the 1000 px profile breakpoint by Owner decision (1024 px stays side-by-side); Employee Profile has no CSV import by Owner decision. `/release` remains out of scope.
+- **Next.js 16.4.1 security advisory is OPEN; the upgrade is DEFERRED by Owner (2026-11-20).** No patch/version change was applied and `package.json` / `pnpm-lock.yaml` are unchanged; a successful Docker build is not a remediation. In an agent shell `next build` stops after "Compiled successfully" with `SecurityFatalError` (agent build nudge); Docker builds exit 0.
 - Offsite backup not configured (`offHost: NOT_CONFIGURED`); TLS renewal has no automated timer.
 - No monitoring/alerting stack (no Prometheus, uptime agent or log aggregation).
 - `README.md` is stale (v3.3.6 / 1.13.7 / 25 migrations) — this guide supersedes it for current state.
