@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.3.19-next16.4.6 — Next.js security update + staging E2E (2026-11-20)
+
+- Next.js `16.4.1` → `16.4.6` in commit `2f70402` on `security/nextjs-upgrade`
+  (not pushed). OSV reports 0 advisories for 16.4.6 / React 19.2.6;
+  the seven November moderates were fixed in 16.4.5. React and React DOM stay
+  19.2.6; no new dependencies (lockfile changes limited to next/@next/*).
+- Docker build exit 0 (the agent-shell security nudge no longer triggers);
+  image `local/al-rifai-platform:v3.3.19-next16.4.6`; app+sync deployed
+  2026-11-20 12:45 UTC; no migration; schema 1.13.8; health ok.
+- Staging E2E: isolated `al-rifai-staging` stack (separate network, Postgres
+  container/volume, synthetic data and staging-only admin) with Dockerized
+  Playwright v1.65. **8/8 PASS** — login, home/search, employee profile, cash,
+  CSV/PDF export, SSE `/api/events`, assistant read-only and console sweep.
+  Evidence retained under `/opt/al-rifai-staging/artifacts`; staging app/DB
+  containers are stopped and the volume/config retained for reuse.
+- Limitations: staging is **not** Production verification. Production
+  authenticated regression is **NOT VERIFIED**; staging data is synthetic, the
+  assistant LLM fallback is disabled, and mobile Profile/Cash screenshots were
+  not taken. No production restart/migration occurred during the staging task.
+
 ## v3.3.18-ui — Home search, mobile cards, cash lookup/icons, draggable assistant (2026-11-20)
 
 - Home: employee search below the All Time cards (name / alias / partial mobile,
@@ -26,7 +46,8 @@
   Owner; not executed by the agent).
 - Known: home-search totals use the POSTED employee summary while the profile
   header `Total Paid` is instruction-based (can differ where REVIEW rows exist).
-  `/release` untouched. Next.js security upgrade deferred by Owner decision.
+  `/release` untouched. Next.js security upgrade was deferred at that release and later
+  shipped in `v3.3.19-next16.4.6` (2026-11-20).
 
 ## v3.3.13-ai-assistant — Phase E2 fuzzy search + assistant intelligence (2026-11-16)
 

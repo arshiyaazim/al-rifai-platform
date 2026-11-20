@@ -1,18 +1,18 @@
 # NEXT-HANDOFF
 
-**Session ended:** 2026-11-20 — `v3.3.18-ui` is deployed; this file is the latest handoff.
-**Current state:** production app + sync run `local/al-rifai-platform:v3.3.18-ui`;
-schema `1.13.8`; no migration was needed. `main` history: `faa98ec` (application)
-→ `10fbf6c` (handoff) → this documentation commit.
+**Session ended:** 2026-11-20 — `v3.3.19-next16.4.6` is deployed; this file is the latest handoff.
+**Current state:** production app + sync run `local/al-rifai-platform:v3.3.19-next16.4.6`;
+schema `1.13.8`; no migration. `main` history: `faa98ec` (application) →
+`10fbf6c` (handoff) → `25bf459` (docs); this handoff update is uncommitted. The security
+upgrade commit is `2f70402` on `security/nextjs-upgrade` (not pushed).
 **Next session state (2026-11-20):**
-- Current production release: `v3.3.18-ui` (app + sync, same tag).
-- `main`: `10fbf6c` (application) plus the documentation commit that contains
-  this handoff.
-- Next.js 16.4.1 security advisory: **OPEN / DEFERRED** (no upgrade applied).
-- Next.js upgrade: plan in a **separate worktree/branch**; never disable the
-  build nudge or upgrade just to make a build pass.
+- Current production release: `v3.3.19-next16.4.6` (app + sync, same tag).
+- Next.js 16.4.1 advisory: **RESOLVED by 16.4.6** (OSV 0; React 19.2.6 unchanged).
+- Staging E2E: **COMPLETED — 8/8 PASS**; Production unchanged; no deployment pending.
+- Future Next.js advisories: re-check and plan separately; never disable the nudge.
 - Escort Release `/release`: **Not Started** (separate future project).
 - Home Search total vs Employee Profile `Total Paid`: **Owner Decision Pending**.
+- Production authenticated regression: **NOT VERIFIED** (staging E2E only).
 
 **Next session:** read the 2026-11-20 section below, then the Known issues.
 **Read first:** `AGENTS.md`, `docs/PROJECT_KNOWLEDGE.md`,
@@ -83,12 +83,40 @@ change. `/api/health` = `{status: ok, database: ok, schemaVersion: 1.13.8}`.
 2. 1024 px keeps the profile forms side-by-side (1000 px breakpoint, Owner decision).
 3. Employee Profile has no CSV import (Owner decision: Export + Print only).
 4. `/release` (Escort Release) remains untouched; separate future project.
-5. Next.js 16.4.1 has an open security advisory; upgrade deferred by Owner. Agent-shell
-   builds stop at the Next security nudge after "Compiled successfully"; Docker
-   builds exit 0. Do not disable the nudge or upgrade just to silence it.
+5. Next.js 16.4.1 advisories were resolved by the 16.4.6 upgrade deployed
+   2026-11-20 (OSV 0; React 19.2.6 unchanged). Future advisories require a new
+   review; never disable the nudge or upgrade just to make a build pass.
 6. The application tree was clean at deploy time; this handoff (with AGENTS.md,
    PLATFORM-GUIDE.md and CHANGELOG.md) is committed in the session-closure
    documentation commit.
+
+---
+
+## 2026-11-20 — Staging E2E verification (production untouched)
+
+**Status:** COMPLETED — **8/8 PASS**. Staging evidence only; this is **not**
+Production authenticated regression.
+
+- Isolated `al-rifai-staging` Compose project: separate network, Postgres
+  container and volume; app at `https://127.0.0.1:8443` with a self-signed
+  certificate. No production volumes, tokens, DB or `.env` values were used.
+- Synthetic data: 3 employees, 4 cash instructions (3 POSTED, 1 REVIEW), 3
+  postings. Staging schema upgraded 1.12.0 → 1.13.8 with migrations 018–029.
+- Dockerized Playwright v1.65 (`@playwright/test`): 8/8 PASS — login,
+  home/search, employee profile, cash, CSV/PDF export, SSE `/api/events`,
+  assistant read-only and browser console-error sweep.
+- Evidence retained in `/opt/al-rifai-staging/artifacts`: screenshots (Home at
+  320/375/768/1024/1366 plus login/profile/cash/assistant), traces, HTML report,
+  CSV and PDF.
+- Staging app+DB containers are stopped; the DB volume and config are retained
+  for future Vessel/Release/Review work. Restart from `/opt/al-rifai-staging`
+  with `docker compose --env-file .env.staging -p al-rifai-staging -f compose.yaml up -d`.
+- Limitations: synthetic data only; assistant runs with `AI_LLM_ENABLED=0`
+  (deterministic read-only only); mobile Profile/Cash screenshots were not
+  taken; Production authenticated regression is **NOT VERIFIED**.
+
+**No Production deployment, restart, migration or rollback was performed in this
+session. No deployment is pending or authorized by this task.**
 
 ---
 

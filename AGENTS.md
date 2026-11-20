@@ -5,9 +5,9 @@
 - **App:** AL-RIFA'I Integrated Services business platform — employees, vessel orders/releases, cash & accounts, attendance, payroll, reports, admin.
 - **Source:** `/opt/al-rifai-platform`
 - **Repo:** `git@github.com:arshiyaazim/al-rifai-platform.git`
-- **Branch:** `main` @ `faa98ec` (2026-11-20)
-- **Current version:** `v3.3.18-ui`
-- **Current image:** `local/al-rifai-platform:v3.3.18-ui` (app + sync, same tag)
+- **Branch:** `main` @ `25bf459` (2026-11-20) — application `faa98ec`; security upgrade `2f70402` on `security/nextjs-upgrade` (not pushed)
+- **Current version:** `v3.3.19-next16.4.6`
+- **Current image:** `local/al-rifai-platform:v3.3.19-next16.4.6` (app + sync, same tag)
 - **Schema:** `1.13.8` — 29 migration files (002–029; 28 ledger rows), 67 public tables
 - **Web URL:** `https://app.al-rifai.iamazim.com` (also `alrifai.iamazim.com`, `al-rifai.iamazim.com`)
 
@@ -51,12 +51,29 @@ docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d -
   agent and stops for its security nudge; the Docker build does not see those
   agent variables and exits 0. Do not disable the nudge or upgrade Next just to
   silence it.
-- Next.js `16.4.1` carries an **OPEN security advisory** (Owner review
-  2026-11-20). The upgrade is **DEFERRED** by Owner decision; no patch or version
-  change has been applied and `package.json` / `pnpm-lock.yaml` are unchanged.
-  A successful Docker build is not a security fix.
+- Next.js `16.4.6` is deployed (2026-11-20). The November 2026 advisories that
+  affected 16.4.1 were fixed in 16.4.5; OSV reports 0 for 16.4.6 / React 19.2.6.
+  React and React DOM remain 19.2.6. Agent-shell builds no longer stop at the
+  security nudge; Docker builds exit 0. Re-check advisories before future
+  upgrades; never disable the nudge or upgrade just to make a build pass.
 - Rollback is image-tag only: set `ALRIFAI_TAG=v3.3.17-final` and repeat the
   `up -d --no-deps app sync` command (no migration; schema unchanged).
+
+### Staging & browser E2E
+
+- The isolated stack lives in `/opt/al-rifai-staging` (Compose project
+  `al-rifai-staging`): app on `127.0.0.1:8443` with a self-signed certificate,
+  its own Postgres container/volume, synthetic data and a staging-only admin.
+  It never mounts production volumes, tokens or `.env` values.
+- Playwright runs in `mcr.microsoft.com/playwright:v1.65.0-noble`; tests and
+  artifacts live under `/opt/al-rifai-staging/tests` and `.../artifacts`.
+- 2026-11-20 result: **8/8 PASS** (login, home/search, profile, cash, CSV/PDF
+  export, SSE, assistant, console sweep). Production was not restarted or
+  redeployed.
+- The staging app+DB containers are stopped; the DB volume and config are kept
+  for future Vessel/Release/Review work. Restart with
+  `docker compose --env-file .env.staging -p al-rifai-staging -f compose.yaml up -d`
+  from `/opt/al-rifai-staging`. Do not commit staging secrets or artifacts.
 
 ## Database
 
