@@ -1,22 +1,23 @@
 # NEXT-HANDOFF
 
-**Session ended:** 2026-11-20 — `v3.3.21-review-workflow-next16.4.6` is deployed (app + sync, same tag).
-**Current state:** `main` contains the security update (`c3f312c`) plus the USER
-review workflow (`d8a9fd3`); Next.js `16.4.6`, React/React DOM `19.2.6`; schema
-`1.13.8`; no migration. Health ok; runtime Next 16.4.6. Rollback tag:
+**Session ended:** 2026-11-21 — `v3.3.23-review-workflow-next16.4.6` is deployed (app + sync, same tag).
+**Current state:** `main` = `44d72ad` contains the security update, USER review
+workflow and Task 07/08 business rules; Next.js `16.4.6`, React/React DOM
+`19.2.6`; migration 030 applied (29 history rows), schema label `1.13.8`. Health
+ok. Rollback tags: `v3.3.21-review-workflow-next16.4.6` and
 `v3.3.19-next16.4.6`.
-**Feature status:** merged (no rebase); lint 0 errors, typecheck 0, unit 201/201;
-staging QA 6/6 + 8/8 + concurrent 1/1.
+**Feature status:** merged (no rebase); lint 0/0, typecheck 0, unit 201/201,
+full DB suite 258/258, staging QA 15/15. Cash toolbar and migration 030 live.
 **Cash status:** not frozen; protection is capability-based (`cash.post`,
 `cash.reverse`) plus immutable triggers and explicit posting. `PHASE3_PAID_EVENTS_ENABLED=0`
 only disables optional Business Paid reporting, not core Cash.
 
 ## 2026-11-21 — Task 08: final merge, migration 030 and production deploy
 
-**Status:** branch `chore/task05-lint-schema-parity` at `7f50df1`; permanent
-merge into `main`, production backup, migration 030 and app+sync deploy are the
-approved final steps. Exact final SHA/image/health are recorded below after the
-deploy.
+**Status:** COMPLETE. Branch merged into `main` as `44d72ad` (no-ff); Production
+runs `local/al-rifai-platform:v3.3.23-review-workflow-next16.4.6` (app + sync).
+Migration 030 applied through the repo runner; schema label remains 1.13.8 and
+migration history is 29 rows. Health ok; Next 16.4.6; React 19.2.6.
 
 **Cash toolbar**
 - Desktop: 36px × 320px search input; search, state filter, Add Payment and

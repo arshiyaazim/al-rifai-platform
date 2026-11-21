@@ -5,9 +5,9 @@
 - **App:** AL-RIFA'I Integrated Services business platform — employees, vessel orders/releases, cash & accounts, attendance, payroll, reports, admin.
 - **Source:** `/opt/al-rifai-platform`
 - **Repo:** `git@github.com:arshiyaazim/al-rifai-platform.git`
-- **Branch:** `main` @ `d8a9fd3` (2026-11-20) — security merge `c3f312c` plus USER review workflow; this docs commit follows
-- **Current version:** `v3.3.21-review-workflow-next16.4.6`
-- **Current image:** `local/al-rifai-platform:v3.3.21-review-workflow-next16.4.6` (app + sync, same tag)
+- **Branch:** `main` @ `44d72ad` (2026-11-21) — security + review workflow + Task 07/08 business rules; this docs commit follows
+- **Current version:** `v3.3.23-review-workflow-next16.4.6`
+- **Current image:** `local/al-rifai-platform:v3.3.23-review-workflow-next16.4.6` (app + sync, same tag)
 - **Schema:** `1.13.8` — 29 migration files (002–029; 28 ledger rows), 67 public tables
 - **Web URL:** `https://app.al-rifai.iamazim.com` (also `alrifai.iamazim.com`, `al-rifai.iamazim.com`)
 

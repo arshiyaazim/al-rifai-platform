@@ -27,6 +27,11 @@
 - Production backup before deploy: root-only custom-format dump (12,027,400
   bytes, pg_restore list 507 objects). Rollback images remain
   v3.3.19-next16.4.6 and v3.3.21-review-workflow-next16.4.6.
+- Final merge `44d72ad` on `main`; migration 030 applied through the repo
+  runner to Production (history: 030/029/028, schema still 1.13.8); app+sync
+  deployed as `local/al-rifai-platform:v3.3.23-review-workflow-next16.4.6`;
+  health ok, Next 16.4.6, React 19.2.6. Rollback tags: v3.3.21-review-workflow-next16.4.6
+  and v3.3.19-next16.4.6.
 ## v3.3.21-review-workflow — USER review workflow on Next.js 16.4.6 (2026-11-20)
 
 - Merged `feature/user-review-workflow` into security-updated `main`
