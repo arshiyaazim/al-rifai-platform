@@ -13,5 +13,5 @@ export function isAuthenticationFailure(status: number, body: unknown): boolean 
 export function redirectToLogin(): void {
   if (typeof window === 'undefined') return;
   const next = `${window.location.pathname}${window.location.search}`;
-  window.location.assign(`/login?reason=session_expired&next=${encodeURIComponent(next)}`);
+  window.location.replace(`/login?reason=session_expired&next=${encodeURIComponent(next)}`);
 }

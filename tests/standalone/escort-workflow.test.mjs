@@ -44,7 +44,7 @@ async function reset() {
       cash_reconciliations, cash_instructions, cash_postings, ledger_entries,
       cash_submission_reviews, cash_submissions, attendance, attendance_records, review_decisions, review_items,
       identity_aliases, program_pay, program_source_messages,
-      program_assignments, program_events, programs, employees,
+      program_assignments, program_events, programs, employees, employee_documents,
       vessel_draft_deliveries, whatsapp_message_intelligence, whatsapp_calls,
       whatsapp_media, whatsapp_messages, whatsapp_chats, whatsapp_sync_state,
       whatsapp_accounts, escort_client_group_authorizations, app_settings

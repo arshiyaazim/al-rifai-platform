@@ -38,7 +38,7 @@ beforeEach(async () => {
       audit_events, cash_transaction_adjustments, cash_payment_event_postings, cash_payment_events, cash_reversals, cash_reconciliations, cash_instructions, cash_postings, ledger_entries,
       cash_submission_reviews, cash_submissions, review_decisions, review_items,
       attendance, attendance_records, identity_aliases, program_pay, program_source_messages,
-      program_assignments, program_events, programs, employees,
+      program_assignments, program_events, programs, employees, employee_documents,
       vessel_draft_deliveries,
       whatsapp_message_intelligence, whatsapp_calls, whatsapp_media, whatsapp_messages, whatsapp_chats, whatsapp_sync_state,
       whatsapp_accounts, whatsapp_import_runs, escort_client_group_authorizations,
@@ -160,11 +160,6 @@ async function countInstructions() {
 
 async function countPrograms() {
   const r = await row(`SELECT count(*)::int AS n FROM programs WHERE source_channel = 'WHATSAPP'`);
-  return r.n;
-}
-
-async function countReviewItems() {
-  const r = await row('SELECT count(*)::int AS n FROM review_items');
   return r.n;
 }
 
@@ -720,7 +715,6 @@ test('vessel: Bangla/English labels parse correctly', async () => {
 
 test('vessel: vessel prefix normalization (M.V., MV, M. V., Mv.)', async () => {
   await ensureAccount('wa-01');
-  const before = await countPrograms();
   await stageMessage('wa-01', ORDER_CHAT, 'msg-vessel-prefix-1', 'INCOMING', ORDER_SENDER,
     'Mother Vessel: M.V. Beltokyo\nLighter Vessel: L-99\nMaster mobile: 01911111111');
 

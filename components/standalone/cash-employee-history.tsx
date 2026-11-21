@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import {useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {MoreHorizontal, Printer} from 'lucide-react';
 import {AppToaster} from '@/components/standalone/app-toaster';
 import {CashTransactionSidebar} from '@/components/standalone/cash-transaction-sidebar';
@@ -61,7 +61,7 @@ export function CashEmployeeHistory({employeeId, initial, canManage = false, gen
     current.current = {page, limit, filters};
   }, [page, limit, filters]);
 
-  async function load(nextPage: number, nextLimit: number, nextFilters: typeof filters, quiet = false) {
+  const load = useCallback(async (nextPage: number, nextLimit: number, nextFilters: typeof filters, quiet = false) => {
     const id = ++request.current;
     if (!quiet) setLoading(true);
     setError(null);
@@ -84,12 +84,12 @@ export function CashEmployeeHistory({employeeId, initial, canManage = false, gen
     } finally {
       if (id === request.current && !quiet) setLoading(false);
     }
-  }
+  }, [employeeId]);
 
   useEffect(() => {
     const {page: p, limit: l, filters: f} = current.current;
     void load(p, l, f, true);
-  }, []);
+  }, [load]);
 
   const realtime = useRealtimeUpdates('CASH', () => {
     const {page: p, limit: l, filters: f} = current.current;

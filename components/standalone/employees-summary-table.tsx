@@ -72,7 +72,7 @@ export function EmployeesSummaryTable({canManage, canSubmit = false}: {canManage
   const search = useSearchParams();
   const requestedState = (search.get('state') ?? '').trim();
   const [query, setQuery] = useState(() => search.get('q') ?? '');
-  const [designation, setDesignation] = useState(() => search.get('designation') ?? '');
+  const [designation] = useState(() => search.get('designation') ?? '');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const limit = 20;

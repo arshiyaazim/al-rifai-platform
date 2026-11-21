@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import {useEffect, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {Eye} from 'lucide-react';
 import {AppToaster} from '@/components/standalone/app-toaster';
 import {CashPaymentForm} from '@/components/standalone/cash-payment-form';
@@ -121,8 +121,8 @@ export function CashTransactionsTable({
     current.current = {page, limit, appliedSearch, stateFilter, employeeFilter};
   }, [page, limit, appliedSearch, stateFilter, employeeFilter]);
 
-  async function load(nextPage: number, nextLimit: number, nextSearch: string, nextState: string,
-    nextEmployee = employeeFilter, quiet = false) {
+  const load = useCallback(async (nextPage: number, nextLimit: number, nextSearch: string, nextState: string,
+    nextEmployee: string, quiet = false) => {
     const id = ++request.current;
     if (!quiet) setLoading(true);
     setError(null);
@@ -149,12 +149,12 @@ export function CashTransactionsTable({
     } finally {
       if (id === request.current && !quiet) setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     const {page: p, limit: l, appliedSearch: q, stateFilter: s, employeeFilter: e} = current.current;
     void load(p, l, q, s, e, true);
-  }, []);
+  }, [load]);
 
   const realtime = useRealtimeUpdates('CASH', () => {
     const {page: p, limit: l, appliedSearch: q, stateFilter: s, employeeFilter: e} = current.current;
