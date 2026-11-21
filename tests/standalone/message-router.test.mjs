@@ -38,7 +38,7 @@ beforeEach(async () => {
       audit_events, cash_transaction_adjustments, cash_payment_event_postings, cash_payment_events, cash_reversals, cash_reconciliations, cash_instructions, cash_postings, ledger_entries,
       cash_submission_reviews, cash_submissions, review_decisions, review_items,
       attendance, attendance_records, identity_aliases, program_pay, program_source_messages,
-      program_assignments, program_events, programs, employees,
+      program_assignments, program_events, programs, employees, employee_documents,
       vessel_draft_deliveries,
       whatsapp_message_intelligence, whatsapp_calls, whatsapp_media, whatsapp_messages, whatsapp_chats, whatsapp_sync_state,
       whatsapp_accounts, whatsapp_import_runs, escort_client_group_authorizations,
@@ -131,11 +131,11 @@ async function ensureReleaseGroup() {
   );
 }
 
-async function stageMessage(accountId, chatJid, messageId, direction, senderJid, text, status = 'PENDING', sourceRowid = nextRowid++) {
+async function stageMessage(accountId, chatJid, messageId, direction, senderJid, text, status = 'PENDING', sourceRowid = nextRowid++, sourceTimestamp = null) {
   await row(
     `INSERT INTO whatsapp_messages
        (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash, processing_status, source_rowid)
-     VALUES ($1,$2,$3,$4,$5,now(),$6,encode(sha256(convert_to($6,'UTF8')),'hex'),$7,$8)
+     VALUES ($1,$2,$3,$4,$5,COALESCE($9::timestamptz,now()),$6,encode(sha256(convert_to($6,'UTF8')),'hex'),$7,$8)
      ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO UPDATE
        SET direction = EXCLUDED.direction,
            sender_jid = EXCLUDED.sender_jid,
@@ -149,7 +149,7 @@ async function stageMessage(accountId, chatJid, messageId, direction, senderJid,
            last_processed_at = NULL,
            processed_at = NULL,
            classification = NULL`,
-    [accountId, chatJid, messageId, direction, senderJid, text, status, sourceRowid],
+    [accountId, chatJid, messageId, direction, senderJid, text, status, sourceRowid, sourceTimestamp],
   );
 }
 
@@ -160,11 +160,6 @@ async function countInstructions() {
 
 async function countPrograms() {
   const r = await row(`SELECT count(*)::int AS n FROM programs WHERE source_channel = 'WHATSAPP'`);
-  return r.n;
-}
-
-async function countReviewItems() {
-  const r = await row('SELECT count(*)::int AS n FROM review_items');
   return r.n;
 }
 
@@ -236,15 +231,14 @@ test('cash: element-based message without ID/method/slash auto-posts and creates
   assert.equal(instr.employee_mobile, '+8801999887766');
   assert.equal(instr.method, 'cash');
 
-  const employee = await row("SELECT * FROM employees WHERE employee_mobile = '+8801999887766'");
+  const employee = await row("SELECT *, date_of_join::text AS date_of_join_text, joined_on::text AS joined_on_text FROM employees WHERE employee_mobile = '+8801999887766'");
   assert.ok(employee, 'a missing employee must be created, never dropped');
   assert.match(String(employee.notes), /AUTO_CREATED_FROM_CASH/);
   // Join date comes from the triggering message's Dhaka day, never now()/created_at.
   const expectedJoin = new Intl.DateTimeFormat('en-CA', {timeZone: 'Asia/Dhaka'})
     .format(new Date(String(instr.event_at)));
-  const iso = (value) => new Date(String(value)).toISOString().slice(0, 10);
-  assert.equal(iso(employee.date_of_join), expectedJoin);
-  assert.equal(iso(employee.joined_on), expectedJoin);
+  assert.equal(employee.date_of_join_text, expectedJoin);
+  assert.equal(employee.joined_on_text, expectedJoin);
 });
 
 test('cash: element-based two-mobile message keeps ID and payout separate', async () => {
@@ -720,7 +714,6 @@ test('vessel: Bangla/English labels parse correctly', async () => {
 
 test('vessel: vessel prefix normalization (M.V., MV, M. V., Mv.)', async () => {
   await ensureAccount('wa-01');
-  const before = await countPrograms();
   await stageMessage('wa-01', ORDER_CHAT, 'msg-vessel-prefix-1', 'INCOMING', ORDER_SENDER,
     'Mother Vessel: M.V. Beltokyo\nLighter Vessel: L-99\nMaster mobile: 01911111111');
 
@@ -752,16 +745,18 @@ test('vessel: same mother/lighter ±1-day duplicate → review warning', async (
   await ensureAccount('wa-01');
   // Create an existing program
   await stageMessage('wa-01', ORDER_CHAT, 'msg-vessel-orig-1', 'INCOMING', ORDER_SENDER,
-    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n17/11/26(D)');
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n17/11/26(D)', 'PENDING', nextRowid++, '2026-11-17T10:00:00+06:00');
   const r1 = await routePendingMessages(admin, 10);
   assert.equal(r1.programs, 1);
 
-  // Same mother/lighter, +1 day → duplicate warning → review
+  // Same mother/lighter, +1 day → auto-correct to latest date
   await stageMessage('wa-01', ORDER_CHAT, 'msg-vessel-dup-1', 'INCOMING', ORDER_SENDER,
-    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n18/11/26(D)');
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n18/11/26(D)', 'PENDING', nextRowid++, '2026-11-18T10:00:00+06:00');
   const r2 = await routePendingMessages(admin, 10);
-  assert.equal(r2.programs, 0, 'Duplicate should not create new program');
-  assert.equal(r2.reviewItems, 1, 'Duplicate warning should go to review');
+  assert.equal(r2.programs, 1, 'latest date auto-corrects the existing program');
+  assert.equal(r2.reviewItems, 0);
+  const corrected = await row("SELECT start_date::text AS start_date FROM programs WHERE lighter_vessel='L-77'");
+  assert.equal(corrected.start_date, '2026-11-18');
 });
 
 test('vessel: same escort/date with different lighter is NOT a duplicate', async () => {
@@ -1011,16 +1006,18 @@ test('review: VESSEL_DUPLICATE_CANDIDATE — ±1 day duplicate', async () => {
   await ensureAccount('wa-01');
   // Create an existing program
   await stageMessage('wa-01', ORDER_CHAT, 'msg-review-dup-orig-1', 'INCOMING', ORDER_SENDER,
-    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n17/11/26(D)');
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n17/11/26(D)', 'PENDING', nextRowid++, '2026-11-17T10:00:00+06:00');
   const r1 = await routePendingMessages(admin, 10);
   assert.equal(r1.programs, 1);
 
-  // Same mother/lighter, +1 day → duplicate warning → review
+  // Same mother/lighter, +1 day → auto-correct to latest date
   await stageMessage('wa-01', ORDER_CHAT, 'msg-review-dup-1', 'INCOMING', ORDER_SENDER,
-    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n18/11/26(D)');
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n18/11/26(D)', 'PENDING', nextRowid++, '2026-11-18T10:00:00+06:00');
   const r2 = await routePendingMessages(admin, 10);
-  assert.equal(r2.programs, 0, 'Duplicate should not create new program');
-  assert.equal(r2.reviewItems, 1, 'Duplicate warning should go to review');
+  assert.equal(r2.programs, 1, 'latest date auto-corrects the existing program');
+  assert.equal(r2.reviewItems, 0);
+  const corrected = await row("SELECT start_date::text AS start_date FROM programs WHERE lighter_vessel='L-77'");
+  assert.equal(corrected.start_date, '2026-11-18');
 });
 
 test('review: INCOMPLETE_CASH_INSTRUCTION — missing amount', async () => {
@@ -1108,15 +1105,16 @@ test('review: WA-02 business processing rejected', async () => {
 
 test('review: ambiguous Admin confirmation → review candidate', async () => {
   await ensureAccount('wa-01');
-  // Create two draft programs with same mother+lighter in same chat
-  await stageMessage('wa-01', ORDER_CHAT, 'msg-review-ambig-1', 'INCOMING', ORDER_SENDER,
-    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n17/11/26(D)');
-  // Keep the dates outside the ±1-day duplicate window so the fixture really
-  // creates two matching programs; ambiguity is the confirmation's job.
-  await stageMessage('wa-01', ORDER_CHAT, 'msg-review-ambig-2', 'INCOMING', ORDER_SENDER,
-    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n20/11/26(D)');
-  const r1 = await routePendingMessages(admin, 10);
-  assert.equal(r1.programs, 2, 'Two different dates create two programs');
+  // Two existing drafts with the same conversation identity. Insert directly
+  // because the Owner's duplicate rule correctly auto-corrects a second order
+  // on the same primary identity; ambiguity remains a confirmation concern.
+  await row(`INSERT INTO programs
+      (id, mother_vessel, lighter_vessel, master_mobile, start_date, start_shift,
+       state, source_channel, source_type, source_chat_jid, event_at, created_by)
+    VALUES
+      ('prog_ambig_a','OCEAN STAR','L-77','01911111111','2026-11-17','D','DRAFT','WEB','MANUAL',$1,'2026-11-17T10:00:00+06:00','test'),
+      ('prog_ambig_b','OCEAN STAR','L-77','01911111111','2026-11-20','D','DRAFT','WEB','MANUAL',$1,'2026-11-20T10:00:00+06:00','test')
+    ON CONFLICT (id) DO NOTHING`, [ORDER_CHAT]);
 
   // Admin outgoing confirmation — ambiguous (2 matching programs)
   await stageMessage('wa-01', ORDER_CHAT, 'msg-review-ambig-2', 'OUTGOING', '8801880446111@s.whatsapp.net',

@@ -17,7 +17,7 @@
 // --apply nothing is written.
 
 import {loadEnv} from '../lib/env.mjs';
-import {rows, row, type Actor} from '../lib/standalone/db.ts';
+import {rows, type Actor} from '../lib/standalone/db.ts';
 import {releaseProgram} from '../lib/standalone/programs.ts';
 import {compareVesselNames} from '../lib/vessel-match.ts';
 import {parseReleaseSlips} from '../lib/release-slip.ts';

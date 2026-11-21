@@ -1295,28 +1295,10 @@ async function handleVessel(
       }
       continue;
     }
-    if (dups.length > 0) {
-      // ±1-day duplicate warning → Review Queue (does NOT discard the order)
-      const duplicateSubmitted = await submitReviewItem(actor, 'PROGRAM', 'CREATE', message.message_id,
-        'VESSEL_DUPLICATE_CANDIDATE', {
-          sourceMessageId: message.message_id,
-          sourceChatJid: message.chat_jid,
-          sourceAccountId: message.account_id,
-          sourceTimestamp: message.source_timestamp,
-          senderJid: message.sender_jid,
-          rawText: text,
-          fields: {motherVessel, lighterVessel, masterMobile,
-            destination: fields.destination ?? null,
-            assignmentDate: fields.assignmentDate ?? null,
-            shift: fields.shift ?? null},
-          duplicateWarning: true,
-          potentialDuplicates: dups.map((d) => ({id: d.id, start_date: d.start_date})),
-          parser: 'parseEscortOrder',
-        });
-      if (duplicateSubmitted.submitted) reviewSubmitted = true;
-      allReasons.push('DUPLICATE_WARNING_SUBMITTED_TO_REVIEW');
-      continue;
-    }
+    // Owner rule (2026-11-21): a ±1-day same mother/master/escort message is
+    // the same program; createProgram updates the latest date/shift instead of
+    // creating a review row. Exact replays are handled by the guard above.
+
 
     try {
       const noteParts: string[] = [];
@@ -1441,6 +1423,11 @@ async function handleConfirmation(
   for (const program of candidates) {
     const score = computeConfirmationScore(text, program as never, message.source_timestamp.slice(0, 10));
     if (!best || score > best.score) best = {program, score};
+  }
+  if (!candidates.length) {
+    // No draft in this conversation can match the reply at all. This is an
+    // unmatched confirmation, not a low-confidence score against a candidate.
+    return {confirmed: false, classification: 'CONFIRMATION_UNMATCHED'};
   }
   const score = best?.score ?? 0;
   const confirmConfig = await featureConfig('vessel.auto_confirm', {fuzzy_threshold: 0.90});

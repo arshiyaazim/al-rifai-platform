@@ -105,7 +105,7 @@ function matches(value: unknown, filter: string) {
 }
 
 function LookupFilter({
-  id, value, onChange, items, placeholder,
+  value, onChange, items, placeholder,
 }: {
   id: string;
   value: string;
@@ -129,7 +129,7 @@ function LookupFilter({
 }
 
 export function VesselRegisterClient({
-  initial, escorts, mothers: initialMothers, lighters: initialLighters,
+  initial, mothers: initialMothers, lighters: initialLighters,
   escortNames: initialEscortNames, escortMobiles: initialEscortMobiles,
   clients, fixedMother, initialMother = '', initialEscortMobile = '', canCommand, canRelease, canSubmit, showNew = true,
 }: {

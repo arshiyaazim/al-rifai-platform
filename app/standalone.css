@@ -1709,13 +1709,44 @@ a { color: #3b82f6; }
   }
 }
 
-/* Cash Lookup: wrap instead of overflowing; keep the submit button compact. */
+/* Cash Lookup: one desktop row, two compact mobile rows. */
 .table-toolbar form.form.compact { flex-wrap: wrap; }
-.cash-search-input {
-  flex: 1 1 220px;
-  min-width: 0;
-  max-width: 360px;
+.cash-table-card { padding: 16px; }
+.cash-table-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
 }
+.cash-search-form {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.cash-search-form > div { flex: 0 0 320px; width: 320px; max-width: 100%; }
+.cash-search-input {
+  /* Width is controlled here; the parent is a flex column, so a flex-basis
+     would otherwise stretch the input's height (the old 220px bug). */
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: 320px;
+  height: 36px;
+  padding: 0 10px;
+}
+.cash-mobile-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+.cash-table-toolbar .export-controls { margin-left: auto; flex-wrap: nowrap; }
+.cash-table-toolbar .export-actions { align-items: center; }
 .table-toolbar form > button[type="submit"] {
   flex: 0 0 auto;
   width: auto;
@@ -1724,7 +1755,31 @@ a { color: #3b82f6; }
   padding-right: 12px;
 }
 @media (max-width: 768px) {
-  .cash-search-input { max-width: none; }
+  .cash-table-card { padding: 16px; }
+  .cash-table-toolbar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .cash-search-form { grid-column: 1 / -1; width: 100%; flex: 0 0 auto; }
+  .cash-search-form > button[type="submit"] { display: none; }
+  .cash-search-form > div { flex: 1 1 auto; width: 100%; max-width: none; }
+  .cash-search-input { width: 100%; max-width: none; height: 44px; }
+  .cash-mobile-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; grid-column: 1 / -1; width: 100%; }
+  .cash-mobile-actions select { width: 100%; }
+  .cash-mobile-actions .cash-add-payment { width: 100%; }
+  .cash-clear-filters { display: none; }
+  .cash-table-toolbar .export-controls {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: nowrap;
+    margin-left: 0;
+  }
+  .cash-table-scroll { padding-bottom: 56px; }
+  .alrifai-fab { right: 12px; bottom: calc(16px + env(safe-area-inset-bottom)); }
   .table-toolbar form > button[type="submit"] {
     width: auto;
     min-height: 44px;

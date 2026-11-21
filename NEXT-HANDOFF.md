@@ -10,6 +10,165 @@ staging QA 6/6 + 8/8 + concurrent 1/1.
 **Cash status:** not frozen; protection is capability-based (`cash.post`,
 `cash.reverse`) plus immutable triggers and explicit posting. `PHASE3_PAID_EVENTS_ENABLED=0`
 only disables optional Business Paid reporting, not core Cash.
+
+## 2026-11-21 — Task 08: final merge, migration 030 and production deploy
+
+**Status:** branch `chore/task05-lint-schema-parity` at `7f50df1`; permanent
+merge into `main`, production backup, migration 030 and app+sync deploy are the
+approved final steps. Exact final SHA/image/health are recorded below after the
+deploy.
+
+**Cash toolbar**
+- Desktop: 36px × 320px search input; search, state filter, Add Payment and
+  export/actions on one line; 10px gaps, 16px card padding, 10px toolbar
+  bottom margin.
+- Mobile: 44px full-width search; 50/50 All states + Add Payment row; export
+  checkbox + action icons row; 8px vertical gaps. Mobile Search submit is hidden
+  because the backend typeahead is the search action.
+- Cash search input bug (old 220px flex-basis height) is fixed; card/table
+  vertical gaps are compact; floating Ask has a 56px table clearance.
+
+**Rates and migration**
+- Approved rates: Nowapara 1200, Nagor Bari 1100, **Bagha Bari 1100** (Owner
+  confirmed 110 was a typo), Jhalokathi 1100, Barishal/Vhola 1000, Local/CTG 0,
+  Faridpur 1000.
+- Migration 030 contains only `rate_config` upserts. It contains no QA user,
+  synthetic seed or test fixture. Candidate `alrifai_staging_aligned` has 29
+  migration-history rows and label 1.13.8; the label stays 1.13.8 because 030 is
+  data-only. Production will get 030 through the repo migration runner only,
+  never by restoring the candidate.
+- Staging is switched to the verified candidate (`PGDATABASE=alrifai_staging_aligned`),
+  health schema 1.13.8, Playwright 15/15.
+
+**Backup**
+- Custom-format production dump created before deploy in the root-only backup
+  area; size 12,027,400 bytes; `pg_restore --list` 507 objects; SHA-256 recorded
+  beside the dump. Rollback images v3.3.19-next16.4.6 and
+  v3.3.21-review-workflow-next16.4.6 are retained.
+
+**Verification**
+- Lint 0/0, typecheck 0, unit 201/201, full DB suite 258/258, staging QA 15/15.
+
+## 2026-11-21 — Task 07: business rules + 258/258 DB suite (local branch only)
+
+**Status:** implemented on `chore/task05-lint-schema-parity`; **not merged, not
+pushed, not deployed**. `main` / `origin/main` remain `3631b49`; Production
+remains `v3.3.21-review-workflow-next16.4.6` and healthy.
+
+**Implemented business rules**
+- Employee ID: escort mobile is the identity; existing employee is attached to
+  duty, missing identity is created once. Cash `ID:` mobile is the employee,
+  the mobile after the name is payout; a single mobile is the identity.
+- Join date: assignment/cash creates use the real WhatsApp event day (Dhaka);
+  no duplicate employee row. Timezone tests now compare the DB `date` text, not
+  a JS `Date` re-projection.
+- Payroll: escort stays BDT 200 per 12-hour shift (BDT 400/day). Security adds
+  the Owner's one-shift BDT 400 minimum premium in the attendance summary.
+- Vessel duplicate: primary identity = mother + lighter + master + escort
+  (lighter is the multi-vessel barrier). Same date/shift is duplicate; a new
+  date/shift auto-corrects the existing row to the latest date. The old
+  duplicate-warning-review branch was removed. Front-end edit/correction stays.
+- Release/food bill: existing 150-divisor and ±1-day matching rules remain and
+  pass the release tests.
+- Destination: spelling aliases + 50% similarity normalization (N. Gonj,
+  Narayangonj, n.para, b.bari, etc.). Migration 030 seeds/updates the Owner
+  conveyance rates: Nowapara 1200, Nagor Bari 1100, Bagha Bari 1100,
+  Jhalokathi 1100, Barishal/Vhola 1000, Local/CTG 0, Faridpur 1000.
+- Cash search CSS bug fixed: the old flex-basis stretched the input to 220px;
+  it is now 36px desktop / 44px mobile with 8px vertical and 10px horizontal
+  padding. Home search input is 40px desktop / 44px mobile.
+
+**Verification**
+- `npm run lint`: **0 errors / 0 warnings**.
+- `npm run typecheck`: **0 errors**.
+- `npm run test:unit`: **201/201**.
+- Full `test:standalone` on a disposable clone from the aligned candidate:
+  **258/258 pass, 0 fail, 0 skip**; Review alone 7/7.
+- Staging aligned candidate (`alrifai_staging_aligned`, schema 1.13.8, 29
+  migrations including 030) with temporary image
+  `v3.3.22-task07-verify`: Dockerized Playwright **15/15 pass** (feature 6/6,
+  baseline 8/8, concurrent 1/1).
+- Main/production were not touched; temporary image/containers/clones were
+  removed after QA. Existing staging DB/volume remains.
+
+**Pixel measurements requested by the Owner (staging aligned candidate)**
+- Cash search input: desktop 36px high × 320px wide; padding 8px top/bottom,
+  10px left/right. Search card padding 16px top/bottom; toolbar margin-bottom
+  12px. Mobile: 44px high × 320px wide, same 8px vertical padding.
+- Home search typing area: desktop 40px high × 1074px wide; mobile 44px high ×
+  351px wide; horizontal padding 32px left / 42px right.
+
+**Next:** Owner approval is required to commit/merge/push this branch and to
+apply migration 030 to Production. Do not deploy the branch as-is.
+
+## 2026-11-21 — Task 05: lint cleanup + aligned staging candidate (superseded by Task 07)
+
+**Status:** implemented and committed on `chore/task05-lint-schema-parity`
+(`1a92636`); **not merged, not pushed, not deployed**. `main` and Production
+remain at `3631b49` / `v3.3.21-review-workflow-next16.4.6`.
+
+**Lint and static checks**
+- `npm run lint`: 9 warnings → **0 errors / 0 warnings** (exit 0).
+- `npm run typecheck`: 0 errors.
+- `npm run test:unit`: 201/201 pass.
+- Root causes fixed: missing stable `load` callbacks in two history tables,
+  unused state setter, browser `assign` redirect changed to `replace`, unused
+  filter props/imports, and unused test helpers/variables. No blanket disables.
+
+**Schema alignment**
+- Created a new candidate DB, `alrifai_staging_aligned`, from a schema-only
+  Production dump plus only `schema_meta` / `schema_migrations` metadata and a
+  small synthetic baseline (default cash account, AI job catalog, feature flags,
+  recruitment setting).
+- Candidate: schema 1.13.8, 28 migrations (latest 029), 68 public tables.
+  Existing `alrifai_staging`: 1.12.0, 62 tables. Existing DB/volume was not
+  modified.
+- Full schema dump diff: **0 lines**. Catalog diff (tables/columns/indexes/
+  constraints/triggers): **0 lines**, 1,451 items compared.
+- The six extra Production tables are diagnostic snapshots; their definitions
+  match exactly after restore. No migration was run and no raw Production rows
+  were copied.
+- Candidate is **prepared only**; staging was not switched because the full
+  suite did not pass (see below).
+
+**Full DB suite (historical — superseded by Task 07)**
+- Command: `npm run test:standalone` on a disposable clone created from the
+  aligned candidate. Guard verified the host was the staging PostgreSQL
+  container and the database name was the run clone; Production credentials were
+  never used.
+- Historical result: **258 tests — 247 pass, 11 fail, 0 skip**. Task 07 fixed
+  them and reached **258/258**; see the Task 07 section above.
+- Remaining failures (needs investigation before any claim of completion):
+  domain `programs: create, duplicate...` (pkey conflict instead of
+  `DUPLICATE_PROGRAM`), domain late-rate payroll recalculation, escort
+  ±1-day duplicate, confirmation classification
+  (`CONFIRMATION_SCORE_BELOW_THRESHOLD` vs unmatched), register formatting/
+  pagination, escort join-date, one element-based cash auto-post, vessel ±1-day
+  review, review duplicate candidate, and ambiguous Admin confirmation.
+- The run created disposable clones (`alrifai_task05_*`) and dropped them after
+  the run. The aligned candidate remains for the next session.
+
+**Staging/UI verification**
+- Built a temporary staging-only image `v3.3.22-task05-lint-verify` and ran the
+  Dockerized Playwright suites against the existing staging DB: **14/14 pass**
+  (feature 6/6 + baseline 8/8), including cash typeahead, Review, vessel,
+  attendance and employee flows.
+- Temporary image, staging app container and override file were removed after
+  verification; the old staging DB volume remains intact. No Production action.
+
+**Safe next verification**
+1. Start from a new local worktree/branch; never run the suite on Production.
+2. Recreate the aligned candidate from the schema-only Production dump plus
+   metadata and synthetic baseline; check `schema_meta`, migrations and the
+   catalog diff before testing.
+3. Create a fresh disposable clone from that candidate; include
+   `employee_documents` in every truncate reset; run the full suite with the
+   host/database-name guard.
+4. Treat 11 failures above as blockers until explained/fixed; do not call the
+   suite passed or switch staging on a partial run.
+5. Only after 258/258 (or an Owner-approved documented exception) should the
+   staging database pointer be switched, and then health/schema must be checked.
+
 **Next session state (2026-11-21):**
 - Current production release: `v3.3.21-review-workflow-next16.4.6` (app + sync, same tag).
 - Next.js advisory state: **RESOLVED by 16.4.6** (OSV 0; React 19.2.6 unchanged).
@@ -41,30 +200,19 @@ only disables optional Business Paid reporting, not core Cash.
 These are required follow-ups before the next feature or database change. They
 are ordered by urgency and must not be silently skipped.
 
-1. **Lint warnings (9 remaining).** `npm run lint` is 0 errors but still reports
-   9 warnings. The next session must fix all 9 first, before adding new UI
-   work: missing `load` dependencies in two history tables, an unused
-   `setDesignation`, an internal navigation warning, three unused-variable
-   warnings in application/script files, and two test-only unused variables.
-   Do not suppress them with blanket eslint-disable comments; fix the code.
+1. **Lint — resolved on the Task 07 branch.** `npm run lint` is 0 errors /
+   0 warnings without disables. The branch is not merged; keep the 0/0 gate
+   after approval.
 
-2. **Schema alignment (Staging 1.12.0 vs Production 1.13.8).** Both databases
-   have the same 28 migrations (latest 029) and the same core schema, but
-   Production has six extra diagnostic snapshot tables
-   (`program_assignments_snapshot`, `program_events_snapshot`,
-   `program_identity_snapshot`, `program_pay_snapshot`,
-   `program_source_messages_snapshot`, `vessel_draft_deliveries_snapshot`).
-   The app does not reference them. Before any database or migration work,
-   refresh Staging from a sanitized Production dump and prove schema parity.
-   Never run a migration against Staging while its `schema_meta` still says
-   1.12.0 without first confirming the real applied state.
+2. **Schema alignment — candidate verified, not switched.** `alrifai_staging_aligned`
+   is 1.13.8 with 29 migrations (030 data-only); schema/catalog diff against the
+   Production schema was 0 before 030. The existing `alrifai_staging` (1.12.0)
+   remains the default staging DB. Switch only with Owner approval.
 
-3. **Full DB suite execution rules.** Never run the full DB-backed suite against
-   live Production. Use a disposable clone (for example, create a temporary
-   database from the staging template), run the suite there, and drop the clone
-   afterwards. The Review 7/7 run in this session used a disposable clone for
-   exactly this reason. The full suite was not run because the staging seed
-   lacks the WhatsApp account fixtures required by unrelated tests.
+3. **Full DB suite — 258/258 on Task 07.** Always use a disposable clone from
+   the aligned candidate, with a host/database-name guard, and drop it
+   afterwards. Never run it against live Production. Task 07 result:
+   258 pass, 0 fail, 0 skip; Review alone 7/7.
 
 ### Agent verification tools and lessons
 

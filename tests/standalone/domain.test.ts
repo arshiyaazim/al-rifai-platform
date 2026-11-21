@@ -33,7 +33,7 @@ test('setup: rate + actors', async () => {
   await ensureUser(adminA.id, 'admin-a', 'ADMIN');
   await ensureUser(adminB.id, 'admin-b', 'ADMIN');
   await ensureUser(user.id, 'staff-c', 'USER');
-  await upsertRate(adminA, {destinationKey: 'default', destinationLabel: 'Default', shiftRateMinor: 20000, conveyanceMinor: 0});
+  await upsertRate(adminA, {destinationKey: '*', destinationLabel: 'Unspecified', shiftRateMinor: 20000, conveyanceMinor: 0});
   const rates = await rows('SELECT * FROM rate_config');
   assert.ok(rates.length >= 1);
 });
