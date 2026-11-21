@@ -10,6 +10,75 @@ staging QA 6/6 + 8/8 + concurrent 1/1.
 **Cash status:** not frozen; protection is capability-based (`cash.post`,
 `cash.reverse`) plus immutable triggers and explicit posting. `PHASE3_PAID_EVENTS_ENABLED=0`
 only disables optional Business Paid reporting, not core Cash.
+
+## 2026-11-21 — Task 05: lint cleanup + aligned staging candidate (local branch only)
+
+**Status:** implemented and committed on `chore/task05-lint-schema-parity`
+(`1a92636`); **not merged, not pushed, not deployed**. `main` and Production
+remain at `3631b49` / `v3.3.21-review-workflow-next16.4.6`.
+
+**Lint and static checks**
+- `npm run lint`: 9 warnings → **0 errors / 0 warnings** (exit 0).
+- `npm run typecheck`: 0 errors.
+- `npm run test:unit`: 201/201 pass.
+- Root causes fixed: missing stable `load` callbacks in two history tables,
+  unused state setter, browser `assign` redirect changed to `replace`, unused
+  filter props/imports, and unused test helpers/variables. No blanket disables.
+
+**Schema alignment**
+- Created a new candidate DB, `alrifai_staging_aligned`, from a schema-only
+  Production dump plus only `schema_meta` / `schema_migrations` metadata and a
+  small synthetic baseline (default cash account, AI job catalog, feature flags,
+  recruitment setting).
+- Candidate: schema 1.13.8, 28 migrations (latest 029), 68 public tables.
+  Existing `alrifai_staging`: 1.12.0, 62 tables. Existing DB/volume was not
+  modified.
+- Full schema dump diff: **0 lines**. Catalog diff (tables/columns/indexes/
+  constraints/triggers): **0 lines**, 1,451 items compared.
+- The six extra Production tables are diagnostic snapshots; their definitions
+  match exactly after restore. No migration was run and no raw Production rows
+  were copied.
+- Candidate is **prepared only**; staging was not switched because the full
+  suite did not pass (see below).
+
+**Full DB suite**
+- Command: `npm run test:standalone` on a disposable clone created from the
+  aligned candidate. Guard verified the host was the staging PostgreSQL
+  container and the database name was the run clone; Production credentials were
+  never used.
+- Result: **258 tests — 247 pass, 11 fail, 0 skip**. Review-specific suite
+  separately: **7/7 pass**. This is not a full-suite PASS.
+- Remaining failures (needs investigation before any claim of completion):
+  domain `programs: create, duplicate...` (pkey conflict instead of
+  `DUPLICATE_PROGRAM`), domain late-rate payroll recalculation, escort
+  ±1-day duplicate, confirmation classification
+  (`CONFIRMATION_SCORE_BELOW_THRESHOLD` vs unmatched), register formatting/
+  pagination, escort join-date, one element-based cash auto-post, vessel ±1-day
+  review, review duplicate candidate, and ambiguous Admin confirmation.
+- The run created disposable clones (`alrifai_task05_*`) and dropped them after
+  the run. The aligned candidate remains for the next session.
+
+**Staging/UI verification**
+- Built a temporary staging-only image `v3.3.22-task05-lint-verify` and ran the
+  Dockerized Playwright suites against the existing staging DB: **14/14 pass**
+  (feature 6/6 + baseline 8/8), including cash typeahead, Review, vessel,
+  attendance and employee flows.
+- Temporary image, staging app container and override file were removed after
+  verification; the old staging DB volume remains intact. No Production action.
+
+**Safe next verification**
+1. Start from a new local worktree/branch; never run the suite on Production.
+2. Recreate the aligned candidate from the schema-only Production dump plus
+   metadata and synthetic baseline; check `schema_meta`, migrations and the
+   catalog diff before testing.
+3. Create a fresh disposable clone from that candidate; include
+   `employee_documents` in every truncate reset; run the full suite with the
+   host/database-name guard.
+4. Treat 11 failures above as blockers until explained/fixed; do not call the
+   suite passed or switch staging on a partial run.
+5. Only after 258/258 (or an Owner-approved documented exception) should the
+   staging database pointer be switched, and then health/schema must be checked.
+
 **Next session state (2026-11-21):**
 - Current production release: `v3.3.21-review-workflow-next16.4.6` (app + sync, same tag).
 - Next.js advisory state: **RESOLVED by 16.4.6** (OSV 0; React 19.2.6 unchanged).
@@ -41,30 +110,21 @@ only disables optional Business Paid reporting, not core Cash.
 These are required follow-ups before the next feature or database change. They
 are ordered by urgency and must not be silently skipped.
 
-1. **Lint warnings (9 remaining).** `npm run lint` is 0 errors but still reports
-   9 warnings. The next session must fix all 9 first, before adding new UI
-   work: missing `load` dependencies in two history tables, an unused
-   `setDesignation`, an internal navigation warning, three unused-variable
-   warnings in application/script files, and two test-only unused variables.
-   Do not suppress them with blanket eslint-disable comments; fix the code.
+1. **Lint warnings — resolved on the Task 05 branch.** `chore/task05-lint-schema-parity`
+   (`1a92636`) takes `npm run lint` from 9 warnings to 0 errors / 0 warnings
+   without disables. It is not merged yet; after merge, keep the 0/0 gate.
 
-2. **Schema alignment (Staging 1.12.0 vs Production 1.13.8).** Both databases
-   have the same 28 migrations (latest 029) and the same core schema, but
-   Production has six extra diagnostic snapshot tables
-   (`program_assignments_snapshot`, `program_events_snapshot`,
-   `program_identity_snapshot`, `program_pay_snapshot`,
-   `program_source_messages_snapshot`, `vessel_draft_deliveries_snapshot`).
-   The app does not reference them. Before any database or migration work,
-   refresh Staging from a sanitized Production dump and prove schema parity.
-   Never run a migration against Staging while its `schema_meta` still says
-   1.12.0 without first confirming the real applied state.
+2. **Schema alignment — candidate prepared, not switched.** The Task 05 branch
+   created `alrifai_staging_aligned` from a schema-only Production dump plus
+   metadata and synthetic baseline. Schema/catalog diff is 0, but the existing
+   `alrifai_staging` (1.12.0) is still the active DB. Do not switch until the
+   full-suite blockers below are resolved or the Owner approves an exception.
 
 3. **Full DB suite execution rules.** Never run the full DB-backed suite against
-   live Production. Use a disposable clone (for example, create a temporary
-   database from the staging template), run the suite there, and drop the clone
-   afterwards. The Review 7/7 run in this session used a disposable clone for
-   exactly this reason. The full suite was not run because the staging seed
-   lacks the WhatsApp account fixtures required by unrelated tests.
+   live Production. Use a disposable clone from the aligned candidate, with a
+   host/database-name guard, and drop it afterwards. Task 05 ran the full suite:
+   258 tests, 247 pass, 11 fail, 0 skip; Review alone is 7/7. The 11 failures
+   listed in the Task 05 section are blockers, not a pass.
 
 ### Agent verification tools and lessons
 
