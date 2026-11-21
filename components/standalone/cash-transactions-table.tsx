@@ -260,7 +260,7 @@ export function CashTransactionsTable({
   return (
     <>
       <AppToaster />
-      <section className="card print-area" style={{marginBottom: 18}}>
+      <section className="card print-area cash-table-card" style={{marginBottom: 18}}>
         <div className="page-head" style={{marginBottom: 8}}>
           <div>
             <h3>Cash Transactions ({data.total.toLocaleString()})</h3>
@@ -273,8 +273,8 @@ export function CashTransactionsTable({
           </span>
         </div>
 
-        <div className="table-toolbar print-hidden">
-          <form method="get" className="form compact" onSubmit={submitSearch} style={{margin: 0, display: 'flex', gap: 8, alignItems: 'center'}}>
+        <div className="table-toolbar cash-table-toolbar print-hidden">
+          <form method="get" className="form compact cash-search-form" onSubmit={submitSearch}>
             <div style={{flex: '0 1 320px', width: 320, maxWidth: '100%'}}>
               <EmployeeLookup
                 id="cash-transactions-search"
@@ -291,7 +291,7 @@ export function CashTransactionsTable({
             </div>
             <Button type="submit" size="sm">Search</Button>
           </form>
-          <div className="row cash-mobile-actions" style={{gap: 8, flexWrap: 'wrap'}}>
+          <div className="row cash-mobile-actions">
             <select
               value={stateFilter}
               onChange={(event) => changeState(event.target.value)}
@@ -301,12 +301,12 @@ export function CashTransactionsTable({
               {STATES.map(([value, label]) => <option key={value || 'all'} value={value}>{label}</option>)}
             </select>
             {activeFilters ? (
-              <Button type="button" size="sm" variant="outline" onClick={clearFilters}>
+              <Button type="button" size="sm" variant="outline" className="cash-clear-filters" onClick={clearFilters}>
                 Clear filters{activeFilters ? ` (${activeFilters})` : ''}
               </Button>
             ) : null}
             {canSubmit ? (
-              <Button type="button" size="sm" onClick={() => setPaymentOpen(true)}>Add New Payment</Button>
+              <Button type="button" size="sm" className="cash-add-payment" onClick={() => setPaymentOpen(true)}>Add New Payment</Button>
             ) : null}
           </div>
           <TableExportControls
