@@ -11,6 +11,44 @@ staging QA 6/6 + 8/8 + concurrent 1/1.
 `cash.reverse`) plus immutable triggers and explicit posting. `PHASE3_PAID_EVENTS_ENABLED=0`
 only disables optional Business Paid reporting, not core Cash.
 
+## 2026-11-21 — Task 08: final merge, migration 030 and production deploy
+
+**Status:** branch `chore/task05-lint-schema-parity` at `7f50df1`; permanent
+merge into `main`, production backup, migration 030 and app+sync deploy are the
+approved final steps. Exact final SHA/image/health are recorded below after the
+deploy.
+
+**Cash toolbar**
+- Desktop: 36px × 320px search input; search, state filter, Add Payment and
+  export/actions on one line; 10px gaps, 16px card padding, 10px toolbar
+  bottom margin.
+- Mobile: 44px full-width search; 50/50 All states + Add Payment row; export
+  checkbox + action icons row; 8px vertical gaps. Mobile Search submit is hidden
+  because the backend typeahead is the search action.
+- Cash search input bug (old 220px flex-basis height) is fixed; card/table
+  vertical gaps are compact; floating Ask has a 56px table clearance.
+
+**Rates and migration**
+- Approved rates: Nowapara 1200, Nagor Bari 1100, **Bagha Bari 1100** (Owner
+  confirmed 110 was a typo), Jhalokathi 1100, Barishal/Vhola 1000, Local/CTG 0,
+  Faridpur 1000.
+- Migration 030 contains only `rate_config` upserts. It contains no QA user,
+  synthetic seed or test fixture. Candidate `alrifai_staging_aligned` has 29
+  migration-history rows and label 1.13.8; the label stays 1.13.8 because 030 is
+  data-only. Production will get 030 through the repo migration runner only,
+  never by restoring the candidate.
+- Staging is switched to the verified candidate (`PGDATABASE=alrifai_staging_aligned`),
+  health schema 1.13.8, Playwright 15/15.
+
+**Backup**
+- Custom-format production dump created before deploy in the root-only backup
+  area; size 12,027,400 bytes; `pg_restore --list` 507 objects; SHA-256 recorded
+  beside the dump. Rollback images v3.3.19-next16.4.6 and
+  v3.3.21-review-workflow-next16.4.6 are retained.
+
+**Verification**
+- Lint 0/0, typecheck 0, unit 201/201, full DB suite 258/258, staging QA 15/15.
+
 ## 2026-11-21 — Task 07: business rules + 258/258 DB suite (local branch only)
 
 **Status:** implemented on `chore/task05-lint-schema-parity`; **not merged, not

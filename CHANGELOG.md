@@ -1,5 +1,32 @@
 # Changelog
 
+## v3.3.23-review-workflow-next16.4.6 — business rules, migration 030, compact cash toolbar (2026-11-21)
+
+- Cash toolbar: desktop search is 36px × 320px with search, filters, add-payment
+  and export controls on one horizontal line (10px gaps, 16px card padding).
+  Mobile is a full-width 44px search, a 50/50 state + Add Payment row, then an
+  export/actions row, with 8px vertical gaps; the floating Ask button now keeps
+  clear of the table.
+- Owner business rules: escort mobile is the Employee ID; cash `ID:` mobile is
+  identity and the post-name mobile is payout; join dates use the real WhatsApp
+  event day; duplicate employee identities are prevented.
+- Payroll: BDT 200 per 12-hour escort shift (400/day); security 12-hour/one-shift
+  duty receives the 400 minimum.
+- Vessel duplicate: mother + lighter + master + escort primary identity; a newer
+  date/shift auto-corrects the existing program instead of creating a review row
+  or a second register row. Multi-vessel lighter rows remain separate.
+- Destination aliases + 50% similarity matching; migration 030 is data-only and
+  sets the approved conveyance rates (Nowapara 1200, Nagor Bari 1100, Bagha Bari
+  1100, Jhalokathi 1100, Barishal/Vhola 1000, Local/CTG 0, Faridpur 1000).
+- Verification: lint 0/0, typecheck 0, unit 201/201, full DB suite 258/258,
+  staging aligned candidate Playwright 15/15. Bagha Bari is confirmed 1100 (the
+  earlier 110 was a typo).
+- Migration 030 contains only the rate_config upserts: no QA user, synthetic
+  data or test fixture. Candidate has 29 migration-history rows; the schema
+  label remains 1.13.8 because 030 is data-only.
+- Production backup before deploy: root-only custom-format dump (12,027,400
+  bytes, pg_restore list 507 objects). Rollback images remain
+  v3.3.19-next16.4.6 and v3.3.21-review-workflow-next16.4.6.
 ## v3.3.21-review-workflow — USER review workflow on Next.js 16.4.6 (2026-11-20)
 
 - Merged `feature/user-review-workflow` into security-updated `main`
