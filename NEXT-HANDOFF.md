@@ -11,7 +11,59 @@ staging QA 6/6 + 8/8 + concurrent 1/1.
 `cash.reverse`) plus immutable triggers and explicit posting. `PHASE3_PAID_EVENTS_ENABLED=0`
 only disables optional Business Paid reporting, not core Cash.
 
-## 2026-11-21 — Task 05: lint cleanup + aligned staging candidate (local branch only)
+## 2026-11-21 — Task 07: business rules + 258/258 DB suite (local branch only)
+
+**Status:** implemented on `chore/task05-lint-schema-parity`; **not merged, not
+pushed, not deployed**. `main` / `origin/main` remain `3631b49`; Production
+remains `v3.3.21-review-workflow-next16.4.6` and healthy.
+
+**Implemented business rules**
+- Employee ID: escort mobile is the identity; existing employee is attached to
+  duty, missing identity is created once. Cash `ID:` mobile is the employee,
+  the mobile after the name is payout; a single mobile is the identity.
+- Join date: assignment/cash creates use the real WhatsApp event day (Dhaka);
+  no duplicate employee row. Timezone tests now compare the DB `date` text, not
+  a JS `Date` re-projection.
+- Payroll: escort stays BDT 200 per 12-hour shift (BDT 400/day). Security adds
+  the Owner's one-shift BDT 400 minimum premium in the attendance summary.
+- Vessel duplicate: primary identity = mother + lighter + master + escort
+  (lighter is the multi-vessel barrier). Same date/shift is duplicate; a new
+  date/shift auto-corrects the existing row to the latest date. The old
+  duplicate-warning-review branch was removed. Front-end edit/correction stays.
+- Release/food bill: existing 150-divisor and ±1-day matching rules remain and
+  pass the release tests.
+- Destination: spelling aliases + 50% similarity normalization (N. Gonj,
+  Narayangonj, n.para, b.bari, etc.). Migration 030 seeds/updates the Owner
+  conveyance rates: Nowapara 1200, Nagor Bari 1100, Bagha Bari 1100,
+  Jhalokathi 1100, Barishal/Vhola 1000, Local/CTG 0, Faridpur 1000.
+- Cash search CSS bug fixed: the old flex-basis stretched the input to 220px;
+  it is now 36px desktop / 44px mobile with 8px vertical and 10px horizontal
+  padding. Home search input is 40px desktop / 44px mobile.
+
+**Verification**
+- `npm run lint`: **0 errors / 0 warnings**.
+- `npm run typecheck`: **0 errors**.
+- `npm run test:unit`: **201/201**.
+- Full `test:standalone` on a disposable clone from the aligned candidate:
+  **258/258 pass, 0 fail, 0 skip**; Review alone 7/7.
+- Staging aligned candidate (`alrifai_staging_aligned`, schema 1.13.8, 29
+  migrations including 030) with temporary image
+  `v3.3.22-task07-verify`: Dockerized Playwright **15/15 pass** (feature 6/6,
+  baseline 8/8, concurrent 1/1).
+- Main/production were not touched; temporary image/containers/clones were
+  removed after QA. Existing staging DB/volume remains.
+
+**Pixel measurements requested by the Owner (staging aligned candidate)**
+- Cash search input: desktop 36px high × 320px wide; padding 8px top/bottom,
+  10px left/right. Search card padding 16px top/bottom; toolbar margin-bottom
+  12px. Mobile: 44px high × 320px wide, same 8px vertical padding.
+- Home search typing area: desktop 40px high × 1074px wide; mobile 44px high ×
+  351px wide; horizontal padding 32px left / 42px right.
+
+**Next:** Owner approval is required to commit/merge/push this branch and to
+apply migration 030 to Production. Do not deploy the branch as-is.
+
+## 2026-11-21 — Task 05: lint cleanup + aligned staging candidate (superseded by Task 07)
 
 **Status:** implemented and committed on `chore/task05-lint-schema-parity`
 (`1a92636`); **not merged, not pushed, not deployed**. `main` and Production
@@ -41,13 +93,13 @@ remain at `3631b49` / `v3.3.21-review-workflow-next16.4.6`.
 - Candidate is **prepared only**; staging was not switched because the full
   suite did not pass (see below).
 
-**Full DB suite**
+**Full DB suite (historical — superseded by Task 07)**
 - Command: `npm run test:standalone` on a disposable clone created from the
   aligned candidate. Guard verified the host was the staging PostgreSQL
   container and the database name was the run clone; Production credentials were
   never used.
-- Result: **258 tests — 247 pass, 11 fail, 0 skip**. Review-specific suite
-  separately: **7/7 pass**. This is not a full-suite PASS.
+- Historical result: **258 tests — 247 pass, 11 fail, 0 skip**. Task 07 fixed
+  them and reached **258/258**; see the Task 07 section above.
 - Remaining failures (needs investigation before any claim of completion):
   domain `programs: create, duplicate...` (pkey conflict instead of
   `DUPLICATE_PROGRAM`), domain late-rate payroll recalculation, escort
@@ -110,21 +162,19 @@ remain at `3631b49` / `v3.3.21-review-workflow-next16.4.6`.
 These are required follow-ups before the next feature or database change. They
 are ordered by urgency and must not be silently skipped.
 
-1. **Lint warnings — resolved on the Task 05 branch.** `chore/task05-lint-schema-parity`
-   (`1a92636`) takes `npm run lint` from 9 warnings to 0 errors / 0 warnings
-   without disables. It is not merged yet; after merge, keep the 0/0 gate.
+1. **Lint — resolved on the Task 07 branch.** `npm run lint` is 0 errors /
+   0 warnings without disables. The branch is not merged; keep the 0/0 gate
+   after approval.
 
-2. **Schema alignment — candidate prepared, not switched.** The Task 05 branch
-   created `alrifai_staging_aligned` from a schema-only Production dump plus
-   metadata and synthetic baseline. Schema/catalog diff is 0, but the existing
-   `alrifai_staging` (1.12.0) is still the active DB. Do not switch until the
-   full-suite blockers below are resolved or the Owner approves an exception.
+2. **Schema alignment — candidate verified, not switched.** `alrifai_staging_aligned`
+   is 1.13.8 with 29 migrations (030 data-only); schema/catalog diff against the
+   Production schema was 0 before 030. The existing `alrifai_staging` (1.12.0)
+   remains the default staging DB. Switch only with Owner approval.
 
-3. **Full DB suite execution rules.** Never run the full DB-backed suite against
-   live Production. Use a disposable clone from the aligned candidate, with a
-   host/database-name guard, and drop it afterwards. Task 05 ran the full suite:
-   258 tests, 247 pass, 11 fail, 0 skip; Review alone is 7/7. The 11 failures
-   listed in the Task 05 section are blockers, not a pass.
+3. **Full DB suite — 258/258 on Task 07.** Always use a disposable clone from
+   the aligned candidate, with a host/database-name guard, and drop it
+   afterwards. Never run it against live Production. Task 07 result:
+   258 pass, 0 fail, 0 skip; Review alone 7/7.
 
 ### Agent verification tools and lessons
 

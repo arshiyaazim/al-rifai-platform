@@ -1712,9 +1712,14 @@ a { color: #3b82f6; }
 /* Cash Lookup: wrap instead of overflowing; keep the submit button compact. */
 .table-toolbar form.form.compact { flex-wrap: wrap; }
 .cash-search-input {
-  flex: 1 1 220px;
+  /* Width is controlled here; the parent is a flex column, so a flex-basis
+     would otherwise stretch the input's height (the old 220px bug). */
+  flex: 0 0 auto;
+  width: 220px;
   min-width: 0;
   max-width: 360px;
+  height: 36px;
+  padding: 0 10px;
 }
 .table-toolbar form > button[type="submit"] {
   flex: 0 0 auto;
@@ -1724,7 +1729,7 @@ a { color: #3b82f6; }
   padding-right: 12px;
 }
 @media (max-width: 768px) {
-  .cash-search-input { max-width: none; }
+  .cash-search-input { width: 100%; max-width: none; height: 44px; }
   .table-toolbar form > button[type="submit"] {
     width: auto;
     min-height: 44px;

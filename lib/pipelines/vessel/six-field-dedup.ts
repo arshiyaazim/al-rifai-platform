@@ -103,6 +103,32 @@ export function evaluateSixFieldDedup(
   const dateOrShiftDifferent = !best.matchedFields.includes('startDate')
     || !best.matchedFields.includes('startShift');
 
+  // Owner rule (2026-11-21): the primary identity is mother vessel + master
+  // mobile + escort mobile. If all three match, the row is the same program.
+  // A different start date/shift auto-corrects to the latest message instead of
+  // creating a second row; the front-end edit/correction path stays available.
+  const primary = scored.filter((item) =>
+    item.matchedFields.includes('motherVessel')
+    && item.matchedFields.includes('lighterVessel')
+    && item.matchedFields.includes('masterMobile')
+    && item.matchedFields.includes('escortMobile'));
+  if (primary.length) {
+    const primaryBest = primary[0];
+    if (primaryBest.matchedFields.includes('startDate')
+      && primaryBest.matchedFields.includes('startShift')) {
+      return {
+        action: 'DUPLICATE', matchCount: primaryBest.matchCount,
+        candidateId: primaryBest.candidate.id,
+        matchedFields: primaryBest.matchedFields, reasons: ['PRIMARY_IDENTITY_MATCH'],
+      };
+    }
+    return {
+      action: 'UPDATE', matchCount: primaryBest.matchCount,
+      candidateId: primaryBest.candidate.id,
+      matchedFields: primaryBest.matchedFields, reasons: ['PRIMARY_IDENTITY_LATEST_DATE_WINS'],
+    };
+  }
+
   if (best.matchCount === 6) {
     return {
       action: 'DUPLICATE', matchCount: 6, candidateId: best.candidate.id,
@@ -119,7 +145,7 @@ export function evaluateSixFieldDedup(
       matchedFields: best.matchedFields, reasons: ['ESCORT_MOBILE_DIFFERENT'],
     };
   }
-  if (best.matchCount >= 4 && escortSame && dateOrShiftDifferent) {
+  if (best.matchCount >= 4 && escortSame && dateOrShiftDifferent && best.matchedFields.includes('lighterVessel')) {
     return {
       action: 'UPDATE', matchCount: best.matchCount, candidateId: best.candidate.id,
       matchedFields: best.matchedFields, reasons: ['ASSIGNMENT_WINDOW_LATEST_WINS'],

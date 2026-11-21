@@ -8,6 +8,7 @@ import {ensureVessel} from '../pipelines/vessel/vessels.ts';
 import {handleEscortChangeOn} from '../pipelines/vessel/escort-change.ts';
 import {resolveMotherVesselAlias} from '../vessel-alias.ts';
 import {emitDomainEvent} from '../realtime/server.ts';
+import {normalizeDestination} from '../destination.ts';
 
 export type ProgramInput = {
   motherVessel: string;
@@ -154,11 +155,16 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
     throw new DomainError('INVALID_MASTERMOBILE');
   }
   const masterName = optionalText(input.masterName, 'masterName', 150);
-  const destination = optionalText(input.destination, 'destination', 160);
+  const destination = normalizeDestination(optionalText(input.destination, 'destination', 160));
   const notes = optionalText(input.notes, 'notes', 2000);
   const escortMobile = optionalMobile(input.escortMobile, 'escortMobile');
 
   const duplicates = await potentialDuplicates({motherVessel, lighterVessel, startDate});
+  // A replay with no escort identity on the exact same day is a duplicate even
+  // when the first row already has an escort; do not expose a raw pkey conflict.
+  if (!escortMobile && duplicates.some((candidate) => candidate.start_date === startDate)) {
+    throw new DomainError('DUPLICATE_PROGRAM', 409);
+  }
   const candidates = await loadSixFieldCandidates(client, startDate);
   const decision = evaluateSixFieldDedup({
     motherVessel, lighterVessel, masterMobile, escortMobile: escortMobile ?? null,
@@ -542,7 +548,7 @@ export async function updateProgram(
     const startDate = input.startDate === undefined ? current.start_date : isoDate(input.startDate, 'startDate');
     const startShift = input.startShift === undefined ? current.start_shift : shift(input.startShift, 'startShift');
     const masterName = input.masterName === undefined ? (current.master_name ?? null) : optionalText(input.masterName, 'masterName', 150);
-    const destination = input.destination === undefined ? current.destination : optionalText(input.destination, 'destination', 160);
+    const destination = input.destination === undefined ? current.destination : normalizeDestination(optionalText(input.destination, 'destination', 160));
     const notes = input.notes === undefined ? current.notes : optionalText(input.notes, 'notes', 2000);
     const masterMobileRaw = input.masterMobile === undefined ? current.master_mobile : optionalText(input.masterMobile, 'masterMobile', 40);
     const masterMobile = masterMobileRaw

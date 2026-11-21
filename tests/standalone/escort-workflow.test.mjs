@@ -123,18 +123,18 @@ beforeEach(async () => {
   }
 });
 
-async function stage(accountId, chatJid, messageId, direction, senderJid, text) {
+async function stage(accountId, chatJid, messageId, direction, senderJid, text, sourceTimestamp = null) {
   await row(
     `INSERT INTO whatsapp_messages
        (account_id, chat_jid, message_id, direction, sender_jid, source_timestamp, text_content, content_hash, processing_status, source_rowid)
-     VALUES ($1,$2,$3,$4,$5,now(),$6,encode(sha256(convert_to($6,'UTF8')),'hex'),'PENDING',$7)
+     VALUES ($1,$2,$3,$4,$5,COALESCE($8::timestamptz,now()),$6,encode(sha256(convert_to($6,'UTF8')),'hex'),'PENDING',$7)
      ON CONFLICT ON CONSTRAINT whatsapp_messages_source_key DO UPDATE
        SET direction=EXCLUDED.direction, sender_jid=EXCLUDED.sender_jid,
            source_timestamp=EXCLUDED.source_timestamp, text_content=EXCLUDED.text_content,
            content_hash=EXCLUDED.content_hash, processing_status='PENDING',
            source_rowid=EXCLUDED.source_rowid, retry_count=0, last_error=NULL,
            last_processed_at=NULL, processed_at=NULL, classification=NULL`,
-    [accountId, chatJid, messageId, direction, senderJid, text, nextRowid++],
+    [accountId, chatJid, messageId, direction, senderJid, text, nextRowid++, sourceTimestamp],
   );
 }
 
@@ -290,15 +290,15 @@ test('order: same escort/date with a different lighter is a separate register ro
 
 test('order: same mother/lighter/start date ±1 day is a potential duplicate', async () => {
   await stage('wa-01', CLIENT_PN_CHAT, 'o-dup-1', 'INCOMING', CLIENT_PN,
-    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n17/11/26(D)');
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n17/11/26(D)', '2026-11-17T10:00:00+06:00');
   assert.equal((await route()).programs, 1);
   await stage('wa-01', CLIENT_PN_CHAT, 'o-dup-2', 'INCOMING', CLIENT_PN,
-    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n18/11/26(D)');
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster mobile: 01911111111\n18/11/26(D)', '2026-11-18T10:00:00+06:00');
   const result = await route();
-  assert.equal(result.programs, 0);
-  assert.equal(result.reviewItems, 1);
-  const item = await row("SELECT category FROM review_items WHERE target_ref='o-dup-2'");
-  assert.equal(item.category, 'VESSEL_DUPLICATE_CANDIDATE');
+  assert.equal(result.programs, 1, 'latest date auto-corrects the existing program');
+  assert.equal(result.reviewItems, 0);
+  const corrected = await row("SELECT start_date::text AS start_date FROM programs WHERE lighter_vessel='L-77'");
+  assert.equal(corrected.start_date, '2026-11-18');
 });
 
 test('order: client-supplied Escort assignment is reviewed, never drafted', async () => {
@@ -443,10 +443,10 @@ test('confirmation: a different Admin confirmation for an already confirmed Draf
 
 test('register: name formatting variation does not duplicate the row', async () => {
   await stage('wa-01', CLIENT_PN_CHAT, 'r-variant-1', 'INCOMING', CLIENT_PN,
-    'Mother Vessel: M.V. Union-Odyssey\nLighter Vessel: M.V. Banglar-Modhumoti-1\nMaster mobile: 01911111111\n17/11/26(D)');
+    'Mother Vessel: M.V. Union-Odyssey\nLighter Vessel: M.V. Banglar-Modhumoti-1\nMaster mobile: 01911111111\n17/11/26(D)', '2026-11-17T10:00:00+06:00');
   assert.equal((await route()).programs, 1);
   await stage('wa-01', CLIENT_PN_CHAT, 'r-variant-2', 'INCOMING', CLIENT_PN,
-    'Mother Vessel: M.V. Union Odyssey\nLighter Vessel: Banglar Modhumoti 1\nMaster mobile: 01911111111\n17/11/26(D)');
+    'Mother Vessel: M.V. Union Odyssey\nLighter Vessel: Banglar Modhumoti 1\nMaster mobile: 01911111111\n17/11/26(D)', '2026-11-17T11:00:00+06:00');
   const second = await route();
   // Normalized vessel identity treats both spellings as the same vessel on the
   // same date: no second row; the replay is recorded as a duplicate.
@@ -544,11 +544,10 @@ test('createProgram sets the escort employee join date from the duty start date'
     escortMobile: '01877776666', escortName: 'Join Date Escort',
     startDate: '2026-09-15', startShift: 'D',
   });
-  const employee = await row("SELECT date_of_join, joined_on FROM employees WHERE employee_mobile = '+8801877776666'");
+  const employee = await row("SELECT date_of_join::text AS date_of_join, joined_on::text AS joined_on FROM employees WHERE employee_mobile = '+8801877776666'");
   assert.ok(employee, 'the escort identity is auto-created');
-  const iso = (value) => new Date(String(value)).toISOString().slice(0, 10);
-  assert.equal(iso(employee.date_of_join), '2026-09-15');
-  assert.equal(iso(employee.joined_on), '2026-09-15');
+  assert.equal(employee.date_of_join, '2026-09-15');
+  assert.equal(employee.joined_on, '2026-09-15');
 });
 
 test('createProgram succeeds and stores a non-null event_at', async () => {

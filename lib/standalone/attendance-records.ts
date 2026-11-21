@@ -212,7 +212,9 @@ export async function unifiedAttendance(input: {employeeMobile?: string; month?:
       vesselDays,
       nonVesselDays,
       totalDays,
-      salaryMinor: Math.round(totalDays * 40000),
+      // Escort: BDT 200 per 12h shift = 400/day. Security: a 12h/one-shift
+      // duty earns the 400 minimum, so add the security half-day premium.
+      salaryMinor: Math.round(totalDays * 40000 + securityDays * 40000),
       securityDays,
       activeEmployees: Number(active?.count ?? 0),
     },
