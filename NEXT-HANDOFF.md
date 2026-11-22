@@ -12,6 +12,39 @@ full DB suite 258/258, staging QA 15/15. Cash toolbar and migration 030 live.
 `cash.reverse`) plus immutable triggers and explicit posting. `PHASE3_PAID_EVENTS_ENABLED=0`
 only disables optional Business Paid reporting, not core Cash.
 
+## 2026-11-22 night — Review queue, payroll audit, daily audit, cleanup, recruitment
+
+**Review queue**
+- 7 backfill conflicts inserted as PENDING `UNMATCHED_VESSEL_ASSIGNMENT` items
+  (`scripts/seed-backfill-review.ts`, idempotent). The 8th (Anowara-Nasir) was
+  resolved by the duplicate merge.
+
+**Payroll reconciliation**
+- 29 affected programs: no double pay. The voided duplicate has no pay row;
+  every active affected program has a fresh `program_pay` calculation.
+- 5 DRAFT programs remain unassigned (normal orders awaiting assignment).
+- 7 stale open assignments on programs with an end date were closed at the
+  program end; pay is unaffected because `compute_program_pay` uses end_date.
+
+**Daily audit / nightly reconcile**
+- `scripts/audit-escort-pipeline.ts` (read-only): missing client orders, unmatched
+  office assignments, active duplicates, escort/assignment gaps, closed rows
+  without End. Current 2-day run: 0 anomalies.
+- `/usr/local/sbin/alrifai-escort-audit.sh` runs daily at 01:00 UTC (07:00 Dhaka)
+  via root cron, logs to `/var/log/alrifai-escort-audit.log`, and sends the short
+  report. It never writes or sends WhatsApp itself.
+
+**Cleanup**
+- Mother spelling normaliser now reports 0 changes.
+- Voided the redundant BORKOT JIDAN 2 DRAFT twin of the RELEASED row (same
+  master/date); no delete. Active duplicates: 0.
+
+**Recruitment AI**
+- Repo `master` = `ed0c779`; image `0.1.16-healthcheck`, healthy. Added a
+  state.json freshness HEALTHCHECK, pinned compose to the new image, restored
+  the read-only `/wa02/media` mount, and updated the README from 0.1.11.
+- Backup: `/var/backups/al-rifai/recruitment-ai-20261122T211212Z.tgz`.
+
 ## 2026-11-22 — Production deploy and escort backfill (Owner-approved)
 
 **Status:** COMPLETE. `main` = `28c8a4b` (feature merged no-ff and pushed).
