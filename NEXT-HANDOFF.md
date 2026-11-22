@@ -12,6 +12,90 @@ full DB suite 258/258, staging QA 15/15. Cash toolbar and migration 030 live.
 `cash.reverse`) plus immutable triggers and explicit posting. `PHASE3_PAID_EVENTS_ENABLED=0`
 only disables optional Business Paid reporting, not core Cash.
 
+## 2026-11-22 — Escort order / office-assignment backfill (pre-production)
+
+**Status:** STAGING VERIFIED — production untouched. Branch
+`feature/escort-order-backfill`. `main`/`origin/main` remain `c875d18`.
+No WhatsApp message was sent and no draft was queued (`whatsapp_messages`
+outgoing 13,939 and `vessel_draft_deliveries` 53 on both sides).
+
+**Order-intake robustness**
+- Unlabelled/starred `M.V.` cards, numbered and pipe-separated multi-lighter
+  orders, `M,V,` prefixes, serial suffixes, `NUMBER`/`MOB`/`MASTER NUMBER`,
+  and a master mobile written on the `A/c` line.
+- A glued two-mobile line keeps the first valid number and records
+  `MULTIPLE_MOBILES_FIRST_USED`; the office matcher then treats the master as
+  untrusted instead of rejecting the block.
+- Cancellation notices never become orders.
+
+**Matching / owner rules**
+- Vessel identity tolerates up to three small typos after case/space/dash/colon
+  and `MV` normalisation; a trailing serial must match exactly, and a missing
+  serial on one side is tolerated (unique candidate only).
+- Master mobile tolerates up to two wrong digits for matching; the stored value
+  is never rewritten from a fuzzy match.
+- Office duty start comes from the template body (`28/10/26 ((D)`), not the
+  forwarding timestamp.
+- A closed row whose start..end window covers the message counts as existing
+  history, not as a missing program.
+- Bare assignment with a different escort (no change marker) updates the same
+  row to the second escort/date/shift. Only an explicit change marker (footer
+  text or a quoted change notice) creates a second row and closes the first at
+  the shift before the new start.
+- Two assignments for the same vessel/date/shift: the later message wins; the
+  earlier one is counted as superseded.
+- A closed twin with the same vessel/escort/date is never duplicated onto a
+  leftover active row.
+- Client blocks are matched per lighter, not per message, so a multi-lighter
+  order can no longer hide its second and later lighters.
+
+**Staging clone result (01/10/2026–22/11/2026, WA-01)**
+- Client: 162 incoming messages, 95 blocks, 82 existing, 13 created; rerun
+  reports 95 existing and 0 missing; 0 duplicate blocks; 104 unparsed messages
+  of which only three cancellations and one advertisement are order-like.
+- Office: 78 messages, 77 parsed; 40 matched, 29 closed rows matched,
+  14 first assignments, 1 duty-date update, 1 same-row escort replacement,
+  3 explicit escort changes, 3 superseded messages, 1 duplicate twin skipped,
+  21 no-op; Review: 3 closed-history escort conflicts, 2 outside duty window,
+  1 overlapping window, 1 no match.
+- Second `--apply`: 0 created, 0 updated. Closed programs revived: 0.
+
+**Recovered orders (were silently missed by the earlier staging script)**
+- HARVEST UNITY / ANISHA ARAFAT, EVITA / NISHAD LUVNA-3,
+  TRIDENT STAR / FATEMA MYMUNA 1, plus the second lighters of multi-lighter
+  messages. Root cause was a message-level source match in the staging script,
+  not the application parser; fixed and regression-tested.
+
+**2026-11-22 late — canonical mother names and the midnight confirmation gate**
+- `createProgram` now stores the canonical `vessels` spelling for mother and
+  lighter, so a one-letter typo (TURAN / TOURAN) cannot create a second vessel.
+- `scripts/normalize-mother-names.ts` (dry-run default) cleaned six existing
+  rows on the staging clone: TURAN ×2 → TOURAN, BULK BEQUA / BULK-BEQUIA →
+  BULK BEQUIA, UNION-ODYSDEY → UNION ODYSSEY, POAVOSA-WISDOM → POAVOSA WISDOM.
+  Ambiguous names are reported and never rewritten; lighters are out of scope.
+- Confirmation pre-gate now uses `created_at <= confirmation time` instead of
+  `event_at`. A night-shift order created after midnight Dhaka has
+  `event_at = start_date 00:00`, which is later than its own confirmation, so
+  every night confirmation was classified UNMATCHED. This was a time-of-day
+  bug, not caused by the backfill.
+- After normalisation the backfill created 12 programs (one client block was
+  absorbed by an existing canonical row), matched 95/95 blocks, and the second
+  run wrote 0 rows. All 56 escort-workflow tests pass; unit 201/201.
+
+**Open before production**
+- Live `evaluateSixFieldDedup` still returns `ESCORT_CHANGE` for any 5/6
+  different-escort match, which contradicts the Owner's new "bare assignment =
+  one row" rule. The backfill follows the Owner rule; the live caller needs the
+  same change flag before production.
+- The live router has no quote-linked change-notice pairing (`Escort====Change`
+  header + detail line); the backfill does. Needs a scoped live change.
+- Leftover duplicate/typo rows from the previous Phase2 backfill are not
+  deleted: one redundant BORKOT JIDAN 2 DRAFT (same escort/date as the RELEASED
+  row, twin skipped), six rows with five mother-name typos
+  (TURAN, UNION-ODYSDEY, POAVOSA-WISDOM, BULK-BEQUIA, BULK BEQUA) and the
+  24–26/10 Baitullah escort overlap. Cleanup needs explicit approval.
+- Production apply/deploy has NOT been run.
+
 ## 2026-11-21 — Task 08: final merge, migration 030 and production deploy
 
 **Status:** COMPLETE. Branch merged into `main` as `44d72ad` (no-ff); Production

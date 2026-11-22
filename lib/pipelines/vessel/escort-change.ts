@@ -49,7 +49,9 @@ export async function handleEscortChangeOn(
   const found = await client.query('SELECT * FROM programs WHERE id = $1 FOR UPDATE', [programId]);
   if (!found.rowCount) throw new Error('PROGRAM_NOT_FOUND');
   const current = found.rows[0];
-  const startDate = String(current.start_date).slice(0, 10);
+  const startDate = current.start_date instanceof Date
+    ? current.start_date.toISOString().slice(0, 10)
+    : String(current.start_date).slice(0, 10);
   const startShift = (String(current.start_shift) === 'N' ? 'N' : 'D') as 'D' | 'N';
   const shift = newEscort.shift === 'D' || newEscort.shift === 'N' ? newEscort.shift : startShift;
   const previousEscort = digits(current.escort_mobile);

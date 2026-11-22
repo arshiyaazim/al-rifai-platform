@@ -141,8 +141,18 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
   const commandKey = source.commandKey ?? null;
   const channel = source.channel ?? 'WEB';
   const sourceType = source.sourceType ?? (channel === 'WHATSAPP' ? 'WHATSAPP_ORDER' : 'MANUAL');
-  const motherVessel = await resolveMotherVesselAlias(normalizeVesselName(text(input.motherVessel, 'motherVessel', {max: 120})), client);
-  const lighterVessel = normalizeVesselName(text(input.lighterVessel, 'lighterVessel', {max: 120}));
+  // Resolve to the canonical `vessels` spelling so a small typo (TURAN vs
+  // TOURAN, BULK BEQUA vs BULK BEQUIA) never creates a second mother vessel.
+  const motherVessel = await ensureVessel(
+    client,
+    await resolveMotherVesselAlias(normalizeVesselName(text(input.motherVessel, 'motherVessel', {max: 120})), client),
+    'mother',
+  ) ?? normalizeVesselName(text(input.motherVessel, 'motherVessel', {max: 120}));
+  const lighterVessel = await ensureVessel(
+    client,
+    normalizeVesselName(text(input.lighterVessel, 'lighterVessel', {max: 120})),
+    'lighter',
+  ) ?? normalizeVesselName(text(input.lighterVessel, 'lighterVessel', {max: 120}));
   const startDate = isoDate(input.startDate, 'startDate');
   const startShift = shift(input.startShift, 'startShift');
   const endDate = input.endDate ? isoDate(input.endDate, 'endDate') : null;
@@ -229,8 +239,6 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
       startDate, startShift, endDate, endShift, state, channel, sourceType,
       source.messageId ?? null, source.chatJid ?? null, actor.id, notes, startDate],
   );
-  await ensureVessel(client, motherVessel, 'mother');
-  await ensureVessel(client, lighterVessel, 'lighter');
   if (escortMobile) {
     await client.query(
       `INSERT INTO program_assignments
@@ -288,7 +296,17 @@ async function assignEscortOn(
   client: Pick<PoolClient, 'query'>,
   actor: Actor,
   programIdValue: string,
-  input: {employeeMobile: string; startDate?: string; startShift?: string; employeeName?: string; replace?: boolean},
+  input: {
+    employeeMobile: string;
+    startDate?: string;
+    startShift?: string;
+    employeeName?: string;
+    replace?: boolean;
+    // Owner rule: a bare assignment with a different escort means the first
+    // escort never boarded. One row, second escort wins. Only an explicit
+    // "Escort Change" marker creates a second linked row.
+    replaceOnly?: boolean;
+  },
 ) {
   const employeeMobile = mobile(input.employeeMobile, 'employeeMobile');
   {
@@ -315,10 +333,60 @@ async function assignEscortOn(
     const currentEscort = String(current.escort_mobile ?? '').replace(/[^0-9]/g, '').replace(/^880(1[3-9][0-9]{8})$/, '0$1');
     const nextEscort = employeeMobile.replace(/[^0-9]/g, '').replace(/^880(1[3-9][0-9]{8})$/, '0$1');
     if (currentEscort && currentEscort !== nextEscort) {
-      const changed = await handleEscortChangeOn(client, actor, current.id, {
-        name, mobile: nextEscort, shift: startShift, eventAt: new Date().toISOString(),
-      }, startDate);
-      return {programId: changed.programId, assignmentId: changed.assignmentId};
+      if (!input.replaceOnly) {
+        const changed = await handleEscortChangeOn(client, actor, current.id, {
+          name, mobile: nextEscort, shift: startShift, eventAt: new Date().toISOString(),
+        }, startDate);
+        return {programId: changed.programId, assignmentId: changed.assignmentId};
+      }
+      // Replace the assignment on the same program row.
+      await client.query(
+        `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
+         VALUES ($1,$2,'escort','escort',$3) ON CONFLICT (employee_mobile) DO NOTHING`,
+        [employeeMobile, name, actor.id],
+      );
+      const open = await client.query<{id: string}>(
+        `SELECT id FROM program_assignments
+          WHERE program_id = $1 AND end_date IS NULL
+          ORDER BY start_date DESC LIMIT 1`,
+        [current.id],
+      );
+      let assignmentId = open.rows[0]?.id ?? '';
+      if (assignmentId) {
+        await client.query(
+          `UPDATE program_assignments
+              SET employee_mobile = $2, start_date = $3, start_shift = $4
+            WHERE id = $1`,
+          [assignmentId, employeeMobile, startDate, startShift],
+        );
+      } else {
+        assignmentId = stableId('asg', ['assignment', current.id, employeeMobile, startDate, startShift, null]);
+        await client.query(
+          `INSERT INTO program_assignments
+             (id, program_id, employee_mobile, start_date, start_shift, source, created_by)
+           VALUES ($1,$2,$3,$4,$5,'WEB',$6)
+           ON CONFLICT (id) DO NOTHING`,
+          [assignmentId, current.id, employeeMobile, startDate, startShift, actor.id],
+        );
+      }
+      await client.query(
+        `UPDATE programs
+            SET escort_mobile = $2, escort_name = $3, start_date = $4, start_shift = $5,
+                state = CASE WHEN state = 'DRAFT' THEN 'ASSIGNED' ELSE state END,
+                revision = revision + 1
+          WHERE id = $1`,
+        [current.id, employeeMobile, name, startDate, startShift],
+      );
+      await client.query(
+        `INSERT INTO program_events (program_id, action, actor, payload)
+         VALUES ($1,'REPLACE_ASSIGNMENT',$2,$3::jsonb)`,
+        [current.id, actor.id, JSON.stringify({
+          employeeMobile, startDate, startShift, previousEscort: currentEscort, replaceOnly: true,
+        })],
+      );
+      await recordAudit({actor, action: 'ESCORT_REPLACED', entity: 'program', entityId: current.id,
+        detail: {employeeMobile, startDate, startShift, previousEscort: currentEscort}}, client);
+      return {programId: current.id, assignmentId};
     }
     await client.query(
       `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
@@ -368,7 +436,14 @@ async function assignEscortOn(
 export async function assignEscort(
   actor: Actor,
   programIdValue: string,
-  input: {employeeMobile: string; startDate?: string; startShift?: string; employeeName?: string; replace?: boolean},
+  input: {
+    employeeMobile: string;
+    startDate?: string;
+    startShift?: string;
+    employeeName?: string;
+    replace?: boolean;
+    replaceOnly?: boolean;
+  },
   client?: Pick<PoolClient, 'query'>,
 ) {
   assertCapability(actor, 'vessel.command');
