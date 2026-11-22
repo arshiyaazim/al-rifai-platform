@@ -40,9 +40,8 @@ const isoDay = (value: unknown) => {
 // Office templates are typed by hand, so vessel names contain typos and stray
 // serial suffixes. Similarity is only trusted when the master mobile matches
 // exactly, which keeps different lighters with near-identical names apart.
-const similarity = (a: string, b: string) => {
-  if (!a || !b) return 0;
-  if (a === b) return 1;
+const distance = (a: string, b: string) => {
+  if (a === b) return 0;
   const prev = Array.from({length: b.length + 1}, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
     let diag = prev[0];
@@ -53,7 +52,30 @@ const similarity = (a: string, b: string) => {
       diag = temp;
     }
   }
-  return 1 - prev[b.length] / Math.max(a.length, b.length);
+  return prev[b.length];
+};
+// Owner rule: a vessel name may carry up to three small typos and still be the
+// same vessel. A trailing serial (CITY-14 / KASHFUL 2) must match exactly, so a
+// typo can never turn one lighter into a different numbered lighter.
+const serialOf = (key: string) => key.match(/(\d+)$/)?.[1] ?? '';
+const baseOf = (key: string) => key.replace(/\d+$/, '');
+const vesselLike = (a: string, b: string) => {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const sa = serialOf(a);
+  const sb = serialOf(b);
+  // A missing serial on one side is tolerated; two different serials are not.
+  if (sa && sb && sa !== sb) return false;
+  return distance(baseOf(a), baseOf(b)) <= 3;
+};
+// A master mobile typed one or two digits wrong is still the same order; the
+// stored value is never rewritten from a fuzzy match.
+const mobileLike = (a: string, b: string) => {
+  if (!a || !b || a === b) return true;
+  if (a.length !== 11 || b.length !== 11) return false;
+  let diff = 0;
+  for (let i = 0; i < 11; i++) if (a[i] !== b[i]) diff++;
+  return diff <= 2;
 };
 
 type ParsedBlock = {
@@ -89,7 +111,13 @@ const programs = await rows<Program>(
           start_date::text AS start_date, end_date::text AS end_date
      FROM programs WHERE state <> 'VOIDED'`,
 );
-const bySource = new Map(programs.filter((p) => p.source_message_id).map((p) => [p.source_message_id as string, p]));
+const bySource = new Map<string, Program[]>();
+for (const program of programs) {
+  if (!program.source_message_id) continue;
+  const list = bySource.get(program.source_message_id) ?? [];
+  list.push(program);
+  bySource.set(program.source_message_id, list);
+}
 
 const messages = await rows<Message>(
   `SELECT message_id, chat_jid, source_timestamp::text AS source_timestamp, text_content
@@ -154,11 +182,15 @@ for (const message of messages) {
       if (seenKeys.has(key)) summary.duplicate_blocks += 1;
       seenKeys.add(key);
     }
-    const existing = bySource.get(message.message_id)
+    // Match the block, not just the message: one order message can contain
+    // several lighters, and the first block must not hide the rest.
+    const existing = (bySource.get(message.message_id) ?? []).find((program) =>
+      vesselLike(normalise(program.lighter_vessel), lighter)
+      && vesselLike(normalise(program.mother_vessel), mother))
       ?? programs.find((program) =>
-        normalise(program.mother_vessel) === mother
-        && normalise(program.lighter_vessel) === lighter
-        && digits(program.master_mobile) === master
+        vesselLike(normalise(program.mother_vessel), mother)
+        && vesselLike(normalise(program.lighter_vessel), lighter)
+        && mobileLike(digits(program.master_mobile), master)
         && String(program.source_chat_jid ?? '') === message.chat_jid);
     if (existing) {
       summary.existing_programs += 1;
@@ -239,16 +271,9 @@ const vessels = await rows<{vessel_name: string; vessel_type: string}>(
 );
 const canonicalVessel = (name: string, type: 'mother' | 'lighter') => {
   const key = normalise(name);
-  const pool = vessels.filter((vessel) => vessel.vessel_type === type);
-  const exact = pool.filter((vessel) => normalise(vessel.vessel_name) === key);
-  if (exact.length === 1) return exact[0].vessel_name;
-  const scored = pool
-    .map((vessel) => ({name: vessel.vessel_name, score: similarity(normalise(vessel.vessel_name), key)}))
-    .sort((a, b) => b.score - a.score);
-  const best = scored[0];
-  const threshold = type === 'mother' ? 0.82 : 0.9;
-  if (best && best.score >= threshold && (!scored[1] || best.score - scored[1].score >= 0.05)) return best.name;
-  return null;
+  const matches = vessels.filter((vessel) =>
+    vessel.vessel_type === type && vesselLike(normalise(vessel.vessel_name), key));
+  return matches.length === 1 ? matches[0].vessel_name : null;
 };
 
 const officeMessages = await rows<Message>(
@@ -296,6 +321,11 @@ const office = {
   duty_date_updates: 0,
   escort_unchanged: 0,
   change_notices: 0,
+  escort_replacements: 0,
+  superseded_messages: 0,
+  duplicate_twin_skipped: 0,
+  escort_changes: 0,
+  five_day_reviews: 0,
   change_updates: 0,
   change_unchanged: 0,
   change_unresolved: 0,
@@ -332,6 +362,7 @@ const previousShift = (day: string, shift: string) => {
 // inserts a new row for the same vessel, exactly like a live escort change.
 // ---------------------------------------------------------------------------
 const consumedByChange = new Set<string>();
+const noticeVessels: Array<{mother: string; lighter: string; at: number}> = [];
 const text = (message: {text_content: string | null}) => String(message.text_content ?? '');
 const isChangeMarker = (value: string) => /escort\s*[=\-—]*\s*change/i.test(value);
 const isChangeDetail = (value: string) =>
@@ -366,6 +397,25 @@ const quotedMessages = quoteIds.length
     )
   : [];
 const quotedById = new Map(quotedMessages.map((message) => [message.message_id, message]));
+// A header-only change notice (no detail line) still marks the vessel as a
+// change, so a following template is treated as a two-row escort change.
+for (const message of changeMessages) {
+  if (!message.quoted_message_id || isChangeDetail(text(message)) || !isChangeMarker(text(message))) continue;
+  const quoted = quotedById.get(message.quoted_message_id);
+  if (!quoted) continue;
+  try {
+    const block = parseEscortOrder(text(quoted), {
+      messageDate: businessDay(quoted.source_timestamp) || isoDay(quoted.source_timestamp),
+    })[0];
+    const mother = normalise(block?.fields?.motherVessel);
+    const lighter = normalise(block?.fields?.lighterVessel);
+    if (mother && lighter) {
+      noticeVessels.push({mother, lighter, at: new Date(message.source_timestamp).getTime()});
+    }
+  } catch {
+    // A quote that cannot be parsed is not a vessel marker.
+  }
+}
 
 for (let index = 0; index < changeMessages.length; index++) {
   const message = changeMessages[index];
@@ -423,23 +473,18 @@ for (let index = 0; index < changeMessages.length; index++) {
     reviewFor(message, {}, 'ESCORT_CHANGE_QUOTE_UNPARSED');
     continue;
   }
+  noticeVessels.push({mother, lighter, at: new Date(message.source_timestamp).getTime()});
   // The quoted template can glue two master mobiles; only trust it when it is
   // a single value (the parser flags the glued form).
   const masterTrusted = master && !(quotedBlocks[0]?.reasons ?? []).includes('MULTIPLE_MOBILES_FIRST_USED');
   const exactVessel = officePool.filter((program) =>
     normalise(program.mother_vessel) === mother
     && normalise(program.lighter_vessel) === lighter
-    && (!masterTrusted || digits(program.master_mobile) === master));
-  const fuzzyRows = officePool
-    .filter((program) => !masterTrusted || digits(program.master_mobile) === master)
-    .map((program) => ({
-      program,
-      score: similarity(normalise(program.mother_vessel), mother)
-        + similarity(normalise(program.lighter_vessel), lighter),
-    }))
-    .filter((row) => row.score >= 1.67)
-    .sort((a, b) => b.score - a.score)
-    .map((row) => row.program);
+    && (!masterTrusted || mobileLike(digits(program.master_mobile), master)));
+  const fuzzyRows = officePool.filter((program) =>
+    vesselLike(normalise(program.mother_vessel), mother)
+    && vesselLike(normalise(program.lighter_vessel), lighter)
+    && (!masterTrusted || mobileLike(digits(program.master_mobile), master)));
   const coversDay = (program: Program) =>
     String(program.start_date) <= day && (!program.end_date || day <= String(program.end_date));
   // An exact row that is active and covers the change date wins outright; only
@@ -483,6 +528,7 @@ for (let index = 0; index < changeMessages.length; index++) {
     if (motherName) candidate.mother_vessel = motherName;
     if (lighterName) candidate.lighter_vessel = lighterName;
   }
+  let changeRowId = `planned-change:${message.message_id}`;
   if (APPLY) {
     const {assignEscort} = await import('../lib/standalone/programs.ts');
     const assigned = await tx((client) => assignEscort(admin, candidate.id, {
@@ -491,6 +537,7 @@ for (let index = 0; index < changeMessages.length; index++) {
       startDate: day,
       startShift: shift,
     }, client));
+    changeRowId = assigned.programId;
     if (!updatedPrograms.includes(assigned.programId)) updatedPrograms.push(assigned.programId);
   }
   // Model the new revision in memory for the remaining messages in this run.
@@ -499,7 +546,7 @@ for (let index = 0; index < changeMessages.length; index++) {
   candidate.state = 'WITHDRAWN';
   officePool.push({
     ...candidate,
-    id: `planned-change:${message.message_id}`,
+    id: changeRowId,
     escort_name: escortName || null,
     escort_mobile: escortMobile,
     start_date: day,
@@ -513,6 +560,30 @@ for (let index = 0; index < changeMessages.length; index++) {
       master: quotedFields.masterMobile ?? null, escort: escortName, escortMobile,
       date: day, shift, programId: candidate.id, previousEnd: closed,
     });
+  }
+}
+
+// Two assignment messages for the same vessel/date/shift are one decision: the
+// last message wins. Precompute that winner so an older message can never
+// rewrite the row backwards on a later run.
+const latestByDutyKey = new Map<string, number>();
+for (const message of officeMessages) {
+  const messageDate = businessDay(message.source_timestamp) || isoDay(message.source_timestamp);
+  let blocks: ParsedBlock[] = [];
+  try {
+    blocks = parseEscortOrder(String(message.text_content ?? ''), {messageDate});
+  } catch {
+    blocks = [];
+  }
+  for (const block of blocks) {
+    const fields = block.fields ?? {};
+    const dutyDate = block.assignmentDate && /^\d{4}-\d{2}-\d{2}$/.test(block.assignmentDate)
+      ? block.assignmentDate : messageDate;
+    const dutyShift = block.shift === 'D' || block.shift === 'N'
+      ? block.shift : orderIntakeShift(message.source_timestamp, message.text_content);
+    const key = `${normalise(fields.motherVessel)}|${normalise(fields.lighterVessel)}|${dutyDate}|${dutyShift}`;
+    const at = new Date(message.source_timestamp).getTime();
+    latestByDutyKey.set(key, Math.max(latestByDutyKey.get(key) ?? 0, at));
   }
 }
 
@@ -547,20 +618,19 @@ for (const message of officeMessages) {
     const dutyShift = block.shift === 'D' || block.shift === 'N'
       ? block.shift
       : orderIntakeShift(message.source_timestamp, message.text_content);
+    const dutyKey = `${mother}|${lighter}|${dutyDate}|${dutyShift}`;
+    if ((latestByDutyKey.get(dutyKey) ?? 0) > new Date(message.source_timestamp).getTime()) {
+      office.superseded_messages += 1;
+      continue;
+    }
     const exactVessel = officePool.filter((program) =>
       normalise(program.mother_vessel) === mother
       && normalise(program.lighter_vessel) === lighter
-      && (!masterTrusted || digits(program.master_mobile) === master));
-    const fuzzyRows = officePool
-      .filter((program) => !masterTrusted || digits(program.master_mobile) === master)
-      .map((program) => ({
-        program,
-        motherScore: similarity(normalise(program.mother_vessel), mother),
-        lighterScore: similarity(normalise(program.lighter_vessel), lighter),
-      }))
-      .filter((row) => row.motherScore >= 0.85 && row.lighterScore >= 0.82)
-      .sort((a, b) => (b.motherScore + b.lighterScore) - (a.motherScore + a.lighterScore))
-      .map((row) => row.program);
+      && (!masterTrusted || mobileLike(digits(program.master_mobile), master)));
+    const fuzzyRows = officePool.filter((program) =>
+      vesselLike(normalise(program.mother_vessel), mother)
+      && vesselLike(normalise(program.lighter_vessel), lighter)
+      && (!masterTrusted || mobileLike(digits(program.master_mobile), master)));
     const coversDuty = (program: Program) =>
       String(program.start_date) <= dutyDate && (!program.end_date || dutyDate <= String(program.end_date));
     const exactLive = exactVessel.filter((program) => ACTIVE_STATES.has(program.state) && coversDuty(program));
@@ -603,18 +673,118 @@ for (const message of officeMessages) {
       reviewFor(message, block, 'ESCORT_MOBILE_INVALID');
       continue;
     }
+    // A closed twin with the same vessel, escort and duty date already records
+    // this assignment. Never duplicate it onto a leftover active row.
+    const twin = sameVessel.find((program) =>
+      program.id !== candidate.id
+      && digits(program.escort_mobile) === escortMobile
+      && String(program.start_date).slice(0, 10) === dutyDate);
+    if (twin && !digits(candidate.escort_mobile)) {
+      office.duplicate_twin_skipped += 1;
+      continue;
+    }
     office.matched_programs += 1;
     const currentEscort = digits(candidate.escort_mobile);
     const sameDuty = String(candidate.start_date).slice(0, 10) === dutyDate;
+    const messageTime = new Date(message.source_timestamp).getTime();
+    const changeMarked = /escort\s*[=\-—]*\s*change/i.test(String(message.text_content ?? ''))
+      || noticeVessels.some((notice) =>
+        Math.abs(messageTime - notice.at) <= 24 * 3600 * 1000
+        && vesselLike(notice.mother, mother) && vesselLike(notice.lighter, lighter));
+    const dayGap = Math.abs(
+      new Date(`${dutyDate}T00:00:00Z`).getTime()
+      - new Date(`${String(candidate.start_date).slice(0, 10)}T00:00:00Z`).getTime(),
+    ) / 86_400_000;
+    if (!sameDuty && dayGap > 5 && !changeMarked) {
+      office.five_day_reviews += 1;
+      reviewFor(message, block, 'OUTSIDE_FIVE_DAY_WINDOW');
+      continue;
+    }
     if (currentEscort && currentEscort !== escortMobile) {
-      // A bare assignment message is not an escort-change notice. Rewriting a
-      // different escort here would silently lose the original assignment, so
-      // a conflict is a human decision.
-      office.escort_conflicts += 1;
-      reviewFor(message, block, 'ESCORT_CONFLICT');
+      if (changeMarked) {
+        // The office explicitly announced a change: close the previous row at
+        // the shift before the new start and insert the new escort's row.
+        office.escort_changes += 1;
+        let changeRowId = `planned-assign-change:${message.message_id}`;
+        if (APPLY) {
+          const {assignEscort} = await import('../lib/standalone/programs.ts');
+          const assigned = await tx((client) => assignEscort(admin, candidate.id, {
+            employeeMobile: escortMobile,
+            employeeName: escortName || undefined,
+            startDate: dutyDate,
+            startShift: dutyShift,
+          }, client));
+          changeRowId = assigned.programId;
+          if (!updatedPrograms.includes(assigned.programId)) updatedPrograms.push(assigned.programId);
+        }
+        const closed = previousShift(dutyDate, dutyShift);
+        candidate.end_date = closed.date;
+        candidate.state = 'WITHDRAWN';
+        officePool.push({
+          ...candidate,
+          id: changeRowId,
+          escort_name: escortName || null,
+          escort_mobile: escortMobile,
+          start_date: dutyDate,
+          end_date: null,
+          state: 'CONFIRMED',
+        });
+        if (office.examples.length < 12) {
+          office.examples.push({
+            kind: 'ESCORT_CHANGE', messageId: message.message_id,
+            mother: fields.motherVessel ?? null, lighter: fields.lighterVessel ?? null,
+            master: fields.masterMobile ?? null, escort: escortName, escortMobile,
+            date: dutyDate, shift: dutyShift, programId: candidate.id, previousEnd: closed,
+          });
+        }
+        continue;
+      }
+      // A bare assignment with a different escort is the Owner's "first escort
+      // never boarded" case: one row, the second date/escort replaces it.
+      office.escort_replacements += 1;
+      if (APPLY) {
+        await rows(
+          `INSERT INTO employees (employee_mobile, preferred_name, duty_type, designation, created_by)
+           VALUES ($1,$2,'escort','escort',$3) ON CONFLICT (employee_mobile) DO NOTHING`,
+          [`+88${escortMobile}`, escortName || escortMobile, admin.id],
+        );
+        await rows(
+          `UPDATE programs
+              SET escort_mobile = $2, escort_name = $3,
+                  start_date = $4::date, start_shift = $5,
+                  state = CASE WHEN state = 'DRAFT' THEN 'ASSIGNED' ELSE state END,
+                  revision = revision + 1, updated_at = now()
+            WHERE id = $1`,
+          [candidate.id, `+88${escortMobile}`, escortName || escortMobile, dutyDate, dutyShift],
+        );
+        await rows(
+          `UPDATE program_assignments
+              SET employee_mobile = $2, start_date = $3::date, start_shift = $4
+            WHERE program_id = $1 AND end_date IS NULL`,
+          [candidate.id, `+88${escortMobile}`, dutyDate, dutyShift],
+        );
+        await rows(
+          `INSERT INTO program_events (program_id, action, actor, payload)
+           VALUES ($1,'REPLACE_ASSIGNMENT',$2,$3::jsonb)`,
+          [candidate.id, admin.id, JSON.stringify({
+            employeeMobile: `+88${escortMobile}`, escortName,
+            startDate: dutyDate, startShift: dutyShift, previousEscort: currentEscort,
+            messageId: message.message_id,
+          })],
+        );
+        if (!updatedPrograms.includes(candidate.id)) updatedPrograms.push(candidate.id);
+      }
+      candidate.escort_mobile = `+88${escortMobile}`;
+      candidate.escort_name = escortName || escortMobile;
+      candidate.start_date = dutyDate;
+      if (candidate.state === 'DRAFT') candidate.state = 'ASSIGNED';
       continue;
     }
     if (currentEscort === escortMobile && sameDuty) {
+      office.escort_unchanged += 1;
+      continue;
+    }
+    if (currentEscort === escortMobile && dutyDate < String(candidate.start_date).slice(0, 10)) {
       office.escort_unchanged += 1;
       continue;
     }

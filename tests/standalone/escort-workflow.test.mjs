@@ -419,6 +419,22 @@ Escort mobile:-01321-706844
   assert.ok(blocks[0].reasons.includes('MULTIPLE_MOBILES_FIRST_USED'));
 });
 
+test('order: numbered lighter reads the master mobile from the A/c line', () => {
+  const text = `4) Fatema Mymuna 1
+Capacity 1300 Mts
+Rupshi A/c Jafpa 01811-736118
+
+
+At-O/A  
+Mv. Trident Star`;
+  const blocks = parseEscortOrder(text, {messageDate: '2026-11-19'});
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].fields.motherVessel, 'Trident Star');
+  assert.equal(blocks[0].fields.lighterVessel, 'Fatema Mymuna 1');
+  assert.equal(blocks[0].fields.masterMobile, '01811736118');
+  assert.equal(blocks[0].fields.destination, 'Rupshi');
+});
+
 test('order: a cancellation notice never becomes an order', () => {
   const cancelOne = parseEscortOrder('Mv.TOURAN\n# songhoti cancel', {messageDate: '2026-10-13'});
   const cancelMany = parseEscortOrder(`Mv.Union odyssey /soyabean ext

@@ -12,71 +12,73 @@ full DB suite 258/258, staging QA 15/15. Cash toolbar and migration 030 live.
 `cash.reverse`) plus immutable triggers and explicit posting. `PHASE3_PAID_EVENTS_ENABLED=0`
 only disables optional Business Paid reporting, not core Cash.
 
-## 2026-11-22 — Escort order / office-assignment backfill (staging only)
+## 2026-11-22 — Escort order / office-assignment backfill (pre-production)
 
 **Status:** STAGING VERIFIED — production untouched. Branch
-`feature/escort-order-backfill`; `main`/`origin/main` remain at `c875d18`.
-No WhatsApp message was sent (outbound count unchanged at 13,922 on the clone).
+`feature/escort-order-backfill`. `main`/`origin/main` remain `c875d18`.
+No WhatsApp message was sent and no draft was queued (`whatsapp_messages`
+outgoing 13,939 and `vessel_draft_deliveries` 53 on both sides).
 
-**Parser tolerance added**
-- Unlabelled `M.V.` cards: mother on the first line, one lighter line, `PLACE`
-  destination, `NUMBER`/`MOB`/`MASTER NUMBER` master mobile.
-- Starred header cards (`*M.V.BULK BEQUIA*` + `1 *M.v.Bismillah* ...`).
-- `MV,` / `M,V,` / numbered lighters, 2-lighter messages, serial suffixes.
-- A master-mobile line that glued two numbers keeps the first valid mobile and
-  records `MULTIPLE_MOBILES_FIRST_USED`.
+**Order-intake robustness**
+- Unlabelled/starred `M.V.` cards, numbered and pipe-separated multi-lighter
+  orders, `M,V,` prefixes, serial suffixes, `NUMBER`/`MOB`/`MASTER NUMBER`,
+  and a master mobile written on the `A/c` line.
+- A glued two-mobile line keeps the first valid number and records
+  `MULTIPLE_MOBILES_FIRST_USED`; the office matcher then treats the master as
+  untrusted instead of rejecting the block.
 - Cancellation notices never become orders.
 
-**Backfill audit (`scripts/backfill-vessel-orders.ts`)**
-- Dry-run by default, `--apply` for the staging clone only; forces the vessel
-  draft transport off; never sends WhatsApp messages. Program creation runs on
-  an explicit transaction client, so the draft-delivery hooks are skipped and
-  historical drafts are not queued (`vessel_draft_deliveries` unchanged).
-- Identity dedupe: source message + lighter, plus a dry-run model of
-  `createProgram`'s same-vessel/same-day duplicate rule.
-- Office matching: exact first; spelling-tolerant rows are added only when the
-  exact set has no live row covering the duty date (mother ≥ 0.85, lighter
-  ≥ 0.82), and a glued master-mobile line is treated as untrusted.
-- Office duty start comes from the template body (`28/10/26 ((D)`), not from the
-  forwarding timestamp; the shift likewise comes from the body.
-- Row model respected: a closed row whose start..end window covers the message
-  counts as matched history, never as a missing program. Only active
-  `DRAFT`/`ASSIGNED`/`CONFIRMED` rows are written; a duty row that no longer
-  covers the message is Review (`OUTSIDE_DUTY_WINDOW`).
-- Escort-change notices are handled: the short header quotes the original
-  assignment and the detail line supplies name/mobile/start/shift. The previous
-  row is closed at the shift before the new start and a new row is inserted for
-  the same mother/lighter. The BULK BEQUIA/BAITULLAH pair is the proof:
-  Rakib ended 26/10 N, Payel-Hossain started 27/10 D as CONFIRMED.
-- The row being continued is repaired to the canonical `vessels` name only on a
-  unique close match (BULK BEQUA → BULK BEQUIA), so the new row does not inherit
-  an old typo.
-- `confirmation_*` is never overwritten with an office-group message id; the
-  client confirmation chain keeps ownership.
-- Fixed `handleEscortChangeOn` reading a pg `date` as `Thu Oct 01`, which made
-  every live escort change fail with `invalid input syntax for type date`.
+**Matching / owner rules**
+- Vessel identity tolerates up to three small typos after case/space/dash/colon
+  and `MV` normalisation; a trailing serial must match exactly, and a missing
+  serial on one side is tolerated (unique candidate only).
+- Master mobile tolerates up to two wrong digits for matching; the stored value
+  is never rewritten from a fuzzy match.
+- Office duty start comes from the template body (`28/10/26 ((D)`), not the
+  forwarding timestamp.
+- A closed row whose start..end window covers the message counts as existing
+  history, not as a missing program.
+- Bare assignment with a different escort (no change marker) updates the same
+  row to the second escort/date/shift. Only an explicit change marker (footer
+  text or a quoted change notice) creates a second row and closes the first at
+  the shift before the new start.
+- Two assignments for the same vessel/date/shift: the later message wins; the
+  earlier one is counted as superseded.
+- A closed twin with the same vessel/escort/date is never duplicated onto a
+  leftover active row.
+- Client blocks are matched per lighter, not per message, so a multi-lighter
+  order can no longer hide its second and later lighters.
 
 **Staging clone result (01/10/2026–22/11/2026, WA-01)**
-- Client: 157 incoming messages, 93 parsed blocks, 78 existing, 15 missing;
-  10 programs created, 4 absorbed by the six-field duplicate rule, 1 block left
-  without a master mobile; 0 duplicate blocks.
-- Office: 78 assignment-like messages, 77 parsed; 40 matched (19 fuzzy),
-  28 closed rows matched as history (2 with an escort conflict), 8 no-match,
-  6 escort conflicts, 1 ambiguous overlap; 12 escort assignments, 1 duty
-  date/shift update, 1 escort change, 21 no-op.
-- Second `--apply` on the same clone: 0 created, 0 updated (idempotent); the
-  escort change reports one no-op instead of a new row.
-- Closed programs revived: 0. No WhatsApp message sent; draft deliveries
-  unchanged.
+- Client: 162 incoming messages, 95 blocks, 82 existing, 13 created; rerun
+  reports 95 existing and 0 missing; 0 duplicate blocks; 104 unparsed messages
+  of which only three cancellations and one advertisement are order-like.
+- Office: 78 messages, 77 parsed; 40 matched, 29 closed rows matched,
+  14 first assignments, 1 duty-date update, 1 same-row escort replacement,
+  3 explicit escort changes, 3 superseded messages, 1 duplicate twin skipped,
+  21 no-op; Review: 3 closed-history escort conflicts, 2 outside duty window,
+  1 overlapping window, 1 no match.
+- Second `--apply`: 0 created, 0 updated. Closed programs revived: 0.
 
-**Open**
-- 17 office rows still need a human decision (8 no-match, 6 bare-assignment
-  conflicts, 2 closed-history conflicts, 1 overlapping-window ambiguity) and
-  one client block lacks a master mobile. Nothing was written for them.
-- The 24/10 Baitullah assignment overlaps two rows because the previous Phase2
-  backfill created a second row without closing the first at the boundary; the
-  escort-change pass closes the later row correctly from 27/10 onward.
-- Production apply has NOT been run and needs explicit Owner approval.
+**Recovered orders (were silently missed by the earlier staging script)**
+- HARVEST UNITY / ANISHA ARAFAT, EVITA / NISHAD LUVNA-3,
+  TRIDENT STAR / FATEMA MYMUNA 1, plus the second lighters of multi-lighter
+  messages. Root cause was a message-level source match in the staging script,
+  not the application parser; fixed and regression-tested.
+
+**Open before production**
+- Live `evaluateSixFieldDedup` still returns `ESCORT_CHANGE` for any 5/6
+  different-escort match, which contradicts the Owner's new "bare assignment =
+  one row" rule. The backfill follows the Owner rule; the live caller needs the
+  same change flag before production.
+- The live router has no quote-linked change-notice pairing (`Escort====Change`
+  header + detail line); the backfill does. Needs a scoped live change.
+- Leftover duplicate/typo rows from the previous Phase2 backfill are not
+  deleted: one redundant BORKOT JIDAN 2 DRAFT (same escort/date as the RELEASED
+  row, twin skipped), six rows with five mother-name typos
+  (TURAN, UNION-ODYSDEY, POAVOSA-WISDOM, BULK-BEQUIA, BULK BEQUA) and the
+  24–26/10 Baitullah escort overlap. Cleanup needs explicit approval.
+- Production apply/deploy has NOT been run.
 
 ## 2026-11-21 — Task 08: final merge, migration 030 and production deploy
 
