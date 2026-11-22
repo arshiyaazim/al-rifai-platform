@@ -12,6 +12,29 @@ full DB suite 258/258, staging QA 15/15. Cash toolbar and migration 030 live.
 `cash.reverse`) plus immutable triggers and explicit posting. `PHASE3_PAID_EVENTS_ENABLED=0`
 only disables optional Business Paid reporting, not core Cash.
 
+## 2026-11-22 — Session close / recruitment handover
+
+**Production state (safe to close)**
+- Main app `28c8a4b` code is deployed as `v3.3.25-escort-office-intake-next16.4.6`;
+  `main` is now `9462a68` (docs/ops commits only), pushed to origin. App + sync
+  healthy, schema 1.13.8.
+- Recruitment AI `master` includes `ed0c779` (0.1.16-healthcheck) and the
+  applicant analysis doc; image `0.1.16-healthcheck` runs healthy.
+- Daily escort audit cron is installed at 01:00 UTC. Backups for both deploys
+  and the duplicate merge are in the root-only backup area.
+- Open: 7 PENDING review items for the Owner, and the recruitment engagement
+  work described in the recruitment repo's analysis document.
+
+**Recruitment analysis (Bridge-2, read-only)**
+- 491 applicant chats, 3,715 inbound / 2,455 outbound; 44% leave within three
+  messages; only ~15–17% reach the confirmation.
+- Salary asked 158 times, answered 14; location 62/19; duty hours 35/6.
+- 155 chats had a repeated prompt; 221 end on an unanswered applicant message.
+- Full findings and recommendations: recruitment repo
+  `APPLICANT_CONVERSATION_ANALYSIS_2026-11-22.md`.
+- A separate development session is started for the recruitment AI app; no
+  deploy or applicant message is authorised from that session without review.
+
 ## 2026-11-22 night — Review queue, payroll audit, daily audit, cleanup, recruitment
 
 **Review queue**
