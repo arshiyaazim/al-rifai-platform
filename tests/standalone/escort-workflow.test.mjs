@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import test, {beforeEach} from 'node:test';
 import {createPool} from '../../db/postgres.mjs';
 import {row, rows} from '../../lib/standalone/db.ts';
+import {parseEscortOrder} from '../../lib/escort-intake-candidate.mjs';
 import {routePendingMessages} from '../../lib/message-router.ts';
 import {countPrograms, createProgram, getProgram, listPrograms, resolveVesselSearchKeys, updateProgram} from '../../lib/standalone/programs.ts';
 import {getMessageEvidence} from '../../lib/standalone/messages.ts';
@@ -299,6 +300,45 @@ test('order: same mother/lighter/start date ±1 day is a potential duplicate', a
   assert.equal(result.reviewItems, 0);
   const corrected = await row("SELECT start_date::text AS start_date FROM programs WHERE lighter_vessel='L-77'");
   assert.equal(corrected.start_date, '2026-11-18');
+});
+
+test('order: unlabelled EVITA card finds mother, lighter and NUMBER mobile', () => {
+  const text = `M.V.EVITA
+
+M.V.JABED—4
+
+PLACE = O/A
+
+A/C= ISLAM AGROVET
+
+CARGO = SOYABEN IN BULK
+
+M NO :7614
+
+NUMBER:01337004382
+
+CAPACITY =1800
+
+CARGO HOLD = 1-2-3
+
+ALONGSIDE = 02:30
+20-11-2026
+
+COMMENS = 02:50
+20-11-2026
+
+COMPLETE= 06:30
+21-11-2026
+
+CAST of = 08:50
+22-11-2026`;
+  const blocks = parseEscortOrder(text, {messageDate: '2026-11-22'});
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].fields.motherVessel, 'EVITA');
+  assert.equal(blocks[0].fields.lighterVessel, 'JABED—4');
+  assert.equal(blocks[0].fields.destination, 'O/A');
+  assert.equal(blocks[0].masterMobile, '+8801337004382');
+  assert.equal(blocks[0].assignmentDate, '2026-11-22');
 });
 
 test('order: client-supplied Escort assignment is reviewed, never drafted', async () => {
