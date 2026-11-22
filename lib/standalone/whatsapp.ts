@@ -457,11 +457,15 @@ export async function applyConfirmation(
   const fields = block.fields ?? {};
   const employee = fields.escortMobile ?? fields.employeeMobile;
   if (!employee) return 'CONFIRMATION_NO_EMPLOYEE';
+  // A bare assignment with a different escort replaces the same row; an
+  // explicit "Escort Change" marker keeps the two-row revision rule.
+  const changeMarked = /escort\s*[=\-—]*\s*change/i.test(text);
   const assigned = await assignEscort(actor, target.id, {
     employeeMobile: employee,
     employeeName: fields.escortName ?? employee,
     startDate: block.assignmentDate ?? undefined,
     startShift: block.shift ?? undefined,
+    replaceOnly: !changeMarked,
   });
   // A different escort mobile creates a linked escort-change row; the
   // confirmation belongs to the new row, not the superseded one.

@@ -490,6 +490,18 @@ test('confirmation: verified Admin outgoing reply in the original client chat co
   assert.match(String(evidence?.text_content), /Escort Name: Rahim/);
 });
 
+test('confirmation: a different escort without a change marker replaces the same row', async () => {
+  const program = await draft();
+  await stage('wa-01', CLIENT_PN_CHAT, 'c-confirm-replace', 'OUTGOING', ADMIN_JID,
+    CONFIRM.replace('Rahim', 'Karim').replace('01922222222', '01933333333'));
+  const result = await route();
+  assert.equal(result.confirmations, 1);
+  const saved = await row('SELECT * FROM programs WHERE id=$1', [program.id]);
+  assert.equal(saved.escort_mobile, '+8801933333333');
+  assert.equal(saved.state, 'CONFIRMED');
+  assert.equal((await row('SELECT count(*)::int AS n FROM programs WHERE source_chat_jid=$1', [CLIENT_PN_CHAT])).n, 1);
+});
+
 test('confirmation: spelling variant of the vessel name still matches (unique candidate)', async () => {
   const program = await draft();
   await stage('wa-01', CLIENT_PN_CHAT, 'c-confirm-variant-1', 'OUTGOING', ADMIN_JID,
