@@ -12,6 +12,50 @@ full DB suite 258/258, staging QA 15/15. Cash toolbar and migration 030 live.
 `cash.reverse`) plus immutable triggers and explicit posting. `PHASE3_PAID_EVENTS_ENABLED=0`
 only disables optional Business Paid reporting, not core Cash.
 
+## 2026-11-22 — Production deploy and escort backfill (Owner-approved)
+
+**Status:** COMPLETE. `main` = `28c8a4b` (feature merged no-ff and pushed).
+Production app + sync run `local/al-rifai-platform:v3.3.24-escort-backfill-next16.4.6`;
+health `{"status":"ok","database":"ok","schemaVersion":"1.13.8"}`, no migration
+was needed (schema unchanged, 29 history rows).
+
+**Backup before deploy**
+- `/var/backups/al-rifai/alrifai_v2_phase3_20261122T194112Z.dump` (12,352,378
+  bytes, 507 objects), SHA-256
+  `d9b313925a0d1effb9b2b69a30c8b9e1f5478057a4b1e6c31f188721b4992885`.
+- `.env` copied beside it. Rollback image
+  `v3.3.23-review-workflow-next16.4.6` is retained.
+
+**Production data**
+- Mother spelling cleanup: 6 rows — TURAN ×2 → TOURAN, BULK BEQUA and
+  BULK-BEQUIA → BULK BEQUIA, UNION-ODYSDEY → UNION ODYSSEY,
+  POAVOSA-WISDOM → POAVOSA WISDOM. No ambiguous rewrite.
+- Backfill (01/10–22/11): 12 client programs plus 4 explicit escort-change rows
+  (16 new rows), 21 updated rows (15 first assignments, 1 same-row escort
+  replacement, 3 changes, 1 duty date/shift), 1 duplicate twin skipped,
+  3 superseded messages; 8 Review rows (3 closed-history escort conflicts,
+  2 outside duty window, 2 overlapping windows, 1 no client order).
+- Client blocks: 95, 94 matched/absorbed, 0 duplicate blocks; the remaining
+  block is BISMILLAH NAVIGATION -3, absorbed by the existing
+  BISMILLAH NAVIGATION row.
+- Second `--apply`: 0 created, 0 updated. Closed programs revived: 0.
+- WhatsApp outbound 13,943 (last 19:37 UTC, before deploy); draft deliveries 53
+  unchanged. The backfill sends nothing.
+
+**Live rule implemented**
+- A confirmation with a different escort and no "Escort Change" marker now
+  replaces the assignment on the same program row; the marker keeps the
+  two-row revision. Manual UI assign is unchanged.
+
+**Leftover for a separate approval**
+- Pre-existing duplicate pair `UNION ODYSSEY / ANOWARA NASIR` 30/10 N
+  (`prog_7ea06a3288513174bed00429` and
+  `prog_a28c9f615ca157d97723e630a005cffb8d24ef5d0aff479b0c1be7338a5f1259`),
+  both CONFIRMED, same master/escort/date. Not deleted; needs an Owner decision.
+- 8 Review rows listed above and the live office-group "Escort Change" pair
+  intake (the backfill handles history; the live office group remains
+  SUPPORT_ONLY).
+
 ## 2026-11-22 — Escort order / office-assignment backfill (pre-production)
 
 **Status:** STAGING VERIFIED — production untouched. Branch
