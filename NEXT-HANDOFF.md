@@ -34,31 +34,48 @@ No WhatsApp message was sent (outbound count unchanged at 13,922 on the clone).
   historical drafts are not queued (`vessel_draft_deliveries` unchanged).
 - Identity dedupe: source message + lighter, plus a dry-run model of
   `createProgram`'s same-vessel/same-day duplicate rule.
-- Office matching: exact first, then fuzzy vessel names only when the master
-  mobile matches exactly (mother ≥ 0.85, lighter ≥ 0.82, unique best by ≥ 0.02).
-- Only `DRAFT`/`ASSIGNED`/`CONFIRMED` programs are touched. Closed programs,
-  conflicts, stale assignments and unmatched blocks go to Review only — no new
-  program is ever created from an office assignment.
-- Office assignment date/shift becomes the duty start (`assignEscort` for a
-  program with no escort; guarded date/shift update when the escort is the
-  same). `confirmation_*` is never overwritten with an office-group message id;
-  the client confirmation chain keeps ownership.
+- Office matching: exact first; spelling-tolerant rows are added only when the
+  exact set has no live row covering the duty date (mother ≥ 0.85, lighter
+  ≥ 0.82), and a glued master-mobile line is treated as untrusted.
+- Office duty start comes from the template body (`28/10/26 ((D)`), not from the
+  forwarding timestamp; the shift likewise comes from the body.
+- Row model respected: a closed row whose start..end window covers the message
+  counts as matched history, never as a missing program. Only active
+  `DRAFT`/`ASSIGNED`/`CONFIRMED` rows are written; a duty row that no longer
+  covers the message is Review (`OUTSIDE_DUTY_WINDOW`).
+- Escort-change notices are handled: the short header quotes the original
+  assignment and the detail line supplies name/mobile/start/shift. The previous
+  row is closed at the shift before the new start and a new row is inserted for
+  the same mother/lighter. The BULK BEQUIA/BAITULLAH pair is the proof:
+  Rakib ended 26/10 N, Payel-Hossain started 27/10 D as CONFIRMED.
+- The row being continued is repaired to the canonical `vessels` name only on a
+  unique close match (BULK BEQUA → BULK BEQUIA), so the new row does not inherit
+  an old typo.
+- `confirmation_*` is never overwritten with an office-group message id; the
+  client confirmation chain keeps ownership.
 - Fixed `handleEscortChangeOn` reading a pg `date` as `Thu Oct 01`, which made
   every live escort change fail with `invalid input syntax for type date`.
 
 **Staging clone result (01/10/2026–22/11/2026, WA-01)**
-- Client: 155 incoming messages, 91 parsed blocks, 76 existing, 15 missing;
+- Client: 157 incoming messages, 93 parsed blocks, 78 existing, 15 missing;
   10 programs created, 4 absorbed by the six-field duplicate rule, 1 block left
   without a master mobile; 0 duplicate blocks.
-- Office: 77 assignment-like messages, 76 parsed, 36 matched (13 fuzzy),
-  28 closed-only, 12 no-match, 6 escort conflicts, 1 unparsable change notice;
-  10 escort assignments, 11 duty date/shift updates, 7 no-op.
-- Second `--apply` on the same clone: 0 created, 0 updated (idempotent).
-- Closed programs revived: 0.
+- Office: 78 assignment-like messages, 77 parsed; 40 matched (19 fuzzy),
+  28 closed rows matched as history (2 with an escort conflict), 8 no-match,
+  6 escort conflicts, 1 ambiguous overlap; 12 escort assignments, 1 duty
+  date/shift update, 1 escort change, 21 no-op.
+- Second `--apply` on the same clone: 0 created, 0 updated (idempotent); the
+  escort change reports one no-op instead of a new row.
+- Closed programs revived: 0. No WhatsApp message sent; draft deliveries
+  unchanged.
 
 **Open**
-- The 47 office review rows and the 1 client block without a master mobile need
-  a human decision; nothing was written for them.
+- 17 office rows still need a human decision (8 no-match, 6 bare-assignment
+  conflicts, 2 closed-history conflicts, 1 overlapping-window ambiguity) and
+  one client block lacks a master mobile. Nothing was written for them.
+- The 24/10 Baitullah assignment overlaps two rows because the previous Phase2
+  backfill created a second row without closing the first at the boundary; the
+  escort-change pass closes the later row correctly from 27/10 onward.
 - Production apply has NOT been run and needs explicit Owner approval.
 
 ## 2026-11-21 — Task 08: final merge, migration 030 and production deploy

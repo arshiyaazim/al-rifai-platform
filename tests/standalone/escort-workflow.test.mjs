@@ -416,6 +416,7 @@ Escort mobile:-01321-706844
   assert.equal(blocks[0].fields.escortMobile, '01321706844');
   assert.equal(blocks[0].assignmentDate, '2026-10-28');
   assert.equal(blocks[0].shift, 'D');
+  assert.ok(blocks[0].reasons.includes('MULTIPLE_MOBILES_FIRST_USED'));
 });
 
 test('order: a cancellation notice never becomes an order', () => {
