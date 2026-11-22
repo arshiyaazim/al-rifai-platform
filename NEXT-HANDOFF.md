@@ -66,6 +66,22 @@ outgoing 13,939 and `vessel_draft_deliveries` 53 on both sides).
   messages. Root cause was a message-level source match in the staging script,
   not the application parser; fixed and regression-tested.
 
+**2026-11-22 late — canonical mother names and the midnight confirmation gate**
+- `createProgram` now stores the canonical `vessels` spelling for mother and
+  lighter, so a one-letter typo (TURAN / TOURAN) cannot create a second vessel.
+- `scripts/normalize-mother-names.ts` (dry-run default) cleaned six existing
+  rows on the staging clone: TURAN ×2 → TOURAN, BULK BEQUA / BULK-BEQUIA →
+  BULK BEQUIA, UNION-ODYSDEY → UNION ODYSSEY, POAVOSA-WISDOM → POAVOSA WISDOM.
+  Ambiguous names are reported and never rewritten; lighters are out of scope.
+- Confirmation pre-gate now uses `created_at <= confirmation time` instead of
+  `event_at`. A night-shift order created after midnight Dhaka has
+  `event_at = start_date 00:00`, which is later than its own confirmation, so
+  every night confirmation was classified UNMATCHED. This was a time-of-day
+  bug, not caused by the backfill.
+- After normalisation the backfill created 12 programs (one client block was
+  absorbed by an existing canonical row), matched 95/95 blocks, and the second
+  run wrote 0 rows. All 56 escort-workflow tests pass; unit 201/201.
+
 **Open before production**
 - Live `evaluateSixFieldDedup` still returns `ESCORT_CHANGE` for any 5/6
   different-escort match, which contradicts the Owner's new "bare assignment =

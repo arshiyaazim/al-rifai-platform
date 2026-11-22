@@ -1414,7 +1414,7 @@ async function handleConfirmation(
     `SELECT * FROM programs
       WHERE source_chat_jid = $1
         AND state IN ('DRAFT','CONFIRMED')
-        AND event_at <= $2::timestamptz
+        AND created_at <= $2::timestamptz
       ORDER BY event_at DESC
       LIMIT 50`,
     [message.chat_jid, message.source_timestamp],

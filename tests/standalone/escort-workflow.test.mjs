@@ -613,6 +613,19 @@ test('manual vessel program stores Master Name and MANUAL source type', async ()
   assert.equal(updated.program.master_name, 'Master B');
 });
 
+test('createProgram stores the canonical mother vessel for a small typo', async () => {
+  const first = await createProgram(admin, {
+    motherVessel: 'MV Canon Test', lighterVessel: 'CT-1', masterMobile: '01911111111',
+    startDate: '2026-12-10', startShift: 'D',
+  });
+  const second = await createProgram(admin, {
+    motherVessel: 'MV Canon Tset', lighterVessel: 'CT-2', masterMobile: '01911111111',
+    startDate: '2026-12-10', startShift: 'D',
+  });
+  assert.equal(first.program.mother_vessel, 'CANON TEST');
+  assert.equal(second.program.mother_vessel, 'CANON TEST');
+});
+
 test('register list paginates and exposes the updated timestamp', async () => {
   for (const [index, lighter] of ['P-1', 'P-2', 'P-3'].entries()) {
     await createProgram(admin, {

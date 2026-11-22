@@ -141,8 +141,18 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
   const commandKey = source.commandKey ?? null;
   const channel = source.channel ?? 'WEB';
   const sourceType = source.sourceType ?? (channel === 'WHATSAPP' ? 'WHATSAPP_ORDER' : 'MANUAL');
-  const motherVessel = await resolveMotherVesselAlias(normalizeVesselName(text(input.motherVessel, 'motherVessel', {max: 120})), client);
-  const lighterVessel = normalizeVesselName(text(input.lighterVessel, 'lighterVessel', {max: 120}));
+  // Resolve to the canonical `vessels` spelling so a small typo (TURAN vs
+  // TOURAN, BULK BEQUA vs BULK BEQUIA) never creates a second mother vessel.
+  const motherVessel = await ensureVessel(
+    client,
+    await resolveMotherVesselAlias(normalizeVesselName(text(input.motherVessel, 'motherVessel', {max: 120})), client),
+    'mother',
+  ) ?? normalizeVesselName(text(input.motherVessel, 'motherVessel', {max: 120}));
+  const lighterVessel = await ensureVessel(
+    client,
+    normalizeVesselName(text(input.lighterVessel, 'lighterVessel', {max: 120})),
+    'lighter',
+  ) ?? normalizeVesselName(text(input.lighterVessel, 'lighterVessel', {max: 120}));
   const startDate = isoDate(input.startDate, 'startDate');
   const startShift = shift(input.startShift, 'startShift');
   const endDate = input.endDate ? isoDate(input.endDate, 'endDate') : null;
@@ -229,8 +239,6 @@ async function createProgramOn(client: Pick<PoolClient, 'query'>, actor: Actor, 
       startDate, startShift, endDate, endShift, state, channel, sourceType,
       source.messageId ?? null, source.chatJid ?? null, actor.id, notes, startDate],
   );
-  await ensureVessel(client, motherVessel, 'mother');
-  await ensureVessel(client, lighterVessel, 'lighter');
   if (escortMobile) {
     await client.query(
       `INSERT INTO program_assignments
