@@ -29,10 +29,14 @@ const SUPPORT_GROUP = '120363000000000011@g.us';
 const RELEASE_GROUP = '120363000000000012@g.us';
 const OTHER_GROUP = '120363000000000013@g.us';
 const UNKNOWN_GROUP = '120363000000000014@g.us';
+const OFFICE_GROUP = '120363000000000015@g.us';
 const ALL_CHATS = [
   CLIENT_PN_CHAT, CLIENT_LID_CHAT, UNVERIFIED_CHAT, CASH_CHAT,
-  SUPPORT_GROUP, RELEASE_GROUP, OTHER_GROUP, UNKNOWN_GROUP,
+  SUPPORT_GROUP, RELEASE_GROUP, OTHER_GROUP, UNKNOWN_GROUP, OFFICE_GROUP,
 ];
+
+// Dedicated office control channel (SUPPORT_ONLY) for these fixtures.
+process.env.ALRIFAI_OFFICE_GROUP_JID = OFFICE_GROUP;
 
 let nextRowid = 1;
 
@@ -72,6 +76,7 @@ beforeEach(async () => {
     [RELEASE_GROUP, 'Escort Release Slip', 'ORDERS', 'RELEASE_ONLY'],
     [OTHER_GROUP, 'Al-Aqsa Escort Program Group', 'ORDERS', 'OTHER_APPROVED'],
     [UNKNOWN_GROUP, 'Unclassified group', 'ORDERS', 'REVIEW_REQUIRED'],
+    [OFFICE_GROUP, 'Al-Rifai Office Group', 'ORDERS', 'SUPPORT_ONLY'],
   ];
   for (const account of ['wa-01', 'wa-02']) {
     for (const [chat, label, purpose, role] of chats) {
@@ -452,6 +457,64 @@ test('order: client-supplied Escort assignment is reviewed, never drafted', asyn
   assert.equal(result.programs, 0);
   assert.equal(result.reviewItems, 1);
   assert.equal(result.byMessage[0].classification, 'VESSEL:REVIEW_SUBMITTED:CLIENT_ASSIGNMENT_FIELDS_REQUIRE_ADMIN');
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// A2. Office-group assignment / Escort Change
+// ────────────────────────────────────────────────────────────────────────────
+
+const OFFICE_SENDER = '8801755627557';
+
+test('office: a bare different escort replaces the same program row', async () => {
+  const program = await draft();
+  await stage('wa-01', OFFICE_GROUP, 'o-assign-1', 'INCOMING', OFFICE_SENDER,
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster Mobile: 01911111111\nEscort Name: Rahim\nEscort Mobile: 01922222222\n24/11/26 (D)');
+  const result = await route();
+  assert.ok(result.processed >= 1);
+  const saved = await row('SELECT * FROM programs WHERE id=$1', [program.id]);
+  assert.equal(saved.escort_mobile, '+8801922222222');
+  assert.equal(saved.state, 'ASSIGNED');
+  assert.equal((await row('SELECT count(*)::int AS n FROM programs WHERE source_chat_jid=$1', [CLIENT_PN_CHAT])).n, 1);
+});
+
+test('office: an Escort Change footer creates a second linked row', async () => {
+  const program = await draft();
+  await stage('wa-01', OFFICE_GROUP, 'o-assign-2', 'INCOMING', OFFICE_SENDER,
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster Mobile: 01911111111\nEscort Name: Rahim\nEscort Mobile: 01922222222\n24/11/26 (D)');
+  await route();
+  await stage('wa-01', OFFICE_GROUP, 'o-change-2', 'INCOMING', OFFICE_SENDER,
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster Mobile: 01911111111\nEscort Name: Karim\nEscort Mobile: 01933333333\n25/11/26 (D)\n( Escort-----Change )');
+  await route();
+  const rowsAfter = await rows("SELECT *, start_date::text AS start_date_text, end_date::text AS end_date_text FROM programs WHERE mother_vessel='OCEAN STAR' AND lighter_vessel='L-77' AND master_mobile='01911111111' ORDER BY start_date", []);
+  assert.equal(rowsAfter.length, 2);
+  const oldRow = rowsAfter.find((entry) => entry.id === program.id);
+  assert.equal(oldRow.state, 'WITHDRAWN');
+  assert.equal(oldRow.end_date_text, '2026-11-24');
+  assert.equal(oldRow.end_shift, 'N');
+  const next = rowsAfter.find((entry) => entry.id !== program.id);
+  assert.equal(next.escort_mobile, '+8801933333333');
+  assert.equal(next.state, 'CONFIRMED');
+  assert.equal(next.start_date_text, '2026-11-25');
+});
+
+test('office: quoted header + detail line is understood as an Escort Change', async () => {
+  await draft();
+  await stage('wa-01', OFFICE_GROUP, 'o-assign-3', 'INCOMING', OFFICE_SENDER,
+    'Mother Vessel: MV Ocean Star\nLighter Vessel: L-77\nMaster Mobile: 01911111111\nEscort Name: Rahim\nEscort Mobile: 01922222222\n24/11/26 (D)');
+  await route();
+  await stage('wa-01', OFFICE_GROUP, 'o-header-3', 'INCOMING', OFFICE_SENDER, '----( Escort====Change )----');
+  await row("UPDATE whatsapp_messages SET quoted_message_id='o-assign-3' WHERE message_id='o-header-3'");
+  const detailText = '----( Escort====Change )----\nEscort name:-Karim\nEscort mobile:-01933333333\nStart:-25-11-2026.\nShift:-(D)';
+  await stage('wa-01', OFFICE_GROUP, 'o-detail-3', 'INCOMING', OFFICE_SENDER, detailText);
+  const detail = await row("SELECT * FROM whatsapp_messages WHERE message_id='o-detail-3'");
+  const {handleOfficeAssignment} = await import('../../lib/pipelines/vessel/office-assignment.ts');
+  const result = await handleOfficeAssignment({id: 'test-office', role: 'ADMIN'}, detail, detailText);
+  assert.equal(result.applied, true);
+  assert.equal(result.change, true);
+  const rowsAfter = await rows("SELECT * FROM programs WHERE mother_vessel='OCEAN STAR' AND lighter_vessel='L-77' AND master_mobile='01911111111' ORDER BY start_date", []);
+  assert.equal(rowsAfter.length, 2);
+  assert.equal(rowsAfter[0].state, 'WITHDRAWN');
+  assert.equal(rowsAfter[1].escort_mobile, '+8801933333333');
 });
 
 // ────────────────────────────────────────────────────────────────────────────

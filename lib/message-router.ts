@@ -1596,6 +1596,37 @@ export async function routePendingMessages(
           classification = 'VESSEL_WA02_NOT_AUTHORIZED';
           action = 'ignored';
           result.ignored += 1;
+        } else if (sourceRole === 'SUPPORT_ONLY'
+          && message.account_id === 'wa-01'
+          && message.direction === 'INCOMING'
+          && message.chat_jid === (process.env.ALRIFAI_OFFICE_GROUP_JID || '120363426895117693@g.us')) {
+          // The Office Group is a control channel: an assignment updates an
+          // existing client-order program and never creates one. Unmatched
+          // assignments go to Review.
+          const {handleOfficeAssignment} = await import('./pipelines/vessel/office-assignment.ts');
+          const office = await handleOfficeAssignment(SYSTEM_ACTOR, message, text);
+          if (office.review) {
+            const submitted = await submitReviewItem(SYSTEM_ACTOR, 'PROGRAM', 'UPDATE',
+              message.message_id, 'INCOMPLETE_VESSEL_ORDER', {
+                sourceMessageId: message.message_id,
+                sourceChatJid: message.chat_jid,
+                sourceAccountId: message.account_id,
+                sourceTimestamp: message.source_timestamp,
+                senderJid: message.sender_jid,
+                rawText: text,
+                officeReason: office.review.reason,
+                fields: office.review.fields,
+                parser: 'handleOfficeAssignment',
+                parserVersion: 'office-assignment-v1',
+              });
+            result.reviewItems += submitted.submitted ? 1 : 0;
+            classification = `VESSEL:${office.review.reason}`;
+            action = 'office_assignment_review';
+          } else {
+            classification = `VESSEL:OFFICE_${office.reasons[0] ?? 'NO_OP'}`;
+            action = office.applied ? 'office_assignment_applied'
+              : office.idempotent ? 'office_assignment_idempotent' : 'office_assignment_noop';
+          }
         } else if (sourceRole === 'SUPPORT_ONLY') {
           // Escort Support / operational group: order-shaped text is context,
           // never a Draft. Other approved group: context only. Unresolved
