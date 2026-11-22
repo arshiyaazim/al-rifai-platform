@@ -47,14 +47,30 @@ was needed (schema unchanged, 29 history rows).
   replaces the assignment on the same program row; the marker keeps the
   two-row revision. Manual UI assign is unchanged.
 
+**2026-11-22 evening — second deploy (office intake) and duplicate merge**
+- `main` = `2ade1e7`; Production app + sync run
+  `v3.3.25-escort-office-intake-next16.4.6`. Health ok, schema 1.13.8.
+- Backup before deploy: `alrifai_v2_phase3_20261122T204246Z.dump`
+  (12,371,399 bytes), SHA-256
+  `ffee59a5792d588490c617d6cbee1c92374e5edb584a5e413467f465b088af87`.
+- Duplicate pair merged: kept `prog_7ea06a3288513174bed00429` (CONFIRMED, has
+  pay) and voided `prog_a28c9f615ca157d97723e630a005cffb8d24ef5d0aff479b0c1be7338a5f1259`
+  with an audit event.
+- Live office intake: incoming assignments in the Office Group now update an
+  existing client-order program only. A bare different escort replaces the same
+  row; an explicit marker or a quoted header + detail pair creates a linked
+  revision; unmatched rows go to Review. 60/60 escort-workflow tests.
+- The office group resolves to SUPPORT_ONLY through the static approved-group
+  map, so no chat configuration changed.
+
 **Leftover for a separate approval**
 - Pre-existing duplicate pair `UNION ODYSSEY / ANOWARA NASIR` 30/10 N
   (`prog_7ea06a3288513174bed00429` and
   `prog_a28c9f615ca157d97723e630a005cffb8d24ef5d0aff479b0c1be7338a5f1259`),
   both CONFIRMED, same master/escort/date. Not deleted; needs an Owner decision.
-- 8 Review rows listed above and the live office-group "Escort Change" pair
-  intake (the backfill handles history; the live office group remains
-  SUPPORT_ONLY).
+- 8 Review rows remain: 3 closed-history escort conflicts, 2 outside the duty
+  window, 2 overlapping windows, 1 without a client order. Each is a source
+  contradiction; no safe automatic fix without an Owner decision.
 
 ## 2026-11-22 — Escort order / office-assignment backfill (pre-production)
 
