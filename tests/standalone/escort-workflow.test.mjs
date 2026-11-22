@@ -341,6 +341,93 @@ CAST of = 08:50
   assert.equal(blocks[0].assignmentDate, '2026-11-22');
 });
 
+test('order: MV header card with numbered lighter and MASTER NUMBER line', () => {
+  const text = `MV, TOURAN
+
+(33) MV, RUPSHI -3
+
+PLACE = OUTER
+
+A/C= NABIL AUTO FLOUR
+
+CARGO = WHEAT IN BULK
+
+MASTER NUMBER
+01902666732
+
+CAPACITY =3500`;
+  const blocks = parseEscortOrder(text, {messageDate: '2026-10-14'});
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].fields.motherVessel, 'TOURAN');
+  assert.equal(blocks[0].fields.lighterVessel, 'RUPSHI -3');
+  assert.equal(blocks[0].fields.destination, 'OUTER');
+  assert.equal(blocks[0].fields.importer, 'NABIL AUTO FLOUR');
+  assert.equal(blocks[0].masterMobile, '+8801902666732');
+});
+
+test('order: starred header accepts a single numbered lighter with serial', () => {
+  const text = `*M.V.BULK BEQUIA* (Corn)
+A/c= *Astha Feed Ltd.*
+
+1 *M.v.Bismillah* *Navigation -3* (1600). 01329746254.
+(For Kutubdia)`;
+  const blocks = parseEscortOrder(text, {messageDate: '2026-10-22'});
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].fields.motherVessel, 'BULK BEQUIA');
+  assert.equal(blocks[0].fields.lighterVessel, 'Bismillah Navigation -3');
+  assert.equal(blocks[0].fields.importer, 'Astha Feed Ltd.');
+  assert.equal(blocks[0].masterMobile, '+8801329746254');
+});
+
+test('order: one message with several lighters keeps them separate', () => {
+  const text = `MV.EVITA
+CARGO.SOYABEAN MEAL
+A/C.ISLAM AGROVET
+
+1.MV.TORI TOPU-2
+MOB.01911488771
+QTY.1900 MT.
+DESTINATION
+RUPSHI
+
+2.MV.NISHAD LUVNA-3
+QTY.1200 MT.
+MOB.01768125577
+DESTINATION
+DOUDPUR/KANCHON`;
+  const blocks = parseEscortOrder(text, {messageDate: '2026-11-17'});
+  assert.equal(blocks.length, 2);
+  assert.deepEqual(blocks.map((block) => block.fields.lighterVessel), ['TORI TOPU-2', 'NISHAD LUVNA-3']);
+  assert.deepEqual(blocks.map((block) => block.fields.masterMobile), ['01911488771', '01768125577']);
+});
+
+test('order: M,V, lighter prefix and glued master mobiles keep the first number', () => {
+  const text = `Mother Vessel: M.V. Bulk-Bequia
+Lighter Vessel:M.V. M,V, Kashful-2
+Master Mobile:01318-36645301814-174272
+Escort Name: Md,Nazmul-Hossain
+Escort mobile:-01321-706844
+28/10/26 ((D)`;
+  const blocks = parseEscortOrder(text, {messageDate: '2026-10-28'});
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].fields.motherVessel, 'Bulk-Bequia');
+  assert.equal(blocks[0].fields.lighterVessel, 'Kashful-2');
+  assert.equal(blocks[0].fields.masterMobile, '01318366453');
+  assert.equal(blocks[0].fields.escortMobile, '01321706844');
+  assert.equal(blocks[0].assignmentDate, '2026-10-28');
+  assert.equal(blocks[0].shift, 'D');
+});
+
+test('order: a cancellation notice never becomes an order', () => {
+  const cancelOne = parseEscortOrder('Mv.TOURAN\n# songhoti cancel', {messageDate: '2026-10-13'});
+  const cancelMany = parseEscortOrder(`Mv.Union odyssey /soyabean ext
+Following lighter cancel
+1.inani
+2.Triratno 6`, {messageDate: '2026-11-04'});
+  assert.equal(cancelOne.length, 0);
+  assert.equal(cancelMany.length, 0);
+});
+
 test('order: client-supplied Escort assignment is reviewed, never drafted', async () => {
   await stage('wa-01', CLIENT_PN_CHAT, 'o-client-assign-1', 'INCOMING', CLIENT_PN,
     `${ORDER}\nEscort Name: Client Choice\nEscort Mobile: 01712345678`);

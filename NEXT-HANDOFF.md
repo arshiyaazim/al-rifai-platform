@@ -12,6 +12,55 @@ full DB suite 258/258, staging QA 15/15. Cash toolbar and migration 030 live.
 `cash.reverse`) plus immutable triggers and explicit posting. `PHASE3_PAID_EVENTS_ENABLED=0`
 only disables optional Business Paid reporting, not core Cash.
 
+## 2026-11-22 — Escort order / office-assignment backfill (staging only)
+
+**Status:** STAGING VERIFIED — production untouched. Branch
+`feature/escort-order-backfill`; `main`/`origin/main` remain at `c875d18`.
+No WhatsApp message was sent (outbound count unchanged at 13,922 on the clone).
+
+**Parser tolerance added**
+- Unlabelled `M.V.` cards: mother on the first line, one lighter line, `PLACE`
+  destination, `NUMBER`/`MOB`/`MASTER NUMBER` master mobile.
+- Starred header cards (`*M.V.BULK BEQUIA*` + `1 *M.v.Bismillah* ...`).
+- `MV,` / `M,V,` / numbered lighters, 2-lighter messages, serial suffixes.
+- A master-mobile line that glued two numbers keeps the first valid mobile and
+  records `MULTIPLE_MOBILES_FIRST_USED`.
+- Cancellation notices never become orders.
+
+**Backfill audit (`scripts/backfill-vessel-orders.ts`)**
+- Dry-run by default, `--apply` for the staging clone only; forces the vessel
+  draft transport off; never sends WhatsApp messages. Program creation runs on
+  an explicit transaction client, so the draft-delivery hooks are skipped and
+  historical drafts are not queued (`vessel_draft_deliveries` unchanged).
+- Identity dedupe: source message + lighter, plus a dry-run model of
+  `createProgram`'s same-vessel/same-day duplicate rule.
+- Office matching: exact first, then fuzzy vessel names only when the master
+  mobile matches exactly (mother ≥ 0.85, lighter ≥ 0.82, unique best by ≥ 0.02).
+- Only `DRAFT`/`ASSIGNED`/`CONFIRMED` programs are touched. Closed programs,
+  conflicts, stale assignments and unmatched blocks go to Review only — no new
+  program is ever created from an office assignment.
+- Office assignment date/shift becomes the duty start (`assignEscort` for a
+  program with no escort; guarded date/shift update when the escort is the
+  same). `confirmation_*` is never overwritten with an office-group message id;
+  the client confirmation chain keeps ownership.
+- Fixed `handleEscortChangeOn` reading a pg `date` as `Thu Oct 01`, which made
+  every live escort change fail with `invalid input syntax for type date`.
+
+**Staging clone result (01/10/2026–22/11/2026, WA-01)**
+- Client: 155 incoming messages, 91 parsed blocks, 76 existing, 15 missing;
+  10 programs created, 4 absorbed by the six-field duplicate rule, 1 block left
+  without a master mobile; 0 duplicate blocks.
+- Office: 77 assignment-like messages, 76 parsed, 36 matched (13 fuzzy),
+  28 closed-only, 12 no-match, 6 escort conflicts, 1 unparsable change notice;
+  10 escort assignments, 11 duty date/shift updates, 7 no-op.
+- Second `--apply` on the same clone: 0 created, 0 updated (idempotent).
+- Closed programs revived: 0.
+
+**Open**
+- The 47 office review rows and the 1 client block without a master mobile need
+  a human decision; nothing was written for them.
+- Production apply has NOT been run and needs explicit Owner approval.
+
 ## 2026-11-21 — Task 08: final merge, migration 030 and production deploy
 
 **Status:** COMPLETE. Branch merged into `main` as `44d72ad` (no-ff); Production
