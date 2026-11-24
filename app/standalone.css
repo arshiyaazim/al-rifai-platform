@@ -1785,3 +1785,91 @@ a { color: #3b82f6; }
     min-height: 44px;
   }
 }
+
+/* ── Vessel Register mobile layout (v3.3.26) ───────────────────────────────
+   Mobile-only: two-column filter group, one-column vessel selectors, New
+   Program below the filters, and four equal icon actions in one row.
+   Desktop rules above are untouched. */
+.vessel-top-import { display: contents; }
+.vessel-new-program-bottom-wrap,
+.vessel-mobile-actions { display: none; }
+.wx-workspace__mobile-page {
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 10px;
+  color: #cbd5e1;
+  border-left: 1px solid #334155;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .wx-workspace__mobile-bar { gap: 10px; }
+  .wx-workspace__mobile-brand { flex: 0 0 auto; white-space: nowrap; }
+  .vessel-top-import { display: none; }
+  .vessel-new-program-top { display: none !important; }
+  .vessel-new-program-bottom-wrap { display: block; margin: 0 0 16px; }
+  .vessel-new-program-bottom { width: 100%; height: 44px; min-height: 44px; }
+  .vessel-desktop-export { display: none !important; }
+
+  .vessel-mobile-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    margin: 0 0 16px;
+  }
+  .vessel-mobile-actions > button,
+  .vessel-mobile-actions > .action-icon-button {
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+
+  .vessel-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 11px 9px;
+  }
+  .vessel-filter-grid > label.vessel-filter-vessel {
+    grid-column: 1 / -1;
+    order: 9;
+  }
+  .vessel-filter-grid > label.vessel-filter-control {
+    height: 62px;
+    min-height: 62px;
+    font-size: 12px !important;
+  }
+  .vessel-kpi--total { order: 1; }
+  .vessel-kpi--last { order: 2; }
+  .vessel-kpi--running { order: 3; }
+  .vessel-kpi--clear { order: 4; }
+  .vessel-filter-control--from { order: 5; }
+  .vessel-filter-control--to { order: 6; }
+  .vessel-filter-control--client { order: 7; }
+  .vessel-filter-control--status { order: 8; }
+
+  .vessel-filter-grid > .vessel-kpi {
+    width: 100%;
+    height: 64px;
+    min-height: 64px;
+  }
+  .vessel-filter-grid > .vessel-kpi span {
+    overflow: visible;
+    font-size: 11px !important;
+    letter-spacing: 0;
+    line-height: 1.2;
+    text-overflow: clip;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 360px) {
+  .wx-workspace__mobile-bar { gap: 8px; padding: 10px; }
+  .wx-workspace__mobile-page { padding-left: 8px; font-size: 12px; }
+  .vessel-filter-grid > .vessel-kpi { padding: 6px 8px; }
+}

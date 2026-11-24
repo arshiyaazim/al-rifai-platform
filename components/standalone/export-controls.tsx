@@ -21,10 +21,12 @@ type Props<T> = {
   disabled?: boolean;
   /** Optional Import control rendered first, inside the same icon group. */
   importAction?: ReactNode;
+  /** Render only the two icon buttons (no checkbox, no print heading). */
+  compact?: boolean;
 };
 
 export function TableExportControls<T>({
-  title, filenamePrefix, columns, rows, fetchAll, exportHref, filterSummary = [], disabled = false, importAction,
+  title, filenamePrefix, columns, rows, fetchAll, exportHref, filterSummary = [], disabled = false, importAction, compact = false,
 }: Props<T>) {
   const [exportAll, setExportAll] = useState(false);
   const [busy, setBusy] = useState<'csv' | 'print' | null>(null);
@@ -57,6 +59,24 @@ export function TableExportControls<T>({
   }
 
   const heading = printHeading(title, filterSummary);
+
+  if (compact) {
+    return (
+      <>
+        {importAction}
+        <Button type="button" size="icon-sm" variant="outline" className="action-icon-button"
+          onClick={() => void exportCsv()} disabled={disabled || busy !== null}
+          aria-label={busy === 'csv' ? 'Preparing CSV export' : 'Export CSV'} title="Export CSV">
+          <Download className="size-4" />
+        </Button>
+        <Button type="button" size="icon-sm" variant="outline" className="action-icon-button"
+          onClick={printTable} disabled={disabled || busy !== null}
+          aria-label="Print" title="Print">
+          <Printer className="size-4" />
+        </Button>
+      </>
+    );
+  }
 
   return (
     <>

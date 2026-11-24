@@ -91,6 +91,7 @@ export function WorkspaceSidebar({navItems, pendingReviews, user, children}: Pro
           <span>Menu</span>
         </button>
         <span className="wx-workspace__mobile-brand">AL-RIFA’I</span>
+        {pathname === '/vessel' ? <span className="wx-workspace__mobile-page">Vessel Register</span> : null}
       </header>
 
       <aside id="workspace-sidebar" className="wx-workspace__sidebar" aria-label="Workspace navigation">

@@ -374,18 +374,22 @@ export function VesselRegisterClient({
             <RealtimeIndicator status={realtime.status} />
             <span className="muted" aria-live="polite">{loading ? 'Refreshing…' : updatedAt ? 'Updated just now' : 'Live data'}</span>
             {showNew && canCommand ? (
-              <ChatImportDialog onImported={() => void loadAll(true)} />
+              <span className="vessel-top-import">
+                <ChatImportDialog onImported={() => void loadAll(true)} />
+              </span>
             ) : null}
             {showNew && canCommand ? (
-              <CsvImportDialog
-                title="Import Vessel CSV"
-                endpoint="/api/vessel/import"
-                templateHint="Required: Mother Vessel, Lighter Vessel, Start Date. Optional: Master Mobile, Escort Name, Escort Mobile, End Date, Notes."
-                onImported={() => void loadAll(true)}
-              />
+              <span className="vessel-top-import">
+                <CsvImportDialog
+                  title="Import Vessel CSV"
+                  endpoint="/api/vessel/import"
+                  templateHint="Required: Mother Vessel, Lighter Vessel, Start Date. Optional: Master Mobile, Escort Name, Escort Mobile, End Date, Notes."
+                  onImported={() => void loadAll(true)}
+                />
+              </span>
             ) : null}
             {showNew && canSubmit ? (
-              <Button type="button" size="sm" onClick={() => setNewOpen(true)}><Plus className="size-4" />New Program</Button>
+              <Button type="button" size="sm" className="vessel-new-program-top" onClick={() => setNewOpen(true)}><Plus className="size-4" />New Program</Button>
             ) : null}
           </div>
         </div>
@@ -397,52 +401,52 @@ export function VesselRegisterClient({
           </div>
         ) : null}
 
-        {/* 12-cell filter + dashboard grid (4 columns × 3 rows) */}
+        {/* 12-cell filter + dashboard grid (4 columns × 3 rows on desktop) */}
         <div className="card vessel-filter-card" style={{padding: 16, marginBottom: 16}}>
           <div className="page-head" style={{marginBottom: 10}}>
             <div><h4 style={{margin: 0}}>Search &amp; filters</h4></div>
             <span className="muted" style={{fontSize: 12}}>{filteredRows.length.toLocaleString()} matching programs</span>
           </div>
           <div className="vessel-filter-grid">
-            <label>{"\u00A0"}Mother Vessel
+            <label className="vessel-filter-vessel">{"\u00A0"}Mother Vessel
               <LookupFilter id="filter-mothers" value={motherFilter} onChange={setMotherFilter} items={initialMothers} placeholder="All mothers" />
             </label>
-            <label>{"\u00A0"}Lighter Vessel
+            <label className="vessel-filter-vessel">{"\u00A0"}Lighter Vessel
               <LookupFilter id="filter-lighters" value={lighterFilter} onChange={setLighterFilter} items={initialLighters} placeholder="All lighters" />
             </label>
-            <label>{"\u00A0"}Escort Name
+            <label className="vessel-filter-vessel">{"\u00A0"}Escort Name
               <LookupFilter id="filter-escort-names" value={escortNameFilter} onChange={setEscortNameFilter} items={initialEscortNames} placeholder="All escorts" />
             </label>
-            <label>{"\u00A0"}Escort Mobile
+            <label className="vessel-filter-vessel">{"\u00A0"}Escort Mobile
               <LookupFilter id="filter-escort-mobiles" value={escortMobileFilter} onChange={setEscortMobileFilter} items={initialEscortMobiles} placeholder="All mobiles" />
             </label>
 
-            <label>Date From
+            <label className="vessel-filter-control vessel-filter-control--from">Date From
               <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
             </label>
-            <label>Date To
+            <label className="vessel-filter-control vessel-filter-control--to">Date To
               <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
             </label>
-            <label>Escort Client
+            <label className="vessel-filter-control vessel-filter-control--client">Escort Client
               <select value={clientFilter} onChange={(e) => setClientFilter(e.target.value)} className="vessel-select">
                 <option value="">All clients</option>
                 {clients.map((client) => <option key={client.jid} value={client.jid}>{client.label}</option>)}
               </select>
             </label>
-            <label>Status
+            <label className="vessel-filter-control vessel-filter-control--status">Status
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="vessel-select">
                 {STATUS_OPTIONS.map(([value, label]) => <option key={value || 'all'} value={value}>{label}</option>)}
               </select>
             </label>
 
-            <button type="button" className="vessel-kpi" onClick={clearFilters} title="Show every program">
+            <button type="button" className="vessel-kpi vessel-kpi--total" onClick={clearFilters} title="Show every program">
               <span>Total Programs</span><strong>{totalCount.toLocaleString()}</strong>
             </button>
-            <button type="button" className="vessel-kpi" title="Filter to last month"
+            <button type="button" className="vessel-kpi vessel-kpi--last" title="Filter to last month"
               onClick={() => { setFromDate(lastMonth.from); setToDate(lastMonth.to); setStatusFilter(''); setPage(1); }}>
               <span>Last Month</span><strong>{lastMonthCount.toLocaleString()}</strong>
             </button>
-            <button type="button" className="vessel-kpi" title="Filter to the current month"
+            <button type="button" className="vessel-kpi vessel-kpi--running" title="Filter to the current month"
               onClick={() => { setFromDate(thisMonth.from); setToDate(thisMonth.to); setStatusFilter(''); setPage(1); }}>
               <span>Running Month</span><strong>{thisMonthCount.toLocaleString()}</strong>
             </button>
@@ -452,6 +456,35 @@ export function VesselRegisterClient({
           </div>
         </div>
 
+        {showNew && canSubmit ? (
+          <div className="vessel-new-program-bottom-wrap">
+            <Button type="button" size="sm" className="vessel-new-program-bottom" onClick={() => setNewOpen(true)}><Plus className="size-4" />New Program</Button>
+          </div>
+        ) : null}
+
+        <div className="vessel-mobile-actions print-hidden">
+          {showNew && canCommand ? <ChatImportDialog iconOnly onImported={() => void loadAll(true)} /> : null}
+          {showNew && canCommand ? (
+            <CsvImportDialog
+              title="Import Vessel CSV"
+              endpoint="/api/vessel/import"
+              templateHint="Required: Mother Vessel, Lighter Vessel, Start Date. Optional: Master Mobile, Escort Name, Escort Mobile, End Date, Notes."
+              onImported={() => void loadAll(true)}
+            />
+          ) : null}
+          <TableExportControls
+            title="Vessel Register"
+            filenamePrefix="vessel_register"
+            columns={columns}
+            rows={exportRows}
+            fetchAll={fetchAllForExport}
+            exportHref={exportHref}
+            filterSummary={filterSummary}
+            disabled={loading}
+            compact
+          />
+        </div>
+
         {escortMobileFilter ? (
           <div className="vessel-filter-chip" role="status">
             <span>Filtering: <strong>{cleanEmployeeName(activeEscortName)}</strong></span>
@@ -459,7 +492,7 @@ export function VesselRegisterClient({
           </div>
         ) : null}
 
-        <div className="table-toolbar print-hidden" style={{justifyContent: 'flex-end'}}>
+        <div className="table-toolbar print-hidden vessel-desktop-export" style={{justifyContent: 'flex-end'}}>
           <TableExportControls
             title="Vessel Register"
             filenamePrefix="vessel_register"

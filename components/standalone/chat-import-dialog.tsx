@@ -2,6 +2,7 @@
 
 import {useRef, useState} from 'react';
 import {toast} from 'sonner';
+import {MessageSquare} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 
 type ParsedPreview = {timestamp: string; sender: string; body: string};
@@ -18,7 +19,7 @@ async function csrfToken(): Promise<string> {
  * WhatsApp "Export Chat" importer. Parsing is client-side for the dry-run
  * preview; the server re-parses the exact file before inserting anything.
  */
-export function ChatImportDialog({onImported}: {onImported?: () => void}) {
+export function ChatImportDialog({onImported, iconOnly = false}: {onImported?: () => void; iconOnly?: boolean}) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<ParsedPreview[]>([]);
@@ -76,9 +77,16 @@ export function ChatImportDialog({onImported}: {onImported?: () => void}) {
 
   return (
     <>
-      <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>
-        Import Chat
-      </Button>
+      {iconOnly ? (
+        <Button type="button" size="icon-sm" variant="outline" className="action-icon-button"
+          onClick={() => setOpen(true)} aria-label="Import Chat" title="Import Chat">
+          <MessageSquare className="size-4" />
+        </Button>
+      ) : (
+        <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>
+          Import Chat
+        </Button>
+      )}
       {open ? (
         <div
           role="dialog"
