@@ -13,9 +13,10 @@ export function RealtimeRefresher({domain, label = 'Live'}: {domain: RealtimeDom
   return <RealtimeIndicator status={status} label={label} />;
 }
 
-export function RealtimeIndicator({status, label = 'Live'}: {
+export function RealtimeIndicator({status, label = 'Live', dotOnly = false}: {
   status: 'connecting' | 'live' | 'reconnecting' | 'polling';
   label?: string;
+  dotOnly?: boolean;
 }) {
   const copy = status === 'live'
     ? label
@@ -24,6 +25,14 @@ export function RealtimeIndicator({status, label = 'Live'}: {
       : status === 'polling'
         ? 'Polling (fallback)'
         : 'Connecting…';
+  if (dotOnly) {
+    return (
+      <span className={`realtime-status realtime-status--${status} realtime-status--dot-only`}
+        aria-label={copy} title={copy}>
+        <span className="realtime-status__dot" aria-hidden="true" />
+      </span>
+    );
+  }
   return (
     <span className={`realtime-status realtime-status--${status}`} aria-live="polite" title={copy}>
       <span className="realtime-status__dot" aria-hidden="true" />

@@ -6,6 +6,8 @@ import {useEffect, useRef, useState, type ReactNode} from 'react';
 import {LogoutButton} from '@/components/standalone/logout-button';
 import {ThemeToggle} from '@/components/standalone/theme-toggle';
 import {FloatingAssistant} from '@/components/standalone/floating-assistant';
+import {RealtimeIndicator} from '@/components/standalone/realtime-refresher';
+import {useRealtimeUpdates} from '@/hooks/use-realtime-updates';
 
 export type WorkspaceNavItem = {
   href: string;
@@ -18,6 +20,11 @@ type Props = {
   user: {displayName: string; role: string};
   children: ReactNode;
 };
+
+function VesselLiveDot() {
+  const {status} = useRealtimeUpdates('VESSEL', () => {});
+  return <RealtimeIndicator status={status} dotOnly />;
+}
 
 function shortLabel(label: string) {
   return label
@@ -91,6 +98,7 @@ export function WorkspaceSidebar({navItems, pendingReviews, user, children}: Pro
           <span>Menu</span>
         </button>
         <span className="wx-workspace__mobile-brand">AL-RIFA’I</span>
+        {pathname === '/vessel' ? <VesselLiveDot /> : null}
         {pathname === '/vessel' ? <span className="wx-workspace__mobile-page">Vessel Register</span> : null}
       </header>
 

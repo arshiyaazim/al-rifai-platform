@@ -363,7 +363,7 @@ export function VesselRegisterClient({
     <>
       <AppToaster />
       <section className="card print-area" style={{marginBottom: 18}}>
-        <div className="page-head" style={{marginBottom: 8}}>
+        <div className="page-head vessel-register-head" style={{marginBottom: 8}}>
           <div>
             <h3>Vessel Register ({filteredRows.length.toLocaleString()})</h3>
             <p className="muted" style={{marginTop: 0}}>
@@ -403,7 +403,7 @@ export function VesselRegisterClient({
 
         {/* 12-cell filter + dashboard grid (4 columns × 3 rows on desktop) */}
         <div className="card vessel-filter-card" style={{padding: 16, marginBottom: 16}}>
-          <div className="page-head" style={{marginBottom: 10}}>
+          <div className="page-head vessel-filter-head" style={{marginBottom: 10}}>
             <div><h4 style={{margin: 0}}>Search &amp; filters</h4></div>
             <span className="muted" style={{fontSize: 12}}>{filteredRows.length.toLocaleString()} matching programs</span>
           </div>
