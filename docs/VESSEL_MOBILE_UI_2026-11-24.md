@@ -65,6 +65,16 @@ ALRIFAI_TAG=v3.3.26-vessel-mobile-ui \
 Rollback is image-tag only: set `ALRIFAI_TAG=v3.3.25-escort-office-intake-next16.4.6`
 and repeat the same command. No database restore or schema rollback is needed.
 
+## Production deployment
+
+- Deployed 2026-11-24 03:49 UTC to project `al-rifai-phase3`, services `app` and
+  `sync`, both on `v3.3.26-vessel-mobile-ui`.
+- Health: `ok`, database `ok`, schema `1.13.8`; 0 restarts and 0 startup errors.
+- Pre-deploy backup: custom-format `pg_dump` of `alrifai_v2_phase3`, verified
+  with `pg_restore --list`; previous `.env` saved root-only.
+- Rollback: set `ALRIFAI_TAG=v3.3.25-escort-office-intake-next16.4.6` and repeat
+  the compose command. No database restore is needed for this UI-only change.
+
 ## Non-goals
 
 - No change to `/vessel/[id]`, `/vessel/drafts`, `/vessel/register` or any other

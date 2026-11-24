@@ -18,6 +18,10 @@
   staging DB fixture/env issues unrelated to this change.
 - Image: `local/al-rifai-platform:v3.3.26-vessel-mobile-ui`; rollback tag
   `v3.3.25-escort-office-intake-next16.4.6`. No database restore needed.
+- Deployed 2026-11-24 03:49 UTC to `al-rifai-phase3` app+sync; health ok,
+  schema 1.13.8, 0 restarts, 0 startup errors. Pre-deploy custom-format database
+  dump was verified with `pg_restore --list`; the previous image remains for
+  image-tag rollback.
 
 ## v3.3.23-review-workflow-next16.4.6 — business rules, migration 030, compact cash toolbar (2026-11-21)
 
