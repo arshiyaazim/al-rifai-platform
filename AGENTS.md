@@ -5,9 +5,9 @@
 - **App:** AL-RIFA'I Integrated Services business platform — employees, vessel orders/releases, cash & accounts, attendance, payroll, reports, admin.
 - **Source:** `/opt/al-rifai-platform`
 - **Repo:** `git@github.com:arshiyaazim/al-rifai-platform.git`
-- **Branch:** `feat/vessel-mobile-ui` @ `5f1d33a` (2026-11-24) — vessel mobile layout + header refinement; v3.3.26 deployed, v3.3.27 candidate local; `main` remains `9a29372` until the approved merge
-- **Current version:** `v3.3.26-vessel-mobile-ui` (production); candidate `v3.3.27-vessel-mobile-header`
-- **Current image:** `local/al-rifai-platform:v3.3.26-vessel-mobile-ui` (app + sync, same tag); candidate `v3.3.27-vessel-mobile-header`
+- **Branch:** `feat/vessel-mobile-ui` @ `bf8ed74` (2026-11-24) — vessel mobile layout + header refinement + E2E guard; v3.3.27 deployed; docs commit follows; `main` remains `9a29372` until the approved merge
+- **Current version:** `v3.3.27-vessel-mobile-header`
+- **Current image:** `local/al-rifai-platform:v3.3.27-vessel-mobile-header` (app + sync, same tag)
 - **Schema:** `1.13.8` — 29 migration files (002–029; 28 ledger rows), 67 public tables
 - **Web URL:** `https://app.al-rifai.iamazim.com` (also `alrifai.iamazim.com`, `al-rifai.iamazim.com`)
 

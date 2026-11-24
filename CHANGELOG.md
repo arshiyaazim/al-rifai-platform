@@ -1,6 +1,6 @@
 # Changelog
 
-## v3.3.27-vessel-mobile-header — candidate (2026-11-24)
+## v3.3.27-vessel-mobile-header — vessel mobile header (2026-11-24)
 
 - Mobile header: `Vessel Register` is right-aligned, bold and 15px (2px larger);
   the live status is a text-free colour dot next to `AL-RIFA’I`.
@@ -17,8 +17,12 @@
   text-free live dot, hidden duplicate headings, two-column filters, 64/62 px
   heights, 44 × 44 icon row, New Program placement, overflow and the desktop
   four-column layout. 2/2 Playwright tests pass against staging.
-- Status: local commit `5f1d33a`; **not deployed or pushed**; awaiting Owner
-  approval. Candidate image tag: `v3.3.27-vessel-mobile-header`.
+- Deployed 2026-11-24 05:51 UTC to `al-rifai-phase3` app+sync; health ok,
+  schema 1.13.8, 0 restarts, 0 startup errors. Pre-deploy custom-format dump was
+  verified with `pg_restore --list`; the previous v3.3.26 image remains for
+  image-tag rollback.
+- Image: `local/al-rifai-platform:v3.3.27-vessel-mobile-header`; rollback tag
+  `v3.3.26-vessel-mobile-ui`.
 
 ## v3.3.26-vessel-mobile-ui — vessel mobile layout (2026-11-24)
 

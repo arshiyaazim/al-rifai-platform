@@ -1,8 +1,7 @@
 # Vessel Register — mobile layout (2026-11-24)
 
-Status: `v3.3.26-vessel-mobile-ui` is deployed; the header refinement below is
-the `v3.3.27-vessel-mobile-header` candidate on `feat/vessel-mobile-ui` and is
-**not deployed or pushed yet**.
+Status: **v3.3.27-vessel-mobile-header deployed** on 2026-11-24 05:51 UTC,
+including the header refinement and the Playwright regression guard.
 
 Scope: **mobile-only** layout of `/vessel`. Desktop, backend, database schema,
 data sync, filters, imports, exports, print and all workflows are unchanged. No
@@ -31,7 +30,7 @@ Desktop keeps the previous four-column filter grid, top action row and table
 toolbar. The mobile-only rules are under `max-width: 640px`; the header title is
 limited to the vessel route.
 
-## Header refinement (v3.3.27 candidate)
+## Header refinement (v3.3.27)
 
 - `Vessel Register` is right-aligned in the mobile bar, bold and 15px (2px larger
   than the previous 13px).
@@ -97,28 +96,33 @@ E2E_PASSWORD="$STAGING_ADMIN_PASSWORD" \
 npm test
 ```
 
-Result against the staging candidate: **2/2 passed** (mobile + desktop).
+Result against the staging deployment: **2/2 passed** (mobile + desktop).
 
 ## Deploy and rollback
 
-Deploy tag: `local/al-rifai-platform:v3.3.26-vessel-mobile-ui`.
+Deploy tag: `local/al-rifai-platform:v3.3.27-vessel-mobile-header`.
 
 ```bash
-ALRIFAI_TAG=v3.3.26-vessel-mobile-ui \
+ALRIFAI_TAG=v3.3.27-vessel-mobile-header \
   docker compose -p al-rifai-phase3 \
   -f compose.yaml -f compose.phase3.yaml \
   up -d --no-deps app sync
 ```
 
-Rollback is image-tag only: set `ALRIFAI_TAG=v3.3.25-escort-office-intake-next16.4.6`
+Rollback is image-tag only: set `ALRIFAI_TAG=v3.3.26-vessel-mobile-ui`
 and repeat the same command. No database restore or schema rollback is needed.
 
-## Production deployment (v3.3.26)
+## Production deployment (v3.3.27)
 
-The section below records the already-deployed v3.3.26. The v3.3.27 header
-candidate is not deployed yet.
+- Deployed 2026-11-24 05:51 UTC to project `al-rifai-phase3`, services `app` and
+  `sync`, both on `v3.3.27-vessel-mobile-header`.
+- Health: `ok`, database `ok`, schema `1.13.8`; 0 restarts and 0 startup errors.
+- Pre-deploy backup: custom-format `pg_dump` of `alrifai_v2_phase3`, verified
+  with `pg_restore --list`; previous `.env` saved root-only.
+- Rollback: set `ALRIFAI_TAG=v3.3.26-vessel-mobile-ui` and repeat the compose
+  command. No database restore is needed for this UI-only change.
 
-## Production deployment
+## Previous deployment (v3.3.26)
 
 - Deployed 2026-11-24 03:49 UTC to project `al-rifai-phase3`, services `app` and
   `sync`, both on `v3.3.26-vessel-mobile-ui`.
