@@ -13,6 +13,10 @@
 - Verification: 320/375/414 px with no horizontal overflow; full header text at
   320 px; filters/clear, New Program, Import Chat/CSV, Export CSV (200) and
   Print checked; typecheck clean, lint 0 errors, production build passed.
+- Automated regression: `tests/e2e/vessel-mobile.spec.mjs` checks the header,
+  text-free live dot, hidden duplicate headings, two-column filters, 64/62 px
+  heights, 44 × 44 icon row, New Program placement, overflow and the desktop
+  four-column layout. 2/2 Playwright tests pass against staging.
 - Status: local commit `5f1d33a`; **not deployed or pushed**; awaiting Owner
   approval. Candidate image tag: `v3.3.27-vessel-mobile-header`.
 

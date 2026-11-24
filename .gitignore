@@ -40,3 +40,8 @@ Thumbs.db
 
 # Next.js dev-server generated agent rules (build artifact)
 /AGENTS.md
+
+# Vessel mobile E2E harness
+tests/e2e/node_modules/
+tests/e2e/test-results/
+tests/e2e/playwright-report/

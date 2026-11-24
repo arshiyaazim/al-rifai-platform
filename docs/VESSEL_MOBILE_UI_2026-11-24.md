@@ -64,10 +64,40 @@ Tested against the current build on the isolated staging database
 | Lint | 0 errors, 1 pre-existing unrelated warning |
 | Production build | succeeded |
 | Full integration suite | 239/270; 31 staging DB fixture/env failures unrelated to this UI change |
+| Playwright regression | 2/2 passed (mobile 320/375/414 + desktop) |
 | 320 px header | full `Vessel Register` text visible, right-aligned, bold 15px; live dot beside the brand |
 | 375 px header | full `Vessel Register` text visible, right-aligned, bold 15px; live dot beside the brand |
 | Duplicate mobile headings | absent; h1 remains visually hidden for assistive technology |
 | Desktop | page title, card heading, subtitle and `Search & filters` all still visible |
+
+## Automated regression test
+
+`tests/e2e/vessel-mobile.spec.mjs` is a read-only Playwright guard. It logs in to
+a staging URL, opens `/vessel`, and checks:
+
+- right-aligned bold 15px `Vessel Register` header and full text at 320 px;
+- text-free live dot beside `AL-RIFA’I`;
+- removed duplicate mobile headings (with the h1 still available to assistive
+  technology);
+- two-column KPI/control group, 64 px KPI height, 62 px control height;
+- one-column vessel selectors;
+- four 44 × 44 icon-only actions in one row with equal spacing;
+- New Program below the filter card;
+- no horizontal overflow at 320/375/414 px;
+- desktop keeps the full headings and four-column grid.
+
+Run from `tests/e2e`:
+
+```bash
+npm install
+npx playwright install chromium
+E2E_BASE_URL=https://127.0.0.1:8443 \
+E2E_USER="$STAGING_ADMIN_USER" \
+E2E_PASSWORD="$STAGING_ADMIN_PASSWORD" \
+npm test
+```
+
+Result against the staging candidate: **2/2 passed** (mobile + desktop).
 
 ## Deploy and rollback
 
