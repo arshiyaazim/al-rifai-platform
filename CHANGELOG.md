@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.3.26-vessel-mobile-ui — vessel mobile layout (2026-11-24)
+
+- Mobile-only `/vessel` layout: header shows `Vessel Register` next to the
+  brand; the eight KPI/date/client/status filters use two columns; the four
+  vessel selectors stay one column.
+- The four KPI buttons share one width and 64 px height; the four filter fields
+  keep their 62 px height. Long labels wrap inside their own card.
+- `New Program` moves below the filters with its previous size. Print, Import
+  CSV, Export CSV and Import Chat are four equal 44 × 44 px icon-only buttons in
+  one row.
+- Desktop layout, API routes, database schema, filters, imports, exports, print
+  and all workflows are unchanged. No migration.
+- Verification: 320/375/414 px with no horizontal overflow; filter/clear, New
+  Program, Chat/CSV dialogs, Export CSV (200) and Print checked; typecheck clean,
+  lint 0 errors, production build passed. Full suite 239/270; the 31 failures are
+  staging DB fixture/env issues unrelated to this change.
+- Image: `local/al-rifai-platform:v3.3.26-vessel-mobile-ui`; rollback tag
+  `v3.3.25-escort-office-intake-next16.4.6`. No database restore needed.
+
 ## v3.3.23-review-workflow-next16.4.6 — business rules, migration 030, compact cash toolbar (2026-11-21)
 
 - Cash toolbar: desktop search is 36px × 320px with search, filters, add-payment

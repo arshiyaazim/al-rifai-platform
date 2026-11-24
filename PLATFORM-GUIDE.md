@@ -266,7 +266,7 @@ cd /opt/al-rifai-platform
 docker build -t local/al-rifai-platform:v3.3.23-review-workflow-next16.4.6 .
 
 # Deploy (only ALRIFAI_TAG may change in .env)
-sed -i 's/^ALRIFAI_TAG=.*/ALRIFAI_TAG=v3.3.23-review-workflow-next16.4.6/' .env
+sed -i 's/^ALRIFAI_TAG=.*/ALRIFAI_TAG=v3.3.26-vessel-mobile-ui/' .env
 docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml config >/dev/null
 docker compose -p al-rifai-phase3 -f compose.yaml -f compose.phase3.yaml up -d --no-deps app sync
 
