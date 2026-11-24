@@ -1,7 +1,8 @@
 # Vessel Register — mobile layout (2026-11-24)
 
-Status: implemented on `feat/vessel-mobile-ui`, verified on staging, deployed to
-production as `v3.3.26-vessel-mobile-ui`.
+Status: `v3.3.26-vessel-mobile-ui` is deployed; the header refinement below is
+the `v3.3.27-vessel-mobile-header` candidate on `feat/vessel-mobile-ui` and is
+**not deployed or pushed yet**.
 
 Scope: **mobile-only** layout of `/vessel`. Desktop, backend, database schema,
 data sync, filters, imports, exports, print and all workflows are unchanged. No
@@ -30,6 +31,19 @@ Desktop keeps the previous four-column filter grid, top action row and table
 toolbar. The mobile-only rules are under `max-width: 640px`; the header title is
 limited to the vessel route.
 
+## Header refinement (v3.3.27 candidate)
+
+- `Vessel Register` is right-aligned in the mobile bar, bold and 15px (2px larger
+  than the previous 13px).
+- The live indicator is a text-free colour dot beside `AL-RIFA’I`; green = live,
+  amber = reconnecting/polling, grey = connecting. Its title/ARIA label still
+  explains the state.
+- The four duplicate mobile lines are removed visually: the page title, the
+  `Vessel Register (n)` card heading, the WhatsApp-orders subtitle and the
+  `Search & filters` heading. The page `<h1>` remains in the DOM as a visually
+  hidden heading for assistive technology.
+- Desktop keeps all four lines and the previous header/action layout.
+
 ## Verification
 
 Tested against the current build on the isolated staging database
@@ -50,6 +64,10 @@ Tested against the current build on the isolated staging database
 | Lint | 0 errors, 1 pre-existing unrelated warning |
 | Production build | succeeded |
 | Full integration suite | 239/270; 31 staging DB fixture/env failures unrelated to this UI change |
+| 320 px header | full `Vessel Register` text visible, right-aligned, bold 15px; live dot beside the brand |
+| 375 px header | full `Vessel Register` text visible, right-aligned, bold 15px; live dot beside the brand |
+| Duplicate mobile headings | absent; h1 remains visually hidden for assistive technology |
+| Desktop | page title, card heading, subtitle and `Search & filters` all still visible |
 
 ## Deploy and rollback
 
@@ -64,6 +82,11 @@ ALRIFAI_TAG=v3.3.26-vessel-mobile-ui \
 
 Rollback is image-tag only: set `ALRIFAI_TAG=v3.3.25-escort-office-intake-next16.4.6`
 and repeat the same command. No database restore or schema rollback is needed.
+
+## Production deployment (v3.3.26)
+
+The section below records the already-deployed v3.3.26. The v3.3.27 header
+candidate is not deployed yet.
 
 ## Production deployment
 

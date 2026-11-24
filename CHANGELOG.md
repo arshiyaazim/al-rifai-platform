@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.3.27-vessel-mobile-header — candidate (2026-11-24)
+
+- Mobile header: `Vessel Register` is right-aligned, bold and 15px (2px larger);
+  the live status is a text-free colour dot next to `AL-RIFA’I`.
+- Removed the four duplicate mobile lines: page title, `Vessel Register (n)`
+  card heading, the WhatsApp-orders subtitle and the `Search & filters` heading.
+  The page `<h1>` remains available to assistive technology as a visually
+  hidden heading.
+- Desktop is unchanged. The v3.3.26 two-column filter group, one-column vessel
+  selectors, New Program placement and four icon actions remain.
+- Verification: 320/375/414 px with no horizontal overflow; full header text at
+  320 px; filters/clear, New Program, Import Chat/CSV, Export CSV (200) and
+  Print checked; typecheck clean, lint 0 errors, production build passed.
+- Status: local commit `5f1d33a`; **not deployed or pushed**; awaiting Owner
+  approval. Candidate image tag: `v3.3.27-vessel-mobile-header`.
+
 ## v3.3.26-vessel-mobile-ui — vessel mobile layout (2026-11-24)
 
 - Mobile-only `/vessel` layout: header shows `Vessel Register` next to the
