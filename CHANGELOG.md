@@ -1,5 +1,23 @@
 # Changelog
 
+## v3.3.29-escort-client-alam-sir — fourth direct escort client (2026-11-27)
+
+- Registered **Escort Alam Sir** (`8801923008877` PN, `94107162673310` LID) as the
+  fourth direct escort client. Both identities are authorized for
+  `order_intake` with `purpose=ORDERS`.
+- Added the client to the frozen Owner escort register, the direct order-intake
+  allowlist, the Vessel client filter and the backfill/audit lists.
+- No migration. Existing identity aliases and the verified-identity authorization
+  fallback were reused.
+- Controlled backfill 2026-11-26..27 with outbound disabled: 2 incoming
+  messages / 3 blocks, 0 missing after live processing, 2 assignment updates,
+  **0 WhatsApp outgoing**, queue counts unchanged.
+- Fixed a vessel canonicalisation edge case: different trailing serials are now
+  never variants. `Glory of Srinagar 9` was corrected from `GLORY OF SRINAGAR 4`
+  with an audit event; `GLORY OF SRINAGAR 9` was added to the vessel directory.
+- Deployed as `local/al-rifai-platform:v3.3.29-escort-client-alam-sir`; app +
+  sync healthy, schema 1.13.8. Rollback tag `v3.3.27-vessel-mobile-header`.
+
 ## v3.3.27-vessel-mobile-header — vessel mobile header (2026-11-24)
 
 - Mobile header: `Vessel Register` is right-aligned, bold and 15px (2px larger);
