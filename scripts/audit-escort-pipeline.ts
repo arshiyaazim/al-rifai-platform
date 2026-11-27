@@ -27,6 +27,7 @@ const CLIENT_CHATS = [
   '8801670535255@s.whatsapp.net', '166082241384593@lid',
   '8801836743754@s.whatsapp.net', '155508031901923@lid',
   '8801757622300@s.whatsapp.net', '243103839576097@lid',
+  '8801923008877@s.whatsapp.net', '94107162673310@lid',
 ];
 const ACTIVE = new Set(['DRAFT', 'ASSIGNED', 'CONFIRMED']);
 const normalise = (value: unknown) => String(value ?? '')

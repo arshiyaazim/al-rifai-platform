@@ -44,11 +44,13 @@ import {computeConfirmationScore} from './pipelines/vessel/fuzzy-match.ts';
 import {businessDay} from './vessel-match.ts';
 import type {WhatsAppAccount} from './standalone/whatsapp.ts';
 
-const ORDER_INTAKE_JIDS = new Set([
+export const ORDER_INTAKE_JIDS = new Set([
   '8801670535255@s.whatsapp.net',
   '166082241384593@lid',
   '8801836743754@s.whatsapp.net',
   '8801757622300@s.whatsapp.net',
+  '8801923008877@s.whatsapp.net',
+  '94107162673310@lid',
 ]);
 
 export type RouterResult = {

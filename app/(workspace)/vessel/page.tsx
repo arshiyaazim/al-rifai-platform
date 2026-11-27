@@ -13,6 +13,8 @@ const VESSEL_CLIENTS = [
   {jid: '166082241384593@lid', label: 'Hridoy LID'},
   {jid: '8801836743754@s.whatsapp.net', label: 'Rezaul'},
   {jid: '8801757622300@s.whatsapp.net', label: 'TCIS'},
+  {jid: '8801923008877@s.whatsapp.net', label: 'Escort Alam Sir'},
+  {jid: '94107162673310@lid', label: 'Escort Alam Sir LID'},
 ];
 
 export default async function VesselPage({searchParams}: {searchParams: Promise<{q?: string; state?: string; page?: string; mother?: string; escort_mobile?: string}>}) {
