@@ -125,6 +125,13 @@ export function compareVesselNames(left: string, right: string): VesselSimilarit
   const b = vesselKey(right);
   if (!a || !b) return 'DIFFERENT';
   if (a === b) return 'SAME';
+  // A trailing vessel serial is identity, not a typo: GLORY OF SRINAGAR 4 and
+  // GLORY OF SRINAGAR 9 are different lighters even though the names differ by
+  // one character. Leading zeroes are ignored so WAN MING 1 == WAN MINH 01.
+  const serial = (key: string) => (key.match(/(\d+)$/)?.[1] ?? '').replace(/^0+(?=\d)/, '');
+  const serialA = serial(a);
+  const serialB = serial(b);
+  if (serialA && serialB && serialA !== serialB) return 'DIFFERENT';
   if (phoneticKey(left) === phoneticKey(right)) return 'VARIANT';
   const shortest = Math.min(a.length, b.length);
   const distance = editDistance(a, b);
