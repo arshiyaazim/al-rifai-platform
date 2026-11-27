@@ -1,7 +1,7 @@
 # Escort client addition — Escort Alam Sir (2026-11-27)
 
-Status: **deployed as `v3.3.29-escort-client-alam-sir`**; app + sync healthy,
-schema `1.13.8`. No migration.
+Status: **deployed as `v3.3.29-escort-client-alam-sir`** and merged to `main`
+as `dbfc7dd`; app + sync healthy, schema `1.13.8`. No migration.
 
 ## Client identity
 

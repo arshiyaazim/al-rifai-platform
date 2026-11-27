@@ -17,6 +17,8 @@
   with an audit event; `GLORY OF SRINAGAR 9` was added to the vessel directory.
 - Deployed as `local/al-rifai-platform:v3.3.29-escort-client-alam-sir`; app +
   sync healthy, schema 1.13.8. Rollback tag `v3.3.27-vessel-mobile-header`.
+- Merged to `main` as `dbfc7dd` and pushed; feature branch and `origin/main`
+  now match production.
 
 ## v3.3.27-vessel-mobile-header — vessel mobile header (2026-11-24)
 

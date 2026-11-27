@@ -5,7 +5,7 @@
 | Category | Value |
 |---|---|
 | **Version** | **v3.3.29-escort-client-alam-sir** |
-| **Branch** | `feat/escort-client-alam-sir` (v3.3.29 deployed; `main` remains at `9a29372` until the approved merge). |
+| **Branch** | `main` @ `dbfc7dd` (feature branch `feat/escort-client-alam-sir` merged and pushed; v3.3.29 deployed). |
 | **Deployed image** | `local/al-rifai-platform:v3.3.29-escort-client-alam-sir` (app **and** sync always deploy together on the same tag) |
 | **DB schema** | **1.13.8** — 67 tables, **29 migration files (002–029)**; 28 ledger rows (baseline lives in `schema.sql`) |
 | **Auth** | Application login/session. Unauthenticated workspace routes fail closed with JSON `401`; document navigations redirect to `/login`. |

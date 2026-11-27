@@ -5,7 +5,7 @@
 - **App:** AL-RIFA'I Integrated Services business platform — employees, vessel orders/releases, cash & accounts, attendance, payroll, reports, admin.
 - **Source:** `/opt/al-rifai-platform`
 - **Repo:** `git@github.com:arshiyaazim/al-rifai-platform.git`
-- **Branch:** `feat/escort-client-alam-sir` @ `137c5bc` (2026-11-27) — fourth direct escort client + vessel serial guard; v3.3.29 deployed; docs commit follows; `main` remains `9a29372` until the approved merge
+- **Branch:** `main` @ `dbfc7dd` (2026-11-27) — fourth direct escort client + vessel serial guard; v3.3.29 deployed; feature branch merged and pushed
 - **Current version:** `v3.3.29-escort-client-alam-sir`
 - **Current image:** `local/al-rifai-platform:v3.3.29-escort-client-alam-sir` (app + sync, same tag)
 - **Schema:** `1.13.8` — 29 migration files (002–029; 28 ledger rows), 67 public tables
